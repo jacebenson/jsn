@@ -804,7 +804,7 @@ introduced. See [OAuth request transport](../guides/setup.md#oauth-request-trans
 
 ### Table audit status extends `tables` (2026-11-25)
 
-`jsn tables audit <table> [--field <name>]` is a read-only subcommand of `tables`,
+`jsn tables audit <table> [--field <name>]` is a subcommand of `tables`,
 like `tables behavior`, so it adds no root command and inherits the family's
 capabilities. It answers "is this audited, and why not" from the dictionary and
 three properties rather than from `sys_audit` rows, because missing history
@@ -815,6 +815,28 @@ ancestors in one bounded query (2000 rows), because CMDB child tables carry
 their own rows for inherited columns: on dev485581 the `cmdb_ci_linux_server`
 chain has 552 rows, and 113 of its elements are defined on more than one table
 in the chain. See [Table audit status](domain-model.md#table-audit-status).
+
+### Audit verbs are subcommands, not options (2026-11-25)
+
+`jsn tables audit <table> [--field <name>]` reads, and every change is its own
+verb under it: `audit enable|disable <table>`, `audit exclude|include <table>
+<field>` and `audit deletes <table> on|off`. Capabilities declare the five as
+two-token mutation paths (`mutationSubcommands: ['audit enable', ...]`), which
+`mutationPaths` already splits on spaces, so the read-only profile, the
+mutation guard and capture context block exactly those verbs while the status
+read stays a read.
+
+The alternative, one `tables audit` subcommand whose flags made it a mutation
+through a new `mutationOptions` capability field, was rejected: it adds a second
+classification dimension every consumer must learn (`mutationOptions` would also
+need handling in the operation-class derivation from `mutationSubcommands`), it
+hides mutating verbs from discovery and `--all-commands`, and it makes the same
+subcommand readable or blocked depending on argv. A subcommand costs one word
+and needs no capability change.
+
+The read stays the default path for `audit`, so a caller who passes only a table
+name still reads; a table literally named like a verb is reached by the verb
+names being matched first, which is why the verbs are reserved words here.
 
 ### One directory per owner at the repository root
 

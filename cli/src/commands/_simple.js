@@ -90,7 +90,7 @@ export const tablesCmd = (wrap) => withTableAudit(withTableBehavior(buildProfile
   },
   extraSubcommands: [
     { name: 'behavior', description: 'Read-only behavior inventory (dictionary, ACLs, rules, scripts, actions, policies, notifications, styles, views, flow triggers)' },
-    { name: 'audit', description: 'Read-only audit status (table, fields, inserts, deletes); reads are never audited' },
+    { name: 'audit', description: 'Audit status (table, fields, inserts, deletes) and switches to change it; reads are never audited' },
   ],
 }), wrap), wrap);
 

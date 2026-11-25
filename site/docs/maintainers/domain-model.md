@@ -731,7 +731,7 @@ table-scoped join for them; no text match over flow definitions is guessed.
 
 ## Table audit status
 
-`src/table-audit.js` is the read-only layer behind
+`src/table-audit.js` is the layer behind
 `jsn tables audit <table> [--field <name>]`. It reports what the platform writes
 to `sys_audit` and `sys_audit_delete` for one table, from bounded GET reads: the
 `sys_db_object` chain, the `sys_schema_attribute` ids of `no_audit`, `audit`,
@@ -767,6 +767,34 @@ chain, every `sys_dictionary` row of the table and its ancestors, and three
 Not modelled: dictionary overrides, the undocumented
 `glide.db.audit.enable_audit_inserts`, and an ancestor's `no_audit_delete` or
 whitelist mode.
+
+### Audit switches
+
+The read is `jsn tables audit <table> [--field <name>]`. Each change is its own
+verb under it, so the read stays a read and the mutation guard sees a real path:
+`audit enable|disable <table>` set the collection row's `audit`, `audit deletes
+<table> on|off` adds or removes `no_audit_delete`, and `audit exclude|include
+<table> <field>` add or remove the column's `no_audit` or, in whitelist mode,
+remove or add its `audit=true`. One verb per run; a bad field name or state is
+refused before the first request, and an unknown or inherited field is refused
+after the status read and before the first write. `audit deletes` changes only
+`no_audit_delete`; when the ignore list or the `sys_` rule still decides, the
+summary says so.
+
+- **Own rows only**: a column whose nearest row is on an ancestor is refused,
+  naming the ancestor, because changing it there changes every table that
+  extends it.
+- **Order**: the attributes string is written first (other attributes are kept
+  as they were), then the matching `sys_schema_attribute_m2m` row is re-read by
+  the dictionary row's raw sys_id and attribute id, and created or deleted only
+  if the platform has not already brought it in line. `audit` has no attribute
+  row, so it is written to the string only.
+- **Guards**: preview without `--yes`; a state already in place writes nothing;
+  the dictionary row's scope is checked against the verified intended scope
+  before the first write.
+- **Verify**: the status is read again; the change holds only when that read
+  shows it and the string and attribute rows agree for that attribute. A
+  failed write or a disagreeing re-read lists the writes made and exits 1.
 
 ## Flow inspection
 

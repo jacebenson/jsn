@@ -514,6 +514,22 @@ describe('transactions active --watch', () => {
     assert.equal(down.calls.length, 3);
   });
 
+  // Windows timers can wake a few milliseconds early. The watch must still end
+  // at the deadline instead of taking one more snapshot than asked for.
+  it('ends at the deadline even when the timer wakes early', async () => {
+    const { watchActiveTransactions } = await import('../src/active-transactions.js');
+    const events = [];
+    let t = 0;
+    // The first wakeup lands 5 ms early; later ones keep time, so the loop
+    // cannot spin and a wrong break shows up as a frame, not a hang.
+    let wakes = 0;
+    await watchActiveTransactions(activeSdk(), { watch: true, interval: 2, timeout: 1 }, {
+      emit: event => events.push(event), now: () => t, sleep: async ms => { t += ms - (wakes++ === 0 ? 5 : 0); },
+    });
+    assert.deepEqual(events.map(event => event.type), ['transactions_active', 'watch_summary']);
+    assert.equal(events[1].snapshots, 1);
+  });
+
   it('streams newline-delimited JSON through the real CLI and ends at --timeout', async () => {
     let requests = 0;
     const server = createServer((req, res) => {

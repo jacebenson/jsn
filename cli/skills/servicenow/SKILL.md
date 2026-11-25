@@ -29,6 +29,7 @@ Discover commands with `jsn --help`, `jsn discover "search words"`, and
 | What the platform logged as slow | `jsn perf slow`, `jsn perf slow show <sys_id>` |
 | A decision table's outcome | `jsn decisiontables evaluate <name> --input k=v` |
 | Delete by filter | `jsn records delete-many` (needs the previewed `--expect-count`) |
+| Stop auditing a field, or deletes | `jsn tables audit exclude <table> <field>` or `jsn tables audit deletes <table> off` |
 | Undo a delete | `jsn records undelete --table <t> --sys-id <id>` |
 | Undo a background script | `jsn eval rollback <execution>` |
 | An earlier version of a record | `jsn records versions <table> <sys_id> [--diff N]` |

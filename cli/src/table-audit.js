@@ -1,8 +1,9 @@
-// Read-only audit status for one table: what the platform writes to sys_audit
-// and sys_audit_delete, from the dictionary, its attribute rows and properties.
+// Audit status for one table: what the platform writes to sys_audit and
+// sys_audit_delete, from the dictionary, its attribute rows and properties,
+// and the switches that change it.
 // The platform audits create, update and delete; reads are never audited.
 
-import { errUsage } from './errors.js';
+import { errUsage, errUsageHint } from './errors.js';
 import { loadHierarchy } from './table-behavior.js';
 
 const NAME = /^[a-zA-Z][a-zA-Z0-9_]*$/;
@@ -142,7 +143,74 @@ export async function readTableAudit(sdk, table, { field } = {}) {
     const verdict = fieldVerdict(data, row);
     data.field = { name: field, table: raw(row, 'name'), ...verdict, ...(mismatch.length ? { attribute_disagreements: mismatch } : {}) };
   }
+  // The rows a switch writes to, kept off the JSON output.
+  Object.defineProperty(data, 'source', { value: { own, columns, attributeIds: new Map([...attributeName].map(([sysId, name]) => [name, sysId])) } });
   return data;
+}
+
+// Switch verbs are checked before any request; a bad value writes and reads nothing.
+export const FIELD_NAME = NAME;
+export function auditSwitchValue(value) {
+  if (typeof value !== 'string' || !NAME.test(value)) throw errUsage(`A field must be a column name (letters, digits and underscores); got ${JSON.stringify(value)}. No change was made.`);
+  return value;
+}
+
+const carries = (row, key) => key === 'audit' ? parseAttributes(raw(row, 'attributes')).audit === 'true' : key in parseAttributes(raw(row, 'attributes'));
+const editAttributes = (text, key, add) => [...String(text || '').split(',').map(part => part.trim()).filter(part => part && part.split('=')[0].trim() !== key), ...(add ? [`${key}=true`] : [])].join(',');
+
+// What one switch writes: the dictionary row, its new value, and the attribute row to bring in line.
+export function planAuditChange(data, { name, value }) {
+  const { own, columns, attributeIds } = data.source;
+  const target = row => ({ table: 'sys_dictionary', sys_id: raw(row, 'sys_id'), name: raw(row, 'name'), element: raw(row, 'element') || null });
+  if (name === 'on' || name === 'off') {
+    return data.audited === (name === 'on') ? { target: target(own), already: `Table auditing is already ${name} for ${data.table}.` } : { target: target(own), set: { audit: String(name === 'on') } };
+  }
+  const attribute = (row, key, add) => {
+    const where = raw(row, 'element') ? `${raw(row, 'name')}.${raw(row, 'element')}` : raw(row, 'name');
+    if (carries(row, key) === add) return { target: target(row), already: `${where} ${add ? 'already carries' : 'does not carry'} ${key}${key === 'audit' ? '=true' : ''}.` };
+    return { target: target(row), set: { attributes: editAttributes(raw(row, 'attributes'), key, add) }, attribute: key, present: add, attribute_id: attributeIds.get(key) ?? null };
+  };
+  if (name === 'deletes') return attribute(own, 'no_audit_delete', value === 'off');
+  const row = columns.get(value);
+  if (!row) throw errUsage(`Field ${value} was not found on ${data.table} or its parents. No change was made.`);
+  const owner = raw(row, 'name');
+  if (owner !== data.table) throw errUsageHint(`${value} is defined on ${owner}; changing it there changes every table that extends ${owner}. No change was made.`, `To change it for all of them: jsn tables audit ${name} ${owner} ${value}`);
+  const whitelist = data.mode === 'whitelist';
+  return attribute(row, whitelist ? 'audit' : 'no_audit', (name === 'include') === whitelist);
+}
+
+// The string first, then the attribute row, unless the platform already brought it in line.
+export async function applyAuditChange(sdk, plan, written = []) {
+  await sdk.update('sys_dictionary', plan.target.sys_id, plan.set);
+  written.push({ action: 'update', table: 'sys_dictionary', sys_id: plan.target.sys_id, ...plan.set });
+  if (!plan.attribute_id) return written;
+  const rows = await read(sdk, 'sys_schema_attribute_m2m', `schema=${plan.target.sys_id}^attribute=${plan.attribute_id}`, 'sys_id,schema,attribute');
+  if (rows.some(row => raw(row, 'schema') !== plan.target.sys_id || raw(row, 'attribute') !== plan.attribute_id)) throw new Error(`sys_schema_attribute_m2m returned rows for another record or attribute; no attribute row was changed.`);
+  if (plan.present && !rows.length) {
+    const created = await sdk.create('sys_schema_attribute_m2m', { schema: plan.target.sys_id, attribute: plan.attribute_id, value: 'true' });
+    written.push({ action: 'create', table: 'sys_schema_attribute_m2m', sys_id: raw(created, 'sys_id') || null });
+  }
+  if (!plan.present) {
+    for (const row of rows) {
+      await sdk.delete('sys_schema_attribute_m2m', raw(row, 'sys_id'));
+      written.push({ action: 'delete', table: 'sys_schema_attribute_m2m', sys_id: raw(row, 'sys_id') });
+    }
+  }
+  return written;
+}
+
+// Whether a re-read shows the change, with the string and the attribute rows agreeing.
+export function auditChangeHolds(after, plan) {
+  if (plan.set.audit !== undefined) return after.audited === (plan.set.audit === 'true');
+  const row = plan.target.element ? after.source.columns.get(plan.target.element) : after.source.own;
+  return carries(row, plan.attribute) === plan.present
+    && !after.attribute_rows.disagreements.some(item => item.table === plan.target.name && item.field === plan.target.element && item.attribute === plan.attribute);
+}
+
+export function describeAuditChange(plan) {
+  if (plan.set.audit !== undefined) return `turn table auditing ${plan.set.audit === 'true' ? 'on' : 'off'} for ${plan.target.name}`;
+  const where = plan.target.element ? `${plan.target.name}.${plan.target.element}` : plan.target.name;
+  return `${plan.present ? 'add' : 'remove'} ${plan.attribute}${plan.attribute === 'audit' ? '=true' : ''} ${plan.present ? 'to' : 'from'} ${where}`;
 }
 
 const fieldsLine = (items, table) => items.length ? items.map(item => item.table === table ? item.field : `${item.field} (${item.table})`).join(', ') : 'none';
