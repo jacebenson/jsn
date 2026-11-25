@@ -12,7 +12,9 @@ import { buildCLI } from '../src/cli.js';
 const MAX_LINES = 72;
 const MAX_WORDS = 600;
 
-const read = () => readFileSync(new URL('../skills/servicenow/SKILL.md', import.meta.url), 'utf8');
+// Git checks Markdown out with CRLF on Windows; budgets and frontmatter are
+// about content, not the checkout's line-ending convention.
+const read = () => readFileSync(new URL('../skills/servicenow/SKILL.md', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
 
 test('the bundled skill stays a router rather than a command reference', () => {
   const text = read();
