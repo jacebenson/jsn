@@ -375,7 +375,7 @@ export class OutputWriter {
     // logic belongs in the command that owns the domain — output.js stays
     // generic. Other underscore-prefixed side-channel keys commands may
     // attach: `_context` ({instance_url, table} consumed by the record
-    // renderer), `_attachments`, `_variables` (record card sections), plus
+    // renderer), `_attachments`, `_variables`, `_choices`, `_variable_sets` (record card sections), plus
     // `records`/`columns`/`table`/`relationships` for the generic table and
     // record views below.
     const hasFormatted = data && typeof data === 'object' && data._formatted;
@@ -596,6 +596,28 @@ export class OutputWriter {
       this.writer.write('\n');
     }
 
+    // Column choices (columns show): which table's sys_choice list applies.
+    if (data._choices && typeof data._choices === 'object') {
+      const c = data._choices;
+      const own = c.source === c.table;
+      const count = c.truncated ? `first ${c.choices.length}` : c.choices?.length;
+      const others = (c.searched || []).filter(name => name !== c.source).join(', ');
+      const title = c.error || c.choice_table ? '' : !c.source ? ` (none active found on ${others})`
+        : own ? ` (${count} on ${c.source})` : ` (${count} inherited from ${c.source}; none active on ${others})`;
+      this.writer.write(`─ Choices${title} ─\n`);
+      if (c.error) this.writer.write(`  Unavailable: ${c.error}\n`);
+      if (!c.error && !c.choice_table && !c.source) this.writer.write('  Row ACLs can hide sys_choice rows, so this does not prove the field has none.\n');
+      if (c.choice_table) {
+        const from = [c.choice_table, c.choice_field].filter(Boolean).join('.');
+        this.writer.write(`  Defined by the choice table ${from}${c.choice_field ? `: jsn columns show ${from}` : ''}\n`);
+      }
+      for (const row of c.choices || []) {
+        this.writer.write(`  value: ${row.value} | label: ${row.label} | sequence: ${row.sequence}${row.dependent_value ? ` | dependent_value: ${row.dependent_value}` : ''}${row.inactive ? ' | inactive: true' : ''}\n`);
+      }
+      if (c.truncated) this.writer.write(`  All: jsn records list --table sys_choice --query "name=${c.source}^element=${c.element}^language=en" --limit 1000\n`);
+      this.writer.write('\n');
+    }
+
     if (data._essential && typeof data._essential === 'object') {
       for (const [name, related] of Object.entries(data._essential)) {
         this.writer.write(`─ Essential: ${name} (${related.loaded} loaded${related.has_more ? ', more available' : ''}) ─\n`);
@@ -634,20 +656,29 @@ export class OutputWriter {
     }
 
     // ── Catalog Variables ──
+    const writeVariable = (v, indent) => {
+      const q = v.question || '';
+      const val = v.value || '';
+      if (val.includes('\n')) {
+        this.writer.write(`${indent}${q}:\n`);
+        for (const line of val.split('\n')) {
+          this.writer.write(`${indent}  ${line}\n`);
+        }
+      } else {
+        this.writer.write(`${indent}${q}:  ${val}\n`);
+      }
+    };
     if (data._variables && Array.isArray(data._variables) && data._variables.length > 0) {
       this.writer.write('─ Catalog Variables ─\n');
-      for (const v of data._variables) {
-        const q = v.question || '';
-        const val = v.value || '';
-        if (val.includes('\n')) {
-          this.writer.write(`  ${q}:\n`);
-          for (const line of val.split('\n')) {
-            this.writer.write(`    ${line}\n`);
-          }
-        } else {
-          this.writer.write(`  ${q}:  ${val}\n`);
-        }
-      }
+      for (const v of data._variables) writeVariable(v, '  ');
+      this.writer.write('\n');
+    }
+    for (const variableSet of Array.isArray(data._variable_sets) ? data._variable_sets : []) {
+      this.writer.write(`─ Variable set: ${variableSet.set} ─\n`);
+      variableSet.rows.forEach((row, index) => {
+        this.writer.write(`  Row ${index + 1}\n`);
+        for (const v of row) writeVariable(v, '    ');
+      });
       this.writer.write('\n');
     }
 

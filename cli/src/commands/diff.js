@@ -3,7 +3,7 @@ import { errUsage, errUsageHint } from '../errors.js';
 import { resolveSession } from '../session.js';
 import { resolveRecord } from '../resolve-record.js';
 
-declareCapabilities('diff', {});
+declareCapabilities('diff', { noImpersonateSubcommands: ['record'] });
 
 const DEFAULT_IGNORED_FIELDS = [
   'sys_created_by',
