@@ -1,9 +1,7 @@
 import { formatRecordForDisplay, getStringField, interactiveList, assertSafeExactMatch } from '../helpers.js';
+import { deferredFamilyDefinition } from '../command-families.js';
 import { requireCurrentUserSysId, setCurrentApplication } from '../context.js';
-import { declareCapabilities } from '../capabilities.js';
 import { unwrapSysId } from '../resolve-record.js';
-
-declareCapabilities('scopes', { queryTable: 'sys_scope', mutationSubcommands: ['create', 'set'], mutationContextExemptSubcommands: ['set'] });
 
 /**
  * Resolve a scope identifier to a single sys_scope record.
@@ -44,7 +42,6 @@ export async function resolveScope(sdk, identifier) {
   }
   throw new Error(`Scope not found: ${identifier}`);
 }
-
 
 /** Format a picker label for a scope: "Name [scope]". */
 export function formatScopeLabel(r) {
@@ -109,9 +106,7 @@ export async function formatScopeDetail(app, record) {
 
 export function scopesCmd(wrap) {
   return {
-    command: 'scopes [subcommand]',
-    aliases: ['scope', 'sc'],
-    describe: 'Manage application scopes',
+    ...deferredFamilyDefinition('scopes'),
     builder: (yargs) => {
       return yargs
         .command({

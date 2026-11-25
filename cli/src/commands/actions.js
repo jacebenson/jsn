@@ -1,7 +1,7 @@
+import { deferredFamilyDefinition } from '../command-families.js';
 import { buildDevCmd } from './_generic.js';
 import { formatCommandList, parseDataArg } from '../helpers.js';
 import { resolveRecord, unwrapSysId } from '../resolve-record.js';
-import { declareCapabilities } from '../capabilities.js';
 import { ACTION_TABLE, actionScope } from '../processflow-actions.js';
 import { errUsage } from '../errors.js';
 import { assertMutationScope } from '../intended-context.js';
@@ -80,7 +80,8 @@ async function findActionExamples(sdk, definition, inputDefinitions) {
 
 export const actionsCmd = wrap => {
   // Reuse the existing list/show picker and output contract only.
-  const base = buildDevCmd('actions', ACTION_TABLE, ['action'], ['name', 'active', 'sys_scope', 'sys_updated_on'], wrap, {
+  const base = buildDevCmd('actions', ACTION_TABLE, [], ['name', 'active', 'sys_scope', 'sys_updated_on'], wrap, {
+    definition: deferredFamilyDefinition('actions'),
     singular: 'action', readOnly: true,
     resolveIdentifier: (argv, app) => cancelled(() => pickDesignerRecord(argv, app, ACTION_TABLE, 'action')),
     showBreadcrumbs: (_record, id) => [
@@ -88,7 +89,7 @@ export const actionsCmd = wrap => {
       { action: 'list', cmd: 'jsn actions list', description: 'Back to actions' },
     ],
   });
-  declareCapabilities('actions', { transactionScopeOption: 'scope', mutationContextExemptSubcommands: ['test'], mutationSubcommands: ['create', 'update', 'edit', 'delete', 'test'] });
+
   // Retain the common wrap and output controller; domain failures get a
   // structured error envelope and nonzero exit, never a success-shaped dispatch.
   const run = handler => wrap(async (argv, app) => {
@@ -102,7 +103,6 @@ export const actionsCmd = wrap => {
   });
   return {
     ...base,
-    describe: 'Flow Designer actions: create, edit full definitions, and test with outputs',
     builder: y => base.builder(y)
       .command({
         command: 'create', describe: 'Create a Process Flow action. Use `jsn actions step-types --scope <sys_id>` for live provider schemas. The required definition structure is code-owned; step-specific fields are provider-defined.',

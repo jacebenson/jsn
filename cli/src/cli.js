@@ -1,4 +1,4 @@
-import { accessAnalyzerCmd, flowsCmd, workflowsCmd, midserversCmd, subscriptionsCmd, customizationsCmd, skippedUpdatesCmd, docsCmd, perfCmd } from './command-families.js';
+import { accessAnalyzerCmd, deferredFamily, flowsCmd, workflowsCmd, midserversCmd, subscriptionsCmd, customizationsCmd, skippedUpdatesCmd, docsCmd, perfCmd } from './command-families.js';
 import { visibleCommandRegistry } from './command-audience.js';
 // Root CLI using the local yargs-compatible adapter
 
@@ -18,73 +18,17 @@ import { guardExit, exitWithError, AppError, CodeUsage, errUsageHint } from './e
 import { writesCustomization } from './mutation-context.js';
 import { formatCommandList } from './helpers.js';
 
-// Command modules
+// Command modules. Families register through command-families.js and load
+// their implementation on path resolution; only the modules cli.js itself uses
+// at build time (discover, version, skill) are imported eagerly.
 import { discoverCmd } from './commands/discover.js';
-import { setupCmd } from './commands/setup.js';
-import { authCmd } from './commands/auth.js';
-import { recordsCmd } from './commands/records.js';
-import { attachmentsCmd } from './commands/attachments.js';
-import { cmdbCmd } from './commands/cmdb.js';
-import { knowledgeCmd } from './commands/knowledge.js';
-import { snippetsCmd } from './commands/snippets.js';
-import { catalogCmd } from './commands/catalog.js';
-import { incidentsCmd } from './commands/incidents.js';
-import { changesCmd } from './commands/changes.js';
-import { requestsCmd } from './commands/requests.js';
-import { tasksCmd } from './commands/tasks.js';
-import { usersCmd } from './commands/users.js';
-import { groupsCmd } from './commands/groups.js';
-import { groupMembersCmd } from './commands/groupmembers.js';
-import { groupRolesCmd } from './commands/grouproles.js';
-import { ticketsCmd } from './commands/tickets.js';
-import { casesCmd } from './commands/cases.js';
-import { transactionsCmd } from './commands/transactions.js';
 
-import { platformCmd } from './commands/platform.js';
-import { codesearchCmd } from './commands/codesearch.js';
 import { versionCmd } from './commands/version.js';
-import { upgradeCmd } from './commands/upgrade.js';
-import { documentCmd } from './commands/document.js';
+
 import { skillCmd, checkSkill } from './commands/skill.js';
 import { getVersion, checkLatest, getReleaseChannel, getInstallCommand } from './commands/version.js';
 
 // Table and platform commands registered at root level for progressive disclosure
-import {
-  actionsCmd, includesCmd, rulesCmd,
-  clientScriptsCmd, uiActionsCmd,
-  tablesCmd, columnsCmd, importCmd,
-  spPagesCmd, spWidgetsCmd, uiPagesCmd, appMenuCmd,
-  aclsCmd, rolesCmd, propertiesCmd,
-  relationshipsCmd, appmodulesCmd, listcontrolsCmd, viewsCmd,
-  privilegesCmd, uxscriptsCmd, aliasesCmd,
-  catalogscriptsCmd, cataloguipoliciesCmd,
-  uipoliciesCmd,
-  scriptactionsCmd, scheduledjobsCmd, asyncrulesCmd, triggersCmd,
-  assignmentsCmd,
-  emailCmd,
-  notificationsCmd, restmessageCmd, soapmessagesCmd,
-  uimacrosCmd, uxlistsCmd, uxapplicabilityCmd,
-} from './commands/_simple.js';
-import { decisiontablesCmd } from './commands/decisiontables.js';
-import { formsCmd } from './commands/forms.js';
-import { listsCmd } from './commands/lists.js';
-import { updateSetsCmd } from './commands/updatesets.js';
-import { scopesCmd } from './commands/scopes.js';
-import { domainsCmd } from './commands/domains.js';
-import { evalCmd } from './commands/eval.js';
-import { restCmd } from './commands/rest.js';
-import { logsCmd } from './commands/logs.js';
-import { scrapiCmd } from './commands/scrapi.js';
-import { b4rulesCmd } from './commands/b4rules.js';
-import { atfCmd } from './commands/atf.js';
-import { scanCmd } from './commands/scan.js';
-import { storeCmd } from './commands/store.js';
-import { pluginsCmd } from './commands/plugins.js';
-import { compareCmd } from './commands/compare.js';
-import { approvalsCmd } from './commands/approvals.js';
-import { diffCmd } from './commands/diff.js';
-import { graphqlCmd } from './commands/graphql.js';
-import { towerCmd } from './commands/tower.js';
 
 /**
  * The output format the caller asked for, resolved from PARSED argv.
@@ -381,113 +325,113 @@ export function buildCLI() {
       // Reads never probe or print runtime context. Writes use the guard result.
     })
     // CONFIGURATION
-    .command(setupCmd(wrap))
-    .command(authCmd(wrap))
-    .command(updateSetsCmd(wrap))
-    .command(scopesCmd(wrap))
-    .command(domainsCmd(wrap))
+    .command(deferredFamily('setup', wrap))
+    .command(deferredFamily('auth', wrap))
+    .command(deferredFamily('updatesets', wrap))
+    .command(deferredFamily('scopes', wrap))
+    .command(deferredFamily('domains', wrap))
     // CORE
-    .command(incidentsCmd(wrap))
-    .command(changesCmd(wrap))
-    .command(requestsCmd(wrap))
-    .command(tasksCmd(wrap))
-    .command(catalogCmd(wrap))
-    .command(casesCmd(wrap))
+    .command(deferredFamily('incidents', wrap))
+    .command(deferredFamily('changes', wrap))
+    .command(deferredFamily('requests', wrap))
+    .command(deferredFamily('tasks', wrap))
+    .command(deferredFamily('catalogitems', wrap))
+    .command(deferredFamily('cases', wrap))
     // AUTOMATION — Async
     .command(flowsCmd(wrap))
     .command(workflowsCmd(wrap))
     .command(accessAnalyzerCmd(wrap))
-    .command(actionsCmd(wrap))
-    .command(scriptactionsCmd(wrap))
-    .command(scheduledjobsCmd(wrap))
-    .command(asyncrulesCmd(wrap))
-    .command(triggersCmd(wrap))
+    .command(deferredFamily('actions', wrap))
+    .command(deferredFamily('scriptactions', wrap))
+    .command(deferredFamily('scheduledjobs', wrap))
+    .command(deferredFamily('asyncrules', wrap))
+    .command(deferredFamily('triggers', wrap))
     // AUTOMATION — In Memory
-    .command(rulesCmd(wrap))
-    .command(decisiontablesCmd(wrap))
-    .command(assignmentsCmd(wrap))
+    .command(deferredFamily('rules', wrap))
+    .command(deferredFamily('decisiontables', wrap))
+    .command(deferredFamily('assignments', wrap))
     // AUTOMATION — Inbound
-    .command(scrapiCmd(wrap))
-    .command(emailCmd(wrap))
+    .command(deferredFamily('scrapi', wrap))
+    .command(deferredFamily('email', wrap))
     // AUTOMATION — Outbound
-    .command(notificationsCmd(wrap))
-    .command(restmessageCmd(wrap))
-    .command(soapmessagesCmd(wrap))
+    .command(deferredFamily('notifications', wrap))
+    .command(deferredFamily('restmessage', wrap))
+    .command(deferredFamily('soapmessages', wrap))
     // ACCESS
-    .command(aclsCmd(wrap))
-    .command(b4rulesCmd(wrap))
-    .command(rolesCmd(wrap))
-    .command(privilegesCmd(wrap))
-    .command(aliasesCmd(wrap))
-    .command(groupsCmd(wrap))
-    .command(groupMembersCmd(wrap))
-    .command(groupRolesCmd(wrap))
-    .command(usersCmd(wrap))
+    .command(deferredFamily('acls', wrap))
+    .command(deferredFamily('b4rules', wrap))
+    .command(deferredFamily('roles', wrap))
+    .command(deferredFamily('privileges', wrap))
+    .command(deferredFamily('aliases', wrap))
+    .command(deferredFamily('groups', wrap))
+    .command(deferredFamily('groupmembers', wrap))
+    .command(deferredFamily('grouproles', wrap))
+    .command(deferredFamily('users', wrap))
     // USER EXPERIENCE — Shared
-    .command(formsCmd(wrap))
-    .command(listsCmd(wrap))
-    .command(clientScriptsCmd(wrap))
-    .command(uipoliciesCmd(wrap))
-    .command(uiActionsCmd(wrap))
-    .command(viewsCmd(wrap))
-    .command(catalogscriptsCmd(wrap))
-    .command(cataloguipoliciesCmd(wrap))
+    .command(deferredFamily('forms', wrap))
+    .command(deferredFamily('lists', wrap))
+    .command(deferredFamily('clientscripts', wrap))
+    .command(deferredFamily('uipolicies', wrap))
+    .command(deferredFamily('uiactions', wrap))
+    .command(deferredFamily('views', wrap))
+    .command(deferredFamily('catalogscripts', wrap))
+    .command(deferredFamily('cataloguipolicies', wrap))
     // USER EXPERIENCE — Core UI
-    .command(uiPagesCmd(wrap))
-    .command(uimacrosCmd(wrap))
-    .command(listcontrolsCmd(wrap))
+    .command(deferredFamily('uipages', wrap))
+    .command(deferredFamily('uimacros', wrap))
+    .command(deferredFamily('listcontrols', wrap))
     // USER EXPERIENCE — Service Portal
-    .command(spPagesCmd(wrap))
-    .command(spWidgetsCmd(wrap))
+    .command(deferredFamily('sppages', wrap))
+    .command(deferredFamily('spwidgets', wrap))
     // USER EXPERIENCE — Next Experience
-    .command(uxscriptsCmd(wrap))
-    .command(uxlistsCmd(wrap))
-    .command(uxapplicabilityCmd(wrap))
+    .command(deferredFamily('uxscripts', wrap))
+    .command(deferredFamily('uxlists', wrap))
+    .command(deferredFamily('uxapplicability', wrap))
     // USER EXPERIENCE — Navigation
-    .command(appMenuCmd(wrap))
-    .command(appmodulesCmd(wrap))
+    .command(deferredFamily('appmenu', wrap))
+    .command(deferredFamily('appmodules', wrap))
     // DATA — DB Schema
-    .command(tablesCmd(wrap))
-    .command(columnsCmd(wrap))
-    .command(relationshipsCmd(wrap))
+    .command(deferredFamily('tables', wrap))
+    .command(deferredFamily('columns', wrap))
+    .command(deferredFamily('relationships', wrap))
     // DATA — Shared Code, Transforms, Logs
-    .command(includesCmd(wrap))
-    .command(importCmd(wrap))
-    .command(logsCmd(wrap))
-    .command(propertiesCmd(wrap))
+    .command(deferredFamily('includes', wrap))
+    .command(deferredFamily('import', wrap))
+    .command(deferredFamily('logs', wrap))
+    .command(deferredFamily('properties', wrap))
     // DATA
-    .command(cmdbCmd(wrap))
-    .command(knowledgeCmd(wrap))
-    .command(recordsCmd(wrap))
-    .command(attachmentsCmd(wrap))
-    .command(transactionsCmd(wrap))
+    .command(deferredFamily('cmdb', wrap))
+    .command(deferredFamily('knowledge', wrap))
+    .command(deferredFamily('records', wrap))
+    .command(deferredFamily('attachments', wrap))
+    .command(deferredFamily('transactions', wrap))
 
-    .command(platformCmd(wrap))
-    .command(snippetsCmd(wrap))
-    .command(ticketsCmd(wrap))
-    .command(codesearchCmd(wrap))
+    .command(deferredFamily('platform', wrap))
+    .command(deferredFamily('snippets', wrap))
+    .command(deferredFamily('tickets', wrap))
+    .command(deferredFamily('codesearch', wrap))
     // DEVELOPER
-    .command(atfCmd(wrap))
-    .command(scanCmd(wrap))
-    .command(storeCmd(wrap))
-    .command(pluginsCmd(wrap))
-    .command(compareCmd(wrap))
+    .command(deferredFamily('atf', wrap))
+    .command(deferredFamily('scan', wrap))
+    .command(deferredFamily('store', wrap))
+    .command(deferredFamily('plugins', wrap))
+    .command(deferredFamily('compare', wrap))
     .command(subscriptionsCmd(wrap))
-    .command(approvalsCmd(wrap))
+    .command(deferredFamily('approvals', wrap))
     .command(skippedUpdatesCmd(wrap))
     .command(perfCmd(wrap))
     .command(customizationsCmd(wrap))
     .command(midserversCmd(wrap))
-    .command(diffCmd(wrap))
-    .command(graphqlCmd(wrap))
-    .command(evalCmd(wrap))
-    .command(restCmd(wrap))
+    .command(deferredFamily('diff', wrap))
+    .command(deferredFamily('graphql', wrap))
+    .command(deferredFamily('eval', wrap))
+    .command(deferredFamily('rest', wrap))
     .command(skillCmd(wrap))
     .command(docsCmd(wrap))
     .command(versionCmd(wrap))
-    .command(upgradeCmd(wrap))
-    .command(documentCmd(wrap))
-    .command(towerCmd(wrap))
+    .command(deferredFamily('upgrade', wrap))
+    .command(deferredFamily('document', wrap))
+    .command(deferredFamily('tower', wrap))
     .command(discoverCmd(wrap, (argv) => visibleCommandRegistry(cliInstance.commandRegistry({ details: true }), app.config, argv)))
     .demandCommand(1, 'You must specify a command')
     .onParentDiscovery((argv, { path, subcommands }) => {

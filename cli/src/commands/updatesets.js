@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { deferredFamilyDefinition } from '../command-families.js';
 import { diffUpdateSets } from '../update-set-diff.js';
 import path from 'node:path';
 import { inspectUpdateSetXML, updateSetFilename, MAX_UPDATE_SET_BYTES } from '../update-set-xml.js';
@@ -8,18 +9,9 @@ import { getActiveProfile } from '../config.js';
 import { FormatAuto } from '../output.js';
 import { getCurrentApplication, getCurrentUpdateSet, requireCurrentUserSysId, setCurrentApplication, setCurrentUpdateSet } from '../context.js';
 import { AppError, CodeConfirmationRequired, errAPI, errUsage, errConfirmationRequired } from '../errors.js';
-import { declareCapabilities } from '../capabilities.js';
 import { resolveScope } from './scopes.js';
 import { unwrapSysId } from '../resolve-record.js';
 import { assertNoUnresolvedProblems, DEFAULT_OPERATION_TIMEOUT_MS } from '../update-set-apply.js';
-
-declareCapabilities('updatesets', { queryTable: 'sys_update_set',
-  mutationSubcommands: ['create', 'set', 'complete', 'ignore', 'parent', 'import', 'reopen', 'preview', 'commit'],
-  mutationContextExemptSubcommands: ['create', 'set', 'import', 'reopen', 'preview', 'commit'],
-  skipContextHeaderSubcommands: ['diff'],
-  noImpersonateSubcommands: ['diff'],
-  localPreviewSubcommands: ['import'],
-});
 
 /**
  * Scope-mismatch check for an update set vs the current app.
@@ -215,7 +207,6 @@ async function findLocalUpdateSet(app, name, reference) {
     return { ambiguous: false, unverified: true, note: `Could not read local update sets: ${error.message}` };
   }
 }
-
 
 function rawReferenceId(value) {
   if (!value) return '';
@@ -546,9 +537,7 @@ export async function formatUpdateSetDetail(app, record) {
 
 export function updateSetsCmd(wrap) {
   return {
-    command: 'updatesets [subcommand]',
-    aliases: ['updateset', 'us'],
-    describe: 'Manage update sets. Global + Default mutations require approval (--force only after user approval); create/set remain available to select a dedicated capture set. Scope mismatches warn; completed capture sets block writes.',
+    ...deferredFamilyDefinition('updatesets'),
     builder: (yargs) => {
       return yargs
         .command({

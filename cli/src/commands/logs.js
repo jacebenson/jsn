@@ -1,5 +1,4 @@
-import { declareCapabilities } from '../capabilities.js';
-declareCapabilities('logs', { queryTable: 'syslog', noImpersonateSubcommands: ['follow'] });
+import { deferredFamilyDefinition } from '../command-families.js';
 
 import { formatRecordForDisplay, interactiveList, getStringField } from '../helpers.js';
 
@@ -13,9 +12,7 @@ function logIcon(level) {
 
 export function logsCmd(wrap) {
   return {
-    command: 'logs [subcommand]',
-    aliases: ['log'],
-    describe: 'Query system logs',
+    ...deferredFamilyDefinition('logs'),
     builder: (yargs) => {
       return yargs
         .command({

@@ -1,4 +1,5 @@
 import { getStringField, interactiveList } from '../helpers.js';
+import { deferredFamilyDefinition } from '../command-families.js';
 
 import { createRecordMetadataReader } from '../metadata/records.js';
 
@@ -28,9 +29,7 @@ async function showForm(app, table, view) {
 
 export function formsCmd(wrap) {
   return {
-    command: 'forms [subcommand]',
-    aliases: ['form', 'f'],
-    describe: 'Manage UI Forms',
+    ...deferredFamilyDefinition('forms'),
     builder: (yargs) => {
       return yargs
         .command({

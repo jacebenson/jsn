@@ -19,15 +19,14 @@
 // Run is a mutation (it schedules tests that act on records), so it's gated
 // by confirmDelete + registered in MUTATION_COMMANDS for read-only profiles.
 
+import { deferredFamilyDefinition } from '../command-families.js';
 import {
   getStringField, interactiveList,
   resolveFieldsParam, assertSafeExactMatch, confirmDelete,
 } from '../helpers.js';
 import { errUsage, errNotFound } from '../errors.js';
-import { declareCapabilities } from '../capabilities.js';
 
 // run/run-suite schedule tests that act on records (top-level only).
-declareCapabilities('atf', { queryTable: argv => argv._?.[1] === 'suites' ? 'sys_atf_test_suite' : 'sys_atf_test', mutationContext: 'operational', mutationSubcommands: ['run', 'run-suite'] });
 
 // sn_cicd progress statuses (now-sdk poller.ts)
 const PROGRESS_PENDING = '0';
@@ -486,8 +485,7 @@ async function handleRun(app, argv, { entity, label, scheduled }) {
 
 export function atfCmd(wrap) {
   return {
-    command: 'atf [subcommand]',
-    describe: 'Automated Test Framework (list, suites, run, results)',
+    ...deferredFamilyDefinition('atf'),
     builder: (yargs) => {
       return yargs
         .command({

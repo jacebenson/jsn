@@ -1,17 +1,13 @@
 import { enrichRelatedLists, relatedListOptions } from '../related-lists.js';
+import { deferredFamilyDefinition } from '../command-families.js';
 import { formatRecordForDisplay, findOmittedColumns, getStringField, buildQuerySuffix, resolveFieldsParam, buildRecordPayload, confirmDelete } from '../helpers.js';
 import { getRecord, listRecords, recordListParams, createRecord, updateRecord, deleteRecord, recordOptions } from '../records-engine.js';
 import { validateReadQuery, queryDiagnostics } from '../query-validate.js';
 import { resolveSysId } from '../resolve-record.js';
-import { declareCapabilities } from '../capabilities.js';
-
-declareCapabilities('tickets', { queryTable: 'task', mutationContext: 'operational', mutationSubcommands: ['create', 'update', 'delete'] });
 
 export function ticketsCmd(wrap) {
   return {
-    command: 'tickets [subcommand]',
-    aliases: ['ticket'],
-    describe: 'Query generic tickets (e.g. "tickets list --query active=true")',
+    ...deferredFamilyDefinition('tickets'),
     builder: (yargs) => {
       return yargs
         .command({

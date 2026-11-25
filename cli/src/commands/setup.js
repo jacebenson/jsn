@@ -1,13 +1,12 @@
 import { configureGlobalDefaults, configureDocumentation, connectionPreferences } from '../setup-preferences.js';
+import { deferredFamilyDefinition } from '../command-families.js';
 import { saveConfig } from '../config.js';
 import { select } from '../prompts.js';
 import { loginWizard, loginProfile, showAuthStatus, switchProfile, modifyProfile, logoutProfile, removeConnection } from './auth.js';
 import { errUsageHint } from '../errors.js';
-import { declareCapabilities } from '../capabilities.js';
 
 // Setup manages local profile config — runs without a configured instance.
 // (Not in the daily-check skip-list: legacy behavior checks for updates here.)
-declareCapabilities('setup', { noInstance: true, skipContextHeader: true });
 
 const HUB_CHOICES = [
   { section: 'Connections', name: 'Check connections', value: 'status', command: 'jsn auth status --details --json (use --local to skip instance probes)' },
@@ -89,9 +88,7 @@ export async function dispatchSetupAction(app, argv, action) {
 // collects choices and dispatches to the same auth operations.
 export function setupCmd(wrap) {
   return {
-    command: 'setup',
-    describe: 'Set up JSN defaults and manage ServiceNow connections (interactive)',
-    summary: 'Connect to ServiceNow and manage profiles',
+    ...deferredFamilyDefinition('setup'),
     builder: y => y.option('docs-source', { type: 'string', choices: ['snapshot', 'github', 'skip'], describe: 'Install optional documentation directly without the authentication wizard' })
       .option('configure-defaults', { type: 'boolean', describe: 'Configure defaults for future connections without the hub' })
       .option('configure-docs', { type: 'boolean', describe: 'Configure documentation without the hub' }).epilogue(setupHelp()),

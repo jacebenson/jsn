@@ -4,13 +4,13 @@
 // assuming one product's schema. Reads only — every request goes through the
 // normal authenticated Table API, so application roles and ACLs decide
 // visibility; nothing here widens or bypasses them.
+import { deferredFamilyDefinition } from '../command-families.js';
 import { AppError, CodeForbidden, errUsage, errUsageHint } from '../errors.js';
 import { buildQuerySuffix, formatCommandList, formatRecordForDisplay, getStringField, quoteShellArg, resolveFieldsParam } from '../helpers.js';
 import { getRecord, listRecords, recordListParams } from '../records-engine.js';
 import { validateReadQuery, queryDiagnostics } from '../query-validate.js';
-import { declareCapabilities } from '../capabilities.js';
 
-declareCapabilities('cases', {}); // read-only: no mutating subcommands
+ // read-only: no mutating subcommands
 
 const TABLE = /^[a-z][a-z0-9_]*$/i;
 const DEFAULT_COLUMNS = ['number', 'short_description', 'state', 'opened_by', 'sys_updated_on'];
@@ -146,9 +146,7 @@ function requireText(text) {
 
 export function casesCmd(wrap) {
   return {
-    command: 'cases [subcommand]',
-    aliases: ['case'],
-    describe: 'List, show or search service and HR cases visible to the connected account',
+    ...deferredFamilyDefinition('cases'),
     builder: (yargs) => yargs
       .command({
         command: 'list',

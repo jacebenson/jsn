@@ -103,9 +103,8 @@ function formatTopTransactions(groups) {
   return `${lines.join('\\n')}\\n`;
 }
 
-import { declareCapabilities } from '../capabilities.js';
+import { deferredFamilyDefinition } from '../command-families.js';
 import { listActiveTransactions, formatActiveTransactions, killTransaction, formatKillTransaction, watchOptions, watchActiveTransactions, formatWatchEvent } from '../active-transactions.js';
-declareCapabilities('transactions', { queryTable: 'syslog_transaction', mutationContext: 'operational', mutationSubcommands: ['kill'] });
 
 export function activeTransactionsCmd(wrap) {
   return {
@@ -224,8 +223,7 @@ export function topTransactionsCmd(wrap) {
 
 export function transactionsCmd(wrap) {
   return {
-    command: 'transactions',
-    describe: 'Summarize syslog_transaction response times by transaction type',
+    ...deferredFamilyDefinition('transactions'),
     builder: (y) => y
       .command(activeTransactionsCmd(wrap))
       .command(killTransactionCmd(wrap))

@@ -1,9 +1,9 @@
 import { connectionPreferences, chooseConnectionPreferences } from '../setup-preferences.js';
+import { deferredFamilyDefinition } from '../command-families.js';
 import { detectCommandAudience } from '../command-audience.js';
 import { getEffectiveInstance, normalizeInstanceURL, saveConfig, setActiveProfile } from '../config.js';
 import { errUsage, errUsageHint, errConfirmationRequired } from '../errors.js';
 import { canUsePicker, formatCommandList, quoteShellArg } from '../helpers.js';
-import { declareCapabilities } from '../capabilities.js';
 import process from 'node:process';
 import { readFile } from 'node:fs/promises';
 import { refreshSession } from '../session.js';
@@ -15,7 +15,6 @@ function syncSession(app) {
 // Auth manages local credentials/profiles — runs without a configured
 // instance. (Not in the daily-check skip-list: legacy behavior checks for
 // updates here.)
-declareCapabilities('auth', { noInstance: true, skipContextHeader: true });
 
 /** Render a compact status table; identity fields require explicit details. */
 export function renderAuthStatus(result, summary, { details = false } = {}) {
@@ -1207,8 +1206,7 @@ export async function removeConnection(argv, app) {
 
 export function authCmd(wrap) {
   return {
-    command: 'auth [subcommand]',
-    describe: 'Manage authentication (OAuth, Basic, or browser session)',
+    ...deferredFamilyDefinition('auth'),
     builder: (yargs) => {
       return yargs
         .command({

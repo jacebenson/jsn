@@ -1,16 +1,11 @@
+import { deferredFamilyDefinition } from '../command-families.js';
 import { buildRecordPayload, confirmAction, confirmDelete, getStringField, quoteShellArg, verifyWriteBack } from '../helpers.js';
 import { createRecord, updateRecord, deleteRecord } from '../records-engine.js';
 import { unwrapSysId } from '../resolve-record.js';
 import { getCurrentApplication, getCurrentUser } from '../context.js';
-import { declareCapabilities } from '../capabilities.js';
 import { errAPI, errUsage } from '../errors.js';
 import { CHECK_TABLES, active, raw, referenceId, boundedLimit, scanList, resolveScanRecord,
   validateScanPayload, checkKind, prepareScan, startScan, scanStatus, scanResults, cancelScan } from '../scan.js';
-
-declareCapabilities('scan', { mutationSubcommands: [
-  ...['checks', 'suites'].flatMap(group => ['create', 'update', 'delete', 'activate', 'deactivate'].map(verb => `${group} ${verb}`)),
-  'suites add-check', 'suites remove-check', 'run', 'cancel',
-] });
 
 const hint = (action, cmd, description) => ({ action, cmd, description });
 function connectionSuffix(argv) {
@@ -185,7 +180,7 @@ function definitions(group, wrap) {
 
 export function scanCmd(wrap) {
   return {
-    command: 'scan [subcommand]', describe: 'Instance Scan checks, suites, explicit targets, progress and findings',
+    ...deferredFamilyDefinition('scan'),
     builder: y => y.command(definitions('checks', wrap)).command(definitions('suites', wrap))
       .command({ command: 'run', describe: 'Start an explicit target scan (confirmation required; no implicit full scan)',
         builder: p => p.option('update-set', { type: 'string', describe: 'Update set name or sys_id; scans current records' })

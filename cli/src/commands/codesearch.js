@@ -1,4 +1,5 @@
 // GraphQL read-only queries; no sn_codesearch engine or Flow downloads.
+import { deferredFamilyDefinition } from '../command-families.js';
 import { searchGraphQL } from '../codesearch-graphql.js';
 import { docLink } from '../docs-links.js';
 
@@ -21,9 +22,7 @@ export function renderCodeSearch(data) {
 
 export function codesearchCmd(wrap) {
   return {
-    command: 'codesearch [subcommand]',
-    aliases: ['codesearch'],
-    describe: 'Search code across ServiceNow artifacts with read-only GraphQL queries',
+    ...deferredFamilyDefinition('codesearch'),
     builder: (yargs) => yargs.command({
       command: 'search <term>',
       describe: 'Search code; Flow internals require separate jsn flows search',

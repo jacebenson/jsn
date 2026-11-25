@@ -1,7 +1,6 @@
-import { declareCapabilities } from '../capabilities.js';
+import { deferredFamilyDefinition } from '../command-families.js';
 
 // Easter egg: hidden from help and discover, so agents never meet it.
-declareCapabilities('tower', { mutationSubcommands: [] });
 
 const SWEEP = [
   ['incident', 'active=true', 'Open incidents awaiting reinvention'],
@@ -55,9 +54,7 @@ export function formatTower({ instance, radar, kill_switch: kill }) {
 
 export function towerCmd(wrap) {
   return {
-    command: 'tower',
-    describe: 'Sweep the instance from the AI control tower',
-    hidden: true,
+    ...deferredFamilyDefinition('tower'),
     builder: y => y.strict().option('kill-switch', { type: 'boolean', describe: 'Power the radar down: no requests, no agents, no changes' }),
     handler: wrap(async (argv, app) => {
       const instance = app.getEffectiveInstance() || null;

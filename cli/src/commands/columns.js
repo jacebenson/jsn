@@ -1,3 +1,4 @@
+import { deferredFamilyDefinition } from '../command-families.js';
 import { fieldBehaviorHelp } from '../field-behavior.js';
 import { CodeUsage, errNotFoundHint } from '../errors.js';
 import { loadHierarchy } from '../table-behavior.js';
@@ -55,9 +56,9 @@ async function addChoices(record, app, argv) {
 }
 
 export const columnsCmd = (wrap) => {
-  const base = buildDevCmd('columns', 'sys_dictionary', ['column', 'col'],
+  const base = buildDevCmd('columns', 'sys_dictionary', [],
     ['element', 'column_label', 'internal_type', 'mandatory', 'max_length', 'active'],
-    wrap, { singular: 'column', scopeValidation: true, help: fieldBehaviorHelp,
+    wrap, { definition: deferredFamilyDefinition('columns'), singular: 'column', scopeValidation: true, help: fieldBehaviorHelp,
       resolveIdentifier: resolveColumn, identifierRequired: true, onShow: addChoices,
       showDescribe: 'Show a column by <table>.<column> or sys_id, with a choice field\'s choices' });
 

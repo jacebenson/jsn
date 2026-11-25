@@ -1,13 +1,11 @@
-import { declareCapabilities } from '../capabilities.js';
+import { deferredFamilyDefinition } from '../command-families.js';
 
 // Raw REST passthrough — can hit any endpoint with any method, so the whole
 // command is a mutation surface on read-only profiles.
-declareCapabilities('rest', { encodedQuery: false, mutationSubcommands: [''], mutationContextReadMethods: ['GET', 'HEAD', 'OPTIONS'] });
 
 export function restCmd(wrap) {
   return {
-    command: 'rest [endpoint]',
-    describe: 'Make raw REST API calls',
+    ...deferredFamilyDefinition('rest'),
     builder: (yargs) => {
       return yargs
         .positional('endpoint', {

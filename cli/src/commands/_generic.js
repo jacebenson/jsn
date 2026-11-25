@@ -98,11 +98,15 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
   const showFields = opts.showFields !== undefined ? opts.showFields : null;
   const singular = toSingular(name, opts.singular);
   const readOnly = opts.readOnly || false;
-  // Capability declaration: the readOnly flag drives the mutation registry.
-  declareCapabilities(name, {
-    mutationContext: 'table', table,
-    mutationSubcommands: readOnly ? [] : ['create', 'update', 'delete'],
-  });
+  // Registered profile families arrive with their identity and capability
+  // policy already declared (command-families.js), so only an ad-hoc build
+  // declares its own here.
+  if (!opts.definition) {
+    declareCapabilities(name, {
+      mutationContext: 'table', table,
+      mutationSubcommands: readOnly ? [] : ['create', 'update', 'delete'],
+    });
+  }
   const scopeValidation = opts.scopeValidation || false;
   const extraQuery = opts.extraQuery || '';
   const showSummary = opts.showSummary || ((record, id) => `${singular.charAt(0).toUpperCase() + singular.slice(1)}: ${getStringField(record, 'name') || id}`);
@@ -306,9 +310,11 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
   };
 
   return {
-    command: `${name} [subcommand]`,
-    aliases: aliases || [],
-    describe: opts.describe || `Manage ${name} (e.g. "${name} list --query nameLIKEincident")`,
+    ...(opts.definition || {
+      command: `${name} [subcommand]`,
+      aliases: aliases || [],
+      describe: opts.describe || `Manage ${name} (e.g. "${name} list --query nameLIKEincident")`,
+    }),
     discovery: {
       table,
       defaultColumns,

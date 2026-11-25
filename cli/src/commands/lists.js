@@ -1,10 +1,9 @@
 import { getStringField, interactiveList } from '../helpers.js';
+import { deferredFamilyDefinition } from '../command-families.js';
 
 export function listsCmd(wrap) {
   return {
-    command: 'lists [subcommand]',
-    aliases: ['list-layout', 'l'],
-    describe: 'List views for a table',
+    ...deferredFamilyDefinition('lists'),
     builder: (yargs) => {
       return yargs
         .command({

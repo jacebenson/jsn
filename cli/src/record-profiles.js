@@ -3,6 +3,7 @@
 import definitions from './record-command-profiles.js';
 import { enrichEssentialRecords } from './essential-records.js';
 import { buildDevCmd } from './commands/_generic.js';
+import { profileCommandDefinition } from './profile-command-definitions.js';
 import { buildTicketCommands } from './commands/_ticket.js';
 
 const namePattern = /^[a-z][a-z0-9_-]*$/i;
@@ -79,10 +80,12 @@ export function buildRecordProfile(definition, wrap, hooks = {}) {
         profileName: app.session?.profileName, instance: app.getEffectiveInstance?.() });
     };
   }
+  // Root identity is the declaration command-families.js publishes for this
+  // family; the factory supplies builders and handlers only.
+  options.definition = profileCommandDefinition(profile.name, profile);
   const command = profile.kind === 'ticket'
     ? buildTicketCommands(profile.table, profile.name, profile.aliases.find(alias => alias !== profile.table), profile.columns, {}, null, wrap, options)
     : buildDevCmd(profile.name, profile.table, profile.aliases, profile.columns, wrap, options);
-  command.aliases = [...profile.aliases];
   command.summary = profile.summary || '';
   command.recordProfile = profile;
   command.discovery.benefits.push(

@@ -1,15 +1,12 @@
 import { formatRecordForDisplay, getStringField, resolveFieldsParam, assertSafeExactMatch, confirmDelete, quoteShellArg } from '../helpers.js';
-import { declareCapabilities } from '../capabilities.js';
+import { deferredFamilyDefinition } from '../command-families.js';
 
 // add/remove write sys_user_grmember; the mutation guard (instance +
 // read-only profile) and the delete confirmation both key off this.
-declareCapabilities('groupmembers', { queryTable: 'sys_user_grmember', mutationContext: 'operational', mutationSubcommands: ['add', 'remove'] });
 
 export function groupMembersCmd(wrap) {
   return {
-    command: 'groupmembers [subcommand]',
-    aliases: ['groupmember', 'gmember', 'gm'],
-    describe: 'Manage group memberships',
+    ...deferredFamilyDefinition('groupmembers'),
     builder: (yargs) => {
       return yargs
         .command({

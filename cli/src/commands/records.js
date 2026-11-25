@@ -1,4 +1,5 @@
 import { formatCommandList, formatRecordForDisplay, findOmittedColumns, buildQuerySuffix, buildRecordPayload, getStringField, interactiveList, resolveFieldsParam, checkDerivedFields, confirmDelete, verifyWriteBack, quoteShellArg, buildRerunCommand } from '../helpers.js';
+import { deferredFamilyDefinition } from '../command-families.js';
 import { listRecords, recordListParams, getRecord, createRecord, updateRecord, deleteRecord } from '../records-engine.js';
 import { resolveRecord, unwrapSysId } from '../resolve-record.js';
 import { findDeletedRecord, restoreDeletedRecord } from '../record-undelete.js';
@@ -7,21 +8,9 @@ import { exportRecordsXML, xmlExportCap, TABLE_NAME, UPDATE_SET_TABLES, MAX_UNLO
 import fs from 'node:fs';
 import { AmbClient } from '../amb.js';
 import { watchRecord } from '../record-watch.js';
-import { declareCapabilities } from '../capabilities.js';
 import { assertMutationRecordScope, assertMutationScope } from '../intended-context.js';
 import { validateReadQuery, assertWriteQuery, queryDiagnostics, invalidateAfterMutation } from '../query-validate.js';
 import { previewCascade } from '../delete-cascade.js';
-
-declareCapabilities('records', {
-  mutationContext: 'table',
-  filteredMutationSubcommands: ['delete-many', 'bulk'],
-  mutationSubcommands: ['create', 'update', 'delete', 'delete-many', 'bulk', 'undelete', 'import'],
-  // An unload file names its own tables; the capture-context guard classifies one --table.
-  mutationContextExemptSubcommands: ['import'],
-  localPreviewSubcommands: ['import'],
-  // Watching keeps running after the command returns, so --impersonate refuses it.
-  noImpersonateSubcommands: ['watch'],
-});
 
 const tableDefaultColumns = {
   incident: ['number', 'short_description', 'priority', 'state', 'assigned_to'],
@@ -94,9 +83,7 @@ function recordLookup(argv) {
 
 export function recordsCmd(wrap) {
   return {
-    command: 'records [subcommand]',
-    describe: 'Query and manage records in any table (e.g. "records list --table incident --query priority=1")',
-    summary: 'Query any table when no specialized command fits',
+    ...deferredFamilyDefinition('records'),
     builder: (yargs) => {
       return yargs
         .command({

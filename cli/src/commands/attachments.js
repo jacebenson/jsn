@@ -1,10 +1,9 @@
+import { deferredFamilyDefinition } from '../command-families.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { confirmDelete, getStringField } from '../helpers.js';
 import { errUsage } from '../errors.js';
-import { declareCapabilities } from '../capabilities.js';
 
-declareCapabilities('attachments', { mutationContext: 'operational', mutationSubcommands: ['upload', 'add'] });
 const identifier = value => {
   if (typeof value !== 'string' || !/^[A-Za-z0-9_-]+$/.test(value)) throw errUsage('Supply a safe record or attachment sys_id.');
   return value;
@@ -18,9 +17,7 @@ export function attachmentFilename(value, id) {
 }
 
 export const attachmentsCmd = wrap => ({
-  command: 'attachments [subcommand]',
-  aliases: ['attachment'],
-  describe: 'List, download and upload files attached to any record',
+  ...deferredFamilyDefinition('attachments'),
   builder: y => y
     .epilogue([
       'List files: jsn attachments list --sys-id <record-id>',
