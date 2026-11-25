@@ -313,7 +313,7 @@ cat script.js | jsn eval --stdin          # pipe a script in (no shell escaping)
 jsn eval --repl --profile dev --scope x_my_app
 
 # Undo what a background script wrote, from the rollback context the platform
-# recorded (kept 10 days). Use the execution id jsn eval reports; preview first,
+# recorded. Use the execution id jsn eval reports (kept 7 days); preview first,
 # then --yes (admin). Records changed by anything else since are left alone.
 jsn eval rollback <execution>
 jsn eval rollback <execution> --yes

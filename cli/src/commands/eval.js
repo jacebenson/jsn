@@ -48,7 +48,7 @@ export function evalCmd(wrap) {
                 breadcrumbs: [{ action: 'rollback', cmd: `jsn eval rollback ${argv.execution} --yes`, description: 'Run this rollback' }],
               });
             }
-            app.ok(await runRollback(app.sdk, plan), { summary: `Rolled back ${number}: ${plan.total} recorded operation(s) reverted` });
+            app.ok(await runRollback(app.sdk, plan), { summary: `Rolled back ${number}: its context now reads Rolled back (${plan.total} operation(s) recorded; records changed since by anything else are left as they are)` });
           }),
         });
     },

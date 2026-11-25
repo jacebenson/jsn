@@ -23,7 +23,7 @@ Discover commands with `jsn --help`, `jsn discover "search words"`, and
   `--expect-count` from that preview.
 - Undoing what a background script wrote is `jsn eval rollback <execution>`, with
   the execution id `jsn eval` reports, not a second script. It previews without
-  `--yes`; the platform keeps rollback contexts for 10 days.
+  `--yes`; the platform keeps execution history for 7 days.
 
 For development:
 

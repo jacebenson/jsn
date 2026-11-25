@@ -34,7 +34,7 @@ export async function previewRollback(sdk, id) {
   requireId(id);
   const run = await readRow(sdk, 'sys_script_execution_history', id, 'sys_id,script,executed_by,started,rollback_context');
   const contextId = raw(run.rollback_context);
-  if (!contextId) throw errUsage(`Execution ${id} has no rollback context: the script wrote nothing, ran with --no-rollback, or its context expired (the platform keeps them for 10 days). Nothing was rolled back.`);
+  if (!contextId) throw errUsage(`Execution ${id} has no rollback context: the script wrote nothing or ran with --no-rollback. Nothing was rolled back.`);
   requireId(contextId, 'the rollback context');
   const context = await readContext(sdk, contextId);
   const number = display(context.number);
@@ -61,11 +61,13 @@ export async function runRollback(sdk, plan, { timeoutMs = 120000, pause = ms =>
   const check = `jsn records get --table sys_rollback_context --sys-id ${contextId}`;
   const progressId = decodeAnswer(await sdk.rawRequest(`${sdk.baseURL}/xmlhttp.do?${new URLSearchParams({ sysparm_processor: 'AJAXRollbackWorker', sysparm_name: 'start', sysparm_ajax_processor_context_id: contextId })}`, { method: 'POST' }));
   if (!isSysId(progressId)) throw new Error(`Starting the rollback of ${number} returned no progress id, so its outcome is unknown. Check ${check} before retrying.`);
+  // Once started, the rollback runs whatever happens here, so a failed read must not invite a rerun.
+  const lost = error => new Error(`The rollback of ${number} started (progress ${progressId}); check ${check} and do not rerun it. Reading its outcome failed: ${error.message}`, { cause: error });
   let status = 'pending', message;
   for (const deadline = Date.now() + timeoutMs; ; await pause(2000)) {
     let tracker = null;
     try { tracker = await sdk.get('sys_execution_tracker', progressId); }
-    catch (error) { if (error.code !== 'not_found' && error.status !== 404) throw error; }
+    catch (error) { if (error.code !== 'not_found' && error.status !== 404) throw lost(error); }
     // The processor can answer before its tracker is readable.
     if (tracker) {
       status = raw(tracker.sys_id) === progressId && TRACKER[raw(tracker.state)] || 'unknown';
@@ -75,7 +77,7 @@ export async function runRollback(sdk, plan, { timeoutMs = 120000, pause = ms =>
     }
     if (Date.now() > deadline) throw new Error(`The rollback of ${number} is still ${status} after ${timeoutMs / 1000}s (progress ${progressId}). It carries on in the background: check ${check} and do not rerun it.`);
   }
-  const after = await readContext(sdk, contextId);
+  const after = await readContext(sdk, contextId).catch(error => { throw lost(error); });
   if (status !== 'successful' || raw(after.state) !== 'rolled_back') throw new Error(`The rollback of ${number} ended ${status}${message ? ` (${message})` : ''} and the context reads ${display(after.state) || 'nothing'}, not Rolled back. Check ${check}.`);
   return { ...plan, rollback_context: { ...plan.rollback_context, state: 'rolled_back' }, progress_id: progressId, rolled_back: true };
 }

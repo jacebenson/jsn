@@ -31,7 +31,7 @@ function fixture({ history = [historyRow()], contexts = [contextRow(), contextRo
     listStrict: async (table, params) => {
       calls.push({ kind: 'read', table, ...Object.fromEntries(params) });
       if (table === 'sys_script_execution_history') return history;
-      if (table === 'sys_rollback_context') return [contexts.shift()];
+      if (table === 'sys_rollback_context') { const next = contexts.shift(); if (next instanceof Error) throw next; return [next]; }
       if (table === 'sys_user_has_role') return admin ? [{ sys_id: 'a' }] : [];
       return [];
     },
@@ -118,7 +118,7 @@ test('eval rollback --yes starts the platform rollback, follows its tracker and 
   assert.equal(f.ok.data.rolled_back, true);
   assert.equal(f.ok.data.progress_id, PROGRESS);
   assert.equal(f.ok.data.rollback_context.state, 'rolled_back');
-  assert.equal(f.ok.opts.summary, 'Rolled back BAK0001572: 3 recorded operation(s) reverted');
+  assert.equal(f.ok.opts.summary, 'Rolled back BAK0001572: its context now reads Rolled back (3 operation(s) recorded; records changed since by anything else are left as they are)');
 });
 
 test('eval rollback refuses a user without admin before starting anything', async () => {
@@ -154,7 +154,9 @@ test('eval rollback never reports success unless the tracker succeeded and the c
     [{ contexts: [contextRow(), contextRow('partially_rolled_back')] }, /ended successful and the context reads partially_rolled_back, not Rolled back/],
     [{ trackers: [{ sys_id: PROGRESS, state: '7' }] }, /unreadable execution tracker/],
     [{ trackers: [{ sys_id: '0'.repeat(32), state: '2' }] }, /unreadable execution tracker/],
-    [{ trackers: [Object.assign(new Error('denied'), { status: 403 })] }, /denied/],
+    [{ trackers: [Object.assign(new Error('denied'), { status: 403 })] }, /The rollback of BAK0001572 started \(progress 4f1b\w+\); check jsn records get --table sys_rollback_context --sys-id 3323\w+ and do not rerun it\. Reading its outcome failed: denied$/],
+    [{ contexts: [contextRow(), Object.assign(new Error('timed out'), { status: 504 })] }, /started \(progress 4f1b\w+\); check .* and do not rerun it\. Reading its outcome failed: timed out$/],
+    [{ contexts: [contextRow(), undefined] }, /do not rerun it\. Reading its outcome failed: .*not found/i],
   ];
   for (const [options, message] of cases) {
     const f = fixture(options);
