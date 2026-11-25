@@ -1,14 +1,16 @@
 import { buildDevCmd } from './_generic.js';
-import { getStringField } from '../helpers.js';
+import { getStringField, quoteShellArg } from '../helpers.js';
 import { errUsage } from '../errors.js';
 import { declareCapabilities } from '../capabilities.js';
-import { readImportFile, checkStagingTable, loadImportRows, loadRerun, formatLoad } from '../import-sets.js';
+import { readImportFile, checkStagingTable, loadImportRows, loadRerun, formatLoad, activeTransformMaps, readImportSet, checkTransformable,
+  transformImportSet, transformResult } from '../import-sets.js';
 
 export const importCmd = (wrap) => withWrites(buildDevCmd('import', 'sys_import_set', ['imports', 'imp'],
   ['name', 'sys_target_table', 'state', 'sys_created_on'], wrap, {
     singular: 'import set',
     readOnly: true,
-    extraSubcommands: [{ name: 'load', description: 'Load rows into a staging table and transform them' }],
+    extraSubcommands: [{ name: 'load', description: 'Load rows into a staging table and transform them' },
+      { name: 'transform', description: 'Rerun the transform maps on an existing import set' }],
     formatLabel: (r) => {
       const name = getStringField(r, 'name') || '';
       const table = getStringField(r, 'sys_target_table') || '';
@@ -32,7 +34,7 @@ export const importCmd = (wrap) => withWrites(buildDevCmd('import', 'sys_import_
 
 function withWrites(base, wrap) {
   // Loaded rows and transformed targets are data, not customizations.
-  declareCapabilities('import', { mutationContext: 'operational', queryTable: 'sys_import_set', mutationSubcommands: ['load'] });
+  declareCapabilities('import', { mutationContext: 'operational', queryTable: 'sys_import_set', mutationSubcommands: ['load', 'transform'] });
   return {
     ...base,
     builder: y => base.builder(y)
@@ -69,6 +71,50 @@ function withWrites(base, wrap) {
             breadcrumbs: data.import_sets.map(set => ({ action: 'rows', cmd: `jsn records list --table sys_import_set_row --query "sys_import_set.number=${set}"`, description: `Rows of ${set}` })),
           });
           if (failed) process.exitCode = 1;
+        }),
+      })
+      .command({
+        command: 'transform <import_set>',
+        describe: 'Rerun the active transform maps on an import set and report each row as read back; preview by default',
+        builder: yy => yy
+          .positional('import_set', { type: 'string', describe: 'Import set number (ISET0010001) or sys_id' })
+          .option('yes', { type: 'boolean', default: false, describe: 'Run the transform' })
+          .option('limit', { type: 'number', default: 200, describe: 'Safety cap: refuse a set with more rows than this' })
+          .epilogue('Runs on a loaded set with pending rows, or a processed set, which is set back to loaded first as the Reprocess action does\n'
+            + '(the platform then sets every row back to pending). A web service set stays loading until the platform closes it.\n'
+            + 'Afterwards re-reads the set and its rows and reports what they show, not what the transform call returned.'),
+        handler: wrap(async (argv, app) => {
+          const id = argv.import_set || '';
+          if (!/^[a-zA-Z0-9]+$/.test(id)) throw errUsage('The import set must be its number (ISET0010001) or its 32-hex sys_id.');
+          if (!Number.isSafeInteger(argv.limit) || argv.limit < 1) throw errUsage('--limit must be a positive safe integer.');
+          const before = await readImportSet(app.sdk, id, argv.limit);
+          checkTransformable(before, argv.limit);
+          const { set } = before;
+          const maps = await activeTransformMaps(app.sdk, set.table_name);
+          if (!maps.length) throw errUsage(`No active transform map for ${set.table_name} is visible to this identity (none exists, or sys_transform_map is ACL-hidden). Nothing transformed.`);
+          if (!argv.yes) {
+            const rerun = ['jsn', 'import', 'transform', set.number, '--limit', String(argv.limit), '--yes'].map(quoteShellArg).join(' ');
+            return app.ok({ dry_run: true, import_set: set.number, sys_id: set.sys_id, staging_table: set.table_name, state: set.state,
+              rows: before.rows.length, transform_maps: maps, rerun }, {
+              summary: `Dry run: ${before.rows.length} row(s) of ${set.number} would be transformed through ${maps.length} transform map(s); nothing run`,
+              breadcrumbs: [{ action: 'transform', cmd: rerun, description: 'Run the transform' }],
+            });
+          }
+          const transformError = await transformImportSet(app.sdk, set);
+          const after = await readImportSet(app.sdk, set.sys_id, argv.limit).catch(error => {
+            throw errUsage(`The transform ran, but ${set.number} could not be read back (${error.message}); inspect its rows before retrying.`);
+          });
+          const data = transformResult(after.set, after.rows, transformError);
+          Object.defineProperty(data, '_formatted', { value: formatLoad({ ...data, import_sets: [data.import_set], not_sent: 0 }), enumerable: false });
+          const counts = Object.entries(data.counts).map(([status, n]) => `${n} ${status}`).join(', ');
+          const problems = [transformError && 'the transformer reported an error', data.state !== 'processed' && `the set is ${data.state}, not processed`,
+            after.rows.length !== before.rows.length && `${after.rows.length} of ${before.rows.length} row(s) read back`,
+            data.failed && `${data.failed} row(s) failed`].filter(Boolean);
+          app.ok(data, {
+            summary: problems.length ? `Import transform had errors: ${problems.join('; ')} (${counts})` : `Transformed ${data.import_set}: ${data.total} row(s), ${counts}`,
+            breadcrumbs: [{ action: 'rows', cmd: `jsn records list --table sys_import_set_row --query "sys_import_set=${data.sys_id}"`, description: `Rows of ${data.import_set}` }],
+          });
+          if (problems.length) process.exitCode = 1;
         }),
       }),
   };

@@ -24,6 +24,7 @@ Discover commands with `jsn --help`, `jsn discover "search words"`, and
 - Loading rows into an import set staging table is `jsn import load <table>
   --file rows.json|csv`, not `eval` or `records create` on the staging table.
   It previews without `--yes`; with it, each row reports its transform outcome.
+  To rerun the maps on an existing set, `jsn import transform <ISET number>`.
 
 For development:
 
