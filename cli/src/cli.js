@@ -82,6 +82,7 @@ import { compareCmd } from './commands/compare.js';
 import { approvalsCmd } from './commands/approvals.js';
 import { diffCmd } from './commands/diff.js';
 import { graphqlCmd } from './commands/graphql.js';
+import { towerCmd } from './commands/tower.js';
 
 /**
  * The output format the caller asked for, resolved from PARSED argv.
@@ -470,6 +471,7 @@ export function buildCLI() {
     .command(versionCmd(wrap))
     .command(upgradeCmd(wrap))
     .command(documentCmd(wrap))
+    .command(towerCmd(wrap))
     .command(discoverCmd(wrap, (argv) => visibleCommandRegistry(cliInstance.commandRegistry({ details: true }), app.config, argv)))
     .demandCommand(1, 'You must specify a command')
     .onParentDiscovery((argv, { path, subcommands }) => {
