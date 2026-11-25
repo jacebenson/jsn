@@ -29,7 +29,7 @@ Discover commands with `jsn --help`, `jsn discover "search words"`, and
 | What the platform logged as slow | `jsn perf slow`, `jsn perf slow show <sys_id>` |
 | A decision table's outcome | `jsn decisiontables evaluate <name> --input k=v` |
 | Delete by filter | `jsn records delete-many` (needs the previewed `--expect-count`) |
-| Stop auditing a field, or deletes | `jsn tables audit exclude <table> <field>` or `jsn tables audit deletes <table> off` |
+| Stop auditing a field or deletes | `jsn tables audit exclude <table> <field>`, `audit deletes <table> off` |
 | Undo a delete | `jsn records undelete --table <t> --sys-id <id>` |
 | Undo a background script | `jsn eval rollback <execution>` |
 | An earlier version of a record | `jsn records versions <table> <sys_id> [--diff N]` |
@@ -37,7 +37,7 @@ Discover commands with `jsn --help`, `jsn discover "search words"`, and
 | Copy records between instances | `jsn records export`, then `jsn records import <file>` |
 | Load an import set | `jsn import load <table> --file rows.json\|csv` |
 | What a user can see | `--impersonate <user_name>` on a read |
-| Why a user cannot reach one record | `jsn access-analyzer check --user <u> --table <t> --record <id>` |
+| Why a user cannot reach a record | `jsn access-analyzer check --user <u> --table <t> --record <id>` |
 | Documentation | `jsn docs "query"` or `jsn docs --path <path>` |
 
 Every write in that table previews without `--yes`, and `--yes` on a delete needs
@@ -63,8 +63,8 @@ For development:
    need customization expectations. Keep related development changes together.
 3. Verify the results on the instance and report where changes were captured.
 4. Offer to run relevant existing ATFs and instance scans, or create missing checks.
-5. Ask whether anything else belongs in the update set. If the user confirms
-   it is finished, complete it with notes.
+5. Ask whether anything else belongs in the update set; if it is finished,
+   complete it with notes.
 
 For incoming update sets: import the XML, preview the set, and resolve preview
 errors with the human where needed. Once the preview is clear, commit the set
