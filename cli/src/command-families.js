@@ -20,7 +20,7 @@ export const flowsCmdDefinition = {
   aliases: ['flow'],
   describe: 'Manage Flow Designer flows',
 };
-declareCapabilities('flows', { queryTable: argv => argv._?.[1] === 'executions' ? 'sys_flow_context' : 'sys_hub_flow', transactionScopeOption: 'scope', mutationContextExemptSubcommands: ['test', 'unlock'], mutationSubcommands: ['clone', 'copy', 'create', 'update', 'edit', 'delete', 'publish', 'test', 'unlock'] });
+declareCapabilities('flows', { queryTable: argv => argv._?.[1] === 'executions' ? 'sys_flow_context' : 'sys_hub_flow', transactionScopeOption: 'scope', mutationContextExemptSubcommands: ['test', 'unlock', 'settings'], mutationSubcommands: ['clone', 'copy', 'create', 'update', 'edit', 'delete', 'publish', 'test', 'unlock', 'settings'] });
 export const flowsCmd = wrap => ({ ...flowsCmdDefinition, load: () => require('./commands/flows.js').flowsCmd(wrap) });
 
 export const workflowsCmdDefinition = {
@@ -69,7 +69,7 @@ export const docsCmd = wrap => ({ ...docsCmdDefinition, load: () => require('./c
 export const perfCmdDefinition = {
   command: 'perf [subcommand]',
   aliases: ['performance'],
-  describe: 'Capture and compare read-only ServiceNow performance summaries',
+  describe: 'Capture and compare performance summaries and rank slow pattern logs (read-only)',
 };
 
 export const perfCmd = wrap => ({ ...perfCmdDefinition, load: () => require('./commands/perf.js').perfCmd(wrap) });

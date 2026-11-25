@@ -1,5 +1,5 @@
 import { declareCapabilities } from '../capabilities.js';
-declareCapabilities('logs', { queryTable: 'syslog' });
+declareCapabilities('logs', { queryTable: 'syslog', noImpersonateSubcommands: ['follow'] });
 
 import { formatRecordForDisplay, interactiveList, getStringField } from '../helpers.js';
 

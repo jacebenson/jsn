@@ -1,4 +1,5 @@
-// Record watching: bounded observation of one ServiceNow record over AMB.
+// Record watching: bounded observation of one ServiceNow record, or every
+// record matching an encoded query, over AMB.
 //
 // The AMB client (src/amb.js) owns the wire protocol. This module owns the
 // observation session: what counts as an event, when to fetch the record to
@@ -40,8 +41,10 @@ export function notificationHasDetail(event) {
  * @param {object} opts
  * @param {{ start: Function, next: Function, stop: Function }} opts.client
  * @param {string} opts.table
- * @param {string} opts.sysID
+ * @param {string} [opts.sysID] - the one record to watch
  * @param {string} [opts.query] — encoded query; defaults to `sys_id=<sysID>`
+ * @param {string} [opts.operation] - only emit created, updated or deleted events
+ * @param {string[]} [opts.onChange] - only emit events whose changes name one of these fields
  * @param {number} [opts.timeoutMs] — 0 means "until cancelled"
  * @param {number} [opts.maxEvents] — 0 means unlimited
  * @param {AbortSignal} [opts.signal]
@@ -59,6 +62,8 @@ export async function watchRecord({
   table,
   sysID,
   query,
+  operation,
+  onChange = [],
   timeoutMs = 0,
   maxEvents = 0,
   signal,
@@ -73,7 +78,7 @@ export async function watchRecord({
 }) {
   if (!client) throw new AppError(CodeUsage, 'Record watch needs an AMB client.');
   if (!table) throw new AppError(CodeUsage, 'Record watch needs a table.');
-  if (!sysID) throw new AppError(CodeUsage, 'Record watch needs a record sys_id.');
+  if (!sysID && !query) throw new AppError(CodeUsage, 'Record watch needs a record sys_id or an encoded query.');
   if (!['auto', 'always', 'never'].includes(statePolicy)) {
     throw new AppError(CodeUsage, `Unknown state policy: ${statePolicy}`);
   }
@@ -83,6 +88,7 @@ export async function watchRecord({
   }
 
   const channel = recordWatcherChannel(table, query || `sys_id=${sysID}`);
+  const target = sysID ? { sys_id: sysID } : { query };
   const startedAt = now();
   const startedISO = new Date(startedAt).toISOString();
   const deadline = timeoutMs > 0 ? startedAt + timeoutMs : Infinity;
@@ -102,7 +108,7 @@ export async function watchRecord({
     return {
       type: 'watch_summary',
       table,
-      sys_id: sysID,
+      ...target,
       channel,
       reason: why,
       events,
@@ -116,7 +122,7 @@ export async function watchRecord({
     };
   };
 
-  onStatus({ type: 'connecting', table, sys_id: sysID, channel });
+  onStatus({ type: 'connecting', table, ...target, channel });
 
   try {
     while (true) {
@@ -170,17 +176,23 @@ export async function watchRecord({
       for (const message of messages) {
         if (signal?.aborted) return await finish('cancelled');
         const event = normalizeRecordWatcherEvent(message, { table, sysID }, new Date(now()).toISOString());
-        // The channel query scopes delivery to this record. The live payload
-        // does not carry a sys_id (jsn fills it from the subscription), so this
-        // guard only bites on an instance that does send one — for example a
-        // table-level channel returning a different record.
+        // The channel query scopes delivery to this record. The 2026-11-04
+        // payload carried no sys_id (jsn fills it from the subscription); the
+        // 2026-11-25 one does, and this guard drops one for another record.
         if (event.sys_id && sysID && event.sys_id !== sysID) continue;
+        // A query channel has no sys_id to fill in, so say so rather than emit an unidentified change as complete.
+        if (!event.sys_id) event.warning = 'The notification carried no sys_id, so it does not say which record changed.';
+        // AMB has no server-side operation or field filter, so these apply here,
+        // before the state read and before the event counts toward --max-events.
+        if (operation && event.operation !== operation) continue;
+        // Live notifications name the changed fields in `record`, older shapes in `changes`.
+        if (onChange.length && ![...(event.changes || []).map(change => change.field), ...Object.keys(event.record || {})].some(field => onChange.includes(field))) continue;
 
         const shouldFetch = statePolicy === 'always'
           || (statePolicy === 'auto' && !notificationHasDetail(event));
         if (shouldFetch) {
           try {
-            const record = await fetchState();
+            const record = await fetchState(event);
             event.state = { source: 'fetched', fetched_at: new Date(now()).toISOString(), record };
           } catch (error) {
             // Never let a failed follow-up read masquerade as a failed or
