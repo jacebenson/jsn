@@ -149,7 +149,10 @@ export const decisiontablesCmd = (wrap) => {
           try {
             const [inputs, answers, questions, conditions] = await Promise.all([
               app.sdk.list('sys_decision_input', new URLSearchParams({ sysparm_query: `model=${id}`, sysparm_limit: '1000', sysparm_fields: 'sys_id,name,element' })),
-              app.sdk.list('sys_decision_multi_result_element', new URLSearchParams({ sysparm_query: `decision_table=${id}`, sysparm_limit: '1000', sysparm_fields: 'sys_id,name,element' })),
+              // Answer elements point at their decision table through `model`;
+              // `decision_table` is not a field on this table, so the platform
+              // drops the term and returns every element on the instance.
+              app.sdk.list('sys_decision_multi_result_element', new URLSearchParams({ sysparm_query: `model=${id}`, sysparm_limit: '1000', sysparm_fields: 'sys_id,name,element' })),
               app.sdk.list('sys_decision_question', new URLSearchParams({ sysparm_query: `decision_table=${id}`, sysparm_limit: '1' })),
               app.sdk.list('sn_decision_table_decision_condition', new URLSearchParams({ sysparm_query: `decision_table=${id}`, sysparm_limit: '1' })),
             ]);
