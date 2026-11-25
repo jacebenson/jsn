@@ -104,28 +104,47 @@ function formatTopTransactions(groups) {
 }
 
 import { declareCapabilities } from '../capabilities.js';
-import { listActiveTransactions, formatActiveTransactions, killTransaction, formatKillTransaction } from '../active-transactions.js';
+import { listActiveTransactions, formatActiveTransactions, killTransaction, formatKillTransaction, watchOptions, watchActiveTransactions, formatWatchEvent } from '../active-transactions.js';
 declareCapabilities('transactions', { queryTable: 'syslog_transaction', mutationContext: 'operational', mutationSubcommands: ['kill'] });
 
 export function activeTransactionsCmd(wrap) {
   return {
     command: 'active',
-    describe: 'List transactions running now on every node, oldest first',
+    describe: 'List transactions running now on every node, oldest first; --watch keeps refreshing it',
     builder: (y) => y
       .strict()
       .option('older-than', { type: 'string', describe: 'Only transactions running at least this long: seconds, or 90s, 5m, 2h' })
       .option('user', { type: 'string', describe: 'Only this user name' })
       .option('type', { type: 'string', describe: 'Only this transaction type value, such as rest, form or scheduler' })
       .option('limit', { alias: 'l', type: 'number', default: 20, describe: 'Maximum transactions to return (1-100)' })
+      .option('watch', { type: 'boolean', default: false, describe: 'Refresh until Ctrl-C, printing the list each time' })
+      .option('interval', { type: 'number', describe: 'Seconds between refreshes with --watch (2-300, default 5)' })
+      .option('timeout', { type: 'number', describe: 'With --watch, stop after this many seconds (default 0, until interrupted)' })
       .epilogue([
         'Refreshes Active Transactions (All Nodes) the way its module does (loading_transactions.do), then reads v_cluster_transaction in the same session.',
         "Needs the admin role. jsn's own listing request is left out.",
+        'With --watch, emits newline-delimited JSON events (type transactions_active, refresh_failed, watch_summary) with --json or when piped; three failed refreshes in a row end it.',
+        'Each refresh starts the module\'s own progress tracker (sys_execution_tracker rows), as opening the module does.',
         'Examples:',
         '  jsn transactions active',
         '  jsn transactions active --older-than 5m --type scheduler --json',
+        '  jsn transactions active --watch --interval 10',
       ].join('\n')),
     handler: wrap(async (argv, app) => {
       app.requireInstance();
+      if (watchOptions(argv)) {
+        const controller = new AbortController();
+        const cancel = () => controller.abort();
+        process.once('SIGINT', cancel);
+        process.once('SIGTERM', cancel);
+        try {
+          await watchActiveTransactions(app.sdk, argv, { signal: controller.signal, emit: event => app.output.writeEvent(event, { line: formatWatchEvent(event) }) });
+        } finally {
+          process.removeListener('SIGINT', cancel);
+          process.removeListener('SIGTERM', cancel);
+        }
+        return;
+      }
       const data = { ...await listActiveTransactions(app.sdk, argv), context: { instance_url: app.getEffectiveInstance() } };
       Object.defineProperty(data, '_formatted', { value: formatActiveTransactions(data), enumerable: false });
       app.ok(data, { summary: `Active transactions: ${data.count}${data.pagination.has_more ? ' (more exist)' : ''}${data.refresh.complete ? '' : '; refresh incomplete'}` });

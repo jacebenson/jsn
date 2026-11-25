@@ -12,7 +12,12 @@ const UNITS = { '': 1, s: 1, m: 60, h: 3600, d: 86400 };
 
 const raw = value => value && typeof value === 'object' ? String(value.value ?? '') : String(value ?? '');
 const text = value => value && typeof value === 'object' ? String(value.display_value ?? value.value ?? '') : String(value ?? '');
-const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+const wait = (ms, signal) => new Promise(resolve => {
+  if (signal?.aborted) return resolve();
+  const done = () => { clearTimeout(timer); signal?.removeEventListener('abort', done); resolve(); };
+  const timer = setTimeout(done, ms);
+  signal?.addEventListener('abort', done, { once: true });
+});
 
 function rowsOf(rows, table) {
   if (!Array.isArray(rows) || rows.some(row => !row || typeof row !== 'object' || Array.isArray(row))) throw Object.assign(new Error(`Malformed table response for ${table}`), { code: 'malformed_response' });
@@ -62,7 +67,7 @@ export async function refreshActiveTransactions(sdk, { sleep = wait } = {}) {
     throw error;
   }
   const id = /var executionID = '([^']*)'/.exec(String(html))?.[1];
-  if (id === undefined) throw errAPI(200, 'The instance did not return the Active Transactions (All Nodes) refresh page. It needs the admin role.');
+  if (id === undefined) throw Object.assign(errAPI(200, 'The instance did not return the Active Transactions (All Nodes) refresh page. It needs the admin role.'), { fatal: true });
   if (!/^[0-9a-f]{32}$/.test(id)) return { execution_id: null, complete: false, nodes: [], warning: 'The instance could not ask the other nodes for their transactions (it reports a permissions problem), so only this node is listed.' };
   for (let poll = 0; ; poll++) {
     const params = new URLSearchParams({ sysparm_query: `parent=${id}`, sysparm_fields: 'name,state,parent', sysparm_display_value: 'all', sysparm_limit: '100' });
@@ -95,6 +100,58 @@ export async function checkVisible(sdk, refresh, rows) {
   const params = new URLSearchParams({ sysparm_query: 'session_idSAMEASsnapshot_id', sysparm_fields: 'session_id', sysparm_limit: '1' });
   if (rowsOf(await sdk.listStrict(ACTIVE_TABLE, params, { stateful: true }), ACTIVE_TABLE).length) return refresh;
   return { ...refresh, complete: false, warning: 'The refreshed list was not visible to this session (it did not even hold this request), so an empty result proves nothing. Retry.' };
+}
+
+// A watch survives a refresh that fails now and then (the instance redirects one now and then), not a run of them,
+// and never retries what cannot succeed.
+const WATCH_FAILURES = 3;
+const FATAL = new Set(['usage_error', 'auth_error', 'forbidden']);
+
+export function watchOptions(argv = {}) {
+  if (!argv.watch) {
+    if (argv.interval != null || argv.timeout != null) throw errUsage('--interval and --timeout need --watch.');
+    return null;
+  }
+  const interval = argv.interval ?? 5, timeout = argv.timeout ?? 0;
+  if (!Number.isSafeInteger(interval) || interval < 2 || interval > 300) throw errUsage('--interval must be whole seconds from 2 to 300.');
+  if (!Number.isSafeInteger(timeout) || timeout < 0 || timeout > 86400) throw errUsage('--timeout must be whole seconds from 0 (until interrupted) to 86400.');
+  return { interval, timeout };
+}
+
+// Like records watch: one event a refresh until the signal aborts (Ctrl-C) or the timeout passes, then a watch_summary.
+export async function watchActiveTransactions(sdk, argv, { emit, signal, sleep = wait, now = Date.now } = {}) {
+  const { interval, timeout } = watchOptions(argv);
+  const started = now(), deadline = timeout ? started + timeout * 1000 : Infinity;
+  let snapshots = 0, failures = 0, failed = 0;
+  // Ctrl-C while the refresh waits for nodes ends it there, with no snapshot the cancel cut short.
+  const settle = async ms => { await sleep(ms, signal); if (signal?.aborted) throw Object.assign(new Error('Watch cancelled.'), { code: 'cancelled' }); };
+  while (!signal?.aborted) {
+    try {
+      const result = await listActiveTransactions(sdk, argv, { sleep: settle });
+      failures = 0;
+      snapshots++;
+      emit({ type: 'transactions_active', received_at: new Date(now()).toISOString(), ...result });
+    } catch (error) {
+      if (signal?.aborted) break;
+      if (++failures >= WATCH_FAILURES || error.fatal === true || FATAL.has(error.code)) throw error;
+      failed++;
+      emit({ type: 'refresh_failed', received_at: new Date(now()).toISOString(), message: error.message });
+    }
+    const pause = Math.min(interval * 1000, deadline - now());
+    if (pause <= 0) break;
+    await sleep(pause, signal);
+    if (now() >= deadline) break;
+  }
+  const summary = { type: 'watch_summary', reason: signal?.aborted ? 'cancelled' : 'timeout', snapshots, failed_refreshes: failed, duration_ms: now() - started };
+  emit(summary);
+  return summary;
+}
+
+export function formatWatchEvent(event) {
+  const at = String(event.received_at || '').slice(11, 19);
+  if (event.type === 'transactions_active') return `--- ${at} UTC: ${event.count} active${event.pagination.has_more ? ' (more exist)' : ''}\n${formatActiveTransactions(event).trimEnd()}`;
+  if (event.type === 'refresh_failed') return `--- ${at} UTC: refresh failed, retrying: ${event.message}`;
+  return `watch ended (${event.reason}): ${event.snapshots} refresh(es)${event.failed_refreshes ? `, ${event.failed_refreshes} failed` : ''}, ${Math.round(event.duration_ms / 1000)}s`;
 }
 
 const SESSION = /^[\w.:-]{1,128}$/;

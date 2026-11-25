@@ -347,6 +347,8 @@ jsn logs follow --level error --tail 10
 
 # Transactions running now on every node, oldest first (admin; your own request is left out)
 jsn transactions active --older-than 5m --type scheduler
+# Watch them, refreshing every 10 seconds until Ctrl+C
+jsn transactions active --watch --interval 10
 # Kill a runaway background job: preview it, then send the platform's Kill to the transaction it showed
 jsn transactions kill glide.scheduler.worker.3
 jsn transactions kill glide.scheduler.worker.3 --yes --expect-transaction 4ba972c9c3f0d71068353eec05013113

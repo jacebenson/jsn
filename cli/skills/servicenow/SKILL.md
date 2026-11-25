@@ -30,7 +30,8 @@ names the table they come from when they are inherited from a parent.
   It previews without `--yes`, and a real delete requires the exact
   `--expect-count` from that preview.
 - What is running on the instance now, on every node, is
-  `jsn transactions active` (`--older-than 5m`, `--user`, `--type`), not `eval`.
+  `jsn transactions active` (`--older-than 5m`, `--user`, `--type`, `--watch`),
+  not `eval`.
   Stopping a runaway background job is `jsn transactions kill <session>`: it
   previews, `--yes` with the `--expect-transaction` from that preview sends the
   platform's Kill, and it is not for users' requests.
