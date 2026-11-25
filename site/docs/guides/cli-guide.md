@@ -290,6 +290,7 @@ jsn records list --table incident --limit 10 --no-count                       # 
 jsn records bulk --table incident --query "priority=1" --set '{"state":"3"}'  # dry-run by default
 jsn records get --table incident --sys-id 8a1234abcd5678 --attachments        # record + its files
 jsn records list --table incident --limit 10 --csv                            # output CSV
+jsn columns show incident.priority                                            # dictionary entry + choices; names the table they come from
 
 # Attachment transfers (standalone, also discoverable via jsn attachments --help)
 jsn attachments list --sys-id <record-id> --json

@@ -12,6 +12,8 @@ metadata:
 
 Discover commands with `jsn --help`, `jsn discover "search words"`, and
 `jsn <command> --help`.
+A choice field's valid values are in `jsn columns show <table>.<column>`, which
+names the table they come from when they are inherited from a parent.
 
 - Verify the intended instance and select it explicitly with `--profile <name>`.
 - Prefer purpose-built or records commands over `eval`. Explain the need and get
