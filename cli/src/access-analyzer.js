@@ -27,9 +27,11 @@ async function read(sdk, table, query, limit, offset = 0) {
   }
   return rows;
 }
-async function one(sdk, table, id) {
+// A saved row, or null when this table has none. `show` asks two tables with
+// the same id, so a miss is an answer, not an error.
+async function oneOrNone(sdk, table, id) {
   const rows = await read(sdk, table, `sys_id=${id}`, 1);
-  if (!rows.length) throw errNotFound(`Saved Access Analyzer record ${id} was not found or is not readable.`);
+  if (!rows.length) return null;
   if (rawAccessValue(rows[0].sys_id) !== id) throw new Error('Access Analyzer returned a different record identity.');
   return rows[0];
 }
@@ -43,24 +45,27 @@ export async function listAccessAnalyses(sdk, { limit = 20, offset = 0 } = {}) {
   bounds(limit, offset);
   return page(sdk, REQUEST, 'ORDERBYDESClast_run^ORDERBYsys_id', limit, offset);
 }
+// One id, one verb: a request prints its operation outcomes, an operation
+// result prints the ordered checks behind it. A sys_id is unique per table,
+// not across tables, so a request row wins when an id exists in both; `kind`
+// says which one was found instead of leaving the reader to infer it.
 export async function showAccessAnalysis(sdk, id, { limit = 50, offset = 0 } = {}) {
   validateId(id);
   bounds(limit, offset);
-  const request = await one(sdk, REQUEST, id);
-  const results = await page(sdk, RESULT, `access_analyzer_request=${rawAccessValue(request.sys_id)}^ORDERBYexecution_id^ORDERBYoperation^ORDERBYsys_id`, limit, offset);
-  assertAssociation(results.records, 'access_analyzer_request', rawAccessValue(request.sys_id));
-  // execution_id identifies an operation result, not a shared analysis run.
-  return { request, ...results };
-}
-export async function explainAccessResult(sdk, id, { limit = 50, offset = 0 } = {}) {
-  validateId(id);
-  bounds(limit, offset);
-  const result = await one(sdk, RESULT, id);
+  const request = await oneOrNone(sdk, REQUEST, id);
+  if (request) {
+    const results = await page(sdk, RESULT, `access_analyzer_request=${rawAccessValue(request.sys_id)}^ORDERBYexecution_id^ORDERBYoperation^ORDERBYsys_id`, limit, offset);
+    assertAssociation(results.records, 'access_analyzer_request', rawAccessValue(request.sys_id));
+    // execution_id identifies an operation result, not a shared analysis run.
+    return { kind: 'request', request, ...results };
+  }
+  const result = await oneOrNone(sdk, RESULT, id);
+  if (!result) throw errNotFound(`Saved Access Analyzer record ${id} was not found as an analysis request or an operation result.`);
   const checks = await page(sdk, LOG, `access_result=${rawAccessValue(result.sys_id)}^ORDERBYlog_sequence^ORDERBYsys_id`, limit, offset);
   assertAssociation(checks.records, 'access_result', rawAccessValue(result.sys_id));
   const notes = ['Saved evidence only; this command does not run an access evaluation.'];
   if (['false', 'no'].includes(rawAccessValue(result.record_available).toLowerCase())) notes.push('The target record was unavailable. Business Rule/query filtering evidence is not itself an ACL failure.');
-  return { result, ...checks, notes };
+  return { kind: 'result', result, ...checks, notes };
 }
 
 function assertAssociation(rows, field, id) {
@@ -77,8 +82,8 @@ function outcome(row) {
 export function formatAccessAnalysis(data, mode) {
   const lines = ['Saved Access Analyzer evidence (read-only)'];
   if (mode === 'list') lines.push(...data.records.map(requestLine));
-  if (mode === 'show') lines.push(requestLine(data.request), ...data.records.map(outcome));
-  if (mode === 'explain') {
+  if (mode === 'request') lines.push(requestLine(data.request), ...data.records.map(outcome));
+  if (mode === 'result') {
     lines.push(outcome(data.result), ...data.notes);
     for (const row of data.records) {
       lines.push(`${text(row.log_sequence)}. ${text(row.type)} ${text(row.path)}: ${text(row.status) || '(undefined)'} [${rawAccessValue(row.sys_id)}]`);

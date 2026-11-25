@@ -27,7 +27,7 @@ export function impersonationRefusal(argv, caps = collectCapabilities()) {
   if (cap.noInstance) return 'it manages local state rather than reading the instance';
   // Writes the context guard cannot place on an ordinary table count as customization, captured in that user's update set.
   if (needsMutationContext(argv) && cap.mutationContext !== 'table') return 'it may write customization, which would be captured in that user\'s update set';
-  if (cap.noImpersonateSubcommands?.some(sub => sub === '' || sub === argv._?.[1])) return 'it would not run as that user: it reads through another profile or keeps running after the command returns';
+  if (cap.noImpersonateSubcommands?.some(sub => sub === '' || sub === argv._?.[1])) return 'it would not run as that user: it reads through another profile, keeps running after the command returns, or impersonates a user itself';
   return null;
 }
 
@@ -42,7 +42,7 @@ export async function confirmImpersonatedWrite(app, argv, { interactive = canUse
   throw new AppError(CodeConfirmationRequired, `${action}: confirmation required. Pass --impersonate-writes only after your user approves writing as that user.`, 'Ask your user to approve this write as that user, then re-run the same command with --impersonate-writes. Nothing was sent.');
 }
 
-async function findUser(sdk, query, shown) {
+export async function findUser(sdk, query, shown) {
   const rows = await sdk.listStrict('sys_user', { sysparm_query: query, sysparm_fields: 'sys_id,user_name', sysparm_limit: '2', sysparm_display_value: 'false' });
   if (!rows.length) throw errNotFound('user', shown);
   const [row] = rows;
