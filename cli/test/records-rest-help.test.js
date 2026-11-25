@@ -29,4 +29,5 @@ test('rest help exposes both endpoint and table shorthand without weakening read
   assert.match(output, /rest --table incident --query "sysparm_limit=3" --json/);
   assert.match(output, /blocked on read-only profiles for every method, including GET/);
   assert.match(output, /Prefer a specific jsn command or records/);
+  assert.match(output, /jsn scrapi search <words>; it gives the method and route/);
 });

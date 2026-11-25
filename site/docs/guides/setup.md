@@ -137,7 +137,7 @@ The focused auth tests cover same-instance username isolation, explicit refresh/
 ### OAuth request transport
 
 OAuth requests prefer JSN's existing cookie-backed UI session by default, including
-Table, Stats and Batch. The normal OAuth bootstrap binds the existing credential
+Table, Stats, Batch and Import Set. The normal OAuth bootstrap binds the existing credential
 to a UI session; data requests then send Cookie and its matching X-UserToken,
 without a Bearer Authorization header. A client reuses its session and shares a
 concurrent bootstrap. No new credential type, browser login or profile migration
@@ -150,8 +150,8 @@ Use the existing environment switch for an explicit header-only opt-out:
 JSN_ALWAYS_WARM_SESSION=0 jsn records list --profile pdi --table sys_properties --columns name --limit 1 --json
 ```
 
-This opt-out applies **only to OAuth requests on stateless-capable Table, Stats
-and Batch routes**. It sends Bearer without Cookie or X-UserToken, even when the
+This opt-out applies **only to OAuth requests on stateless-capable Table, Stats,
+Batch and Import Set routes**. It sends Bearer without Cookie or X-UserToken, even when the
 client already has a session. It cannot disable required UI-session endpoints
 such as GraphQL, processors, attachment upload or the concourse picker. Explicit
 SDK `stateful: true` also takes precedence, so Store comparison continues to use
@@ -174,7 +174,7 @@ user tokens and OAuth credentials are never printed by transport diagnostics.
 
 ### Basic-auth TOTP challenges (#402)
 
-Basic credentials can require TOTP even for Table, Stats and Batch calls. Those
+Basic credentials can require TOTP even for Table, Stats, Batch and Import Set calls. Those
 normal SDK request paths therefore bootstrap Basic login **before** dispatching
 the pending operation. Its policy is unchanged by the OAuth default described
 above. Supplied token credentials retain endpoint-based header auth on stateless

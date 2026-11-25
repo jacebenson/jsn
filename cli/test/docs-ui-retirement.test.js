@@ -121,8 +121,10 @@ test('normal terminal search still uses the configured JSON service', async t =>
   assert.equal(JSON.parse(result.stdout).data.results[0].path, 'security.md');
   const human = await f.cli('docs', 'security', '--styled');
   assert.match(human.stdout, /Security reference/);
-  assert.equal(requests.length, 2);
-  assert.ok(requests.every(url => new URL(url, f.env.JSN_DOCS_URL).pathname === '/api/docs/search'));
+  const paths = requests.map(url => new URL(url, f.env.JSN_DOCS_URL).pathname);
+  assert.equal(paths.filter(value => value === '/api/docs/search').length, 2);
+  // With no release named, the newest-family fallback also asks the same service for its families.
+  assert.ok(paths.every(value => ['/api/docs/search', '/api/docs/releases'].includes(value)));
   assert.equal(fs.existsSync(f.marker), false);
 });
 test('skill import and OS home resolution never interpret inherited USER', async t => {
