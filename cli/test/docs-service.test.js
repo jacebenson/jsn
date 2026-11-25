@@ -9,7 +9,7 @@ import { DocumentationIndex } from '../src/commands/docs/index.js';
 import { syncDocumentation } from '../src/commands/docs/sync-service.js';
 import { startDocumentationServer } from '../src/commands/docs/server.js';
 import { ensureLocalDocumentation, documentationService } from '../src/commands/docs/local.js';
-import { searchHostedDocs, getHostedDoc } from '../src/commands/docs/client.js';
+import { searchHostedDocs, getHostedDoc, listHostedReleases } from '../src/commands/docs/client.js';
 async function stopDaemon(pid) {
   if (!pid) return;
   for (const signal of ['SIGTERM', 'SIGKILL']) {
@@ -63,6 +63,7 @@ test('shared HTTP engine preserves search, exact paths, literal operators and re
   assert.match(doc.body, /useful reference/);
   await assert.rejects(getHostedDoc(String(doc.id), { serviceUrl: url, revision: 'outdated' }), error => error.status === 409);
   assert.equal((await fetch(new URL('api/docs/search?q=x&limit=0', url))).status, 400);
+  assert.deepEqual(await listHostedReleases({ serviceUrl: url }), ['australia']);
 });
 test('managed local service starts once under concurrency and restarts when stopped', async t => {
   const f = fixture(t); await syncDocumentation(f);

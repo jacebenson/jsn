@@ -21,6 +21,9 @@ Discover commands with `jsn --help`, `jsn discover "search words"`, and
 - Deleting several records by filter is `jsn records delete-many`, not `eval`.
   It previews without `--yes`, and a real delete requires the exact
   `--expect-count` from that preview.
+- Why a user holds a role is `jsn users roles <user> --why --role <name>`, not
+  `eval` or raw REST: every path (direct, contained role, group) from the
+  platform's User Role Inheritance API, which needs `user_admin`.
   Add `--preview-cascade` to see the records in other tables the delete would
   cascade to before asking for approval. It is a write: it creates and deletes
   one Data Management delete job (admin), and leaves its count rows behind.
@@ -52,9 +55,20 @@ for a single-change check. A `gap` or `"complete": false` means events were
 missed — read the record's current state rather than assuming continuity.
 Watching needs a browser session (`jsn auth login --browser`).
 
+Configuration history: to see what an earlier version of a script, rule or other
+update-set-tracked record held, or which update set captured it last, use
+`jsn records versions <table> <sys_id> [--diff N]`. It reads saved versions,
+not the live record; no versions does not mean unchanged.
+
 For incoming update sets: import the XML, preview the set, and resolve preview
 errors with the human where needed. Once the preview is clear, commit the set
 and verify the results.
+
+Slow queries and scripts: to see what the platform logged as slow, use
+`jsn perf slow [--type queries|scripts|transactions|events|mutex|cache]`, ranked
+by total time, then `jsn perf slow show <sys_id>` for the full SQL and the stack
+trace naming the code that issued it. Both are reads; an empty list does not
+prove nothing is slow.
 
 Search documentation with `jsn docs "query"` or read with `jsn docs --path <path>`.
 Documentation source and defaults for future connections are configured in `jsn setup`.

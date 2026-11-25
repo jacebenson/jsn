@@ -697,6 +697,28 @@ export function recordsCmd(wrap) {
             });
           }),
         })
+        .command({
+          command: 'versions <table> <identifier>',
+          describe: 'List a record\'s update versions and compare one to the current version (read-only)',
+          discoveryTasks: [{
+            phrases: ['version history', 'record versions', 'compare to current', 'which update set captured a record', 'show latest update'],
+            args: ['--json'], description: 'List sys_update_version history and the latest captured update for one record',
+          }],
+          builder: (y) => y
+            .positional('table', { describe: 'Table name (e.g. sys_script_include)', type: 'string' })
+            .positional('identifier', { describe: 'Record sys_id, or the value of --identifier-field', type: 'string' })
+            .option('identifier-field', { type: 'string', describe: 'Exact identifier field (default sys_id), e.g. name' })
+            .option('limit', { type: 'number', default: 20, describe: 'Max versions, newest first (1-200)' })
+            .option('diff', { type: 'number', describe: 'Compare version N (1 = newest) to the current version' })
+            .epilogue('Versions come from sys_update_version by the record\'s sys_update_name; current means the version in state current, not the live record.\nExample: jsn records versions sys_script_include MyUtil --identifier-field name --diff 2'),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const { recordVersions, formatVersions } = await import('../records/versions.js');
+            const data = await recordVersions(app.sdk, { table: argv.table, identifier: argv.identifier, identifierField: argv.identifierField, limit: argv.limit, diff: argv.diff });
+            Object.defineProperty(data, '_formatted', { value: formatVersions(data), enumerable: false });
+            app.ok(data, { summary: `${data.count} version(s) of ${data.record.update_name}${data.diff ? `; version ${data.diff.version} vs current: ${data.diff.status}` : ''}` });
+          }),
+        })
 
     },
     // Parent discovery through the output controller: the subcommand list is
