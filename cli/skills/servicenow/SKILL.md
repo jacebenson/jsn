@@ -49,6 +49,12 @@ for a single-change check. A `gap` or `"complete": false` means events were
 missed — read the record's current state rather than assuming continuity.
 Watching needs a browser session (`jsn auth login --browser`).
 
+Checking what a user can see: add `--impersonate <user_name>` to a read, for
+example `jsn records list --table incident --impersonate abel.tuter --json`,
+instead of an eval with `gs.getSession().impersonate`. It needs the admin or
+impersonator role. A write as that user stops with `confirmation_required`
+before any request; ask the human, then re-run with `--impersonate-writes`.
+
 For incoming update sets: import the XML, preview the set, and resolve preview
 errors with the human where needed. Once the preview is clear, commit the set
 and verify the results.

@@ -11,6 +11,7 @@ import { App } from './app.js';
 import { resolveSession, applySession } from './session.js';
 import { renderHelp, renderTips } from './help.js';
 import { isMutationCommand, refreshMutationCommands } from './mutations.js';
+import { impersonationRefusal, confirmImpersonatedWrite, runImpersonated } from './impersonation.js';
 import { maybeShowHome } from './welcome.js';
 import { isLocalPreview, noInstanceCommands, dailyCheckSkipCommands, collectCapabilities } from './capabilities.js';
 import { guardExit, exitWithError, AppError, CodeUsage } from './errors.js';
@@ -126,6 +127,7 @@ function wrap(handler) {
         process.stderr.write('Error: App context not initialized.\n');
         process.exit(1);
       }
+      if (argv.impersonate !== undefined) await confirmImpersonatedWrite(app, argv);
       const caps = collectCapabilities().get(argv._?.[0]) || {};
       app.queryValidation = null;
       if (((typeof argv.query === 'string' && argv.query.trim()) || caps.filteredMutationSubcommands?.includes(argv._?.[1]))
@@ -134,8 +136,9 @@ function wrap(handler) {
         const options = { table: target, query: argv.query, refresh: argv['refresh-metadata'] };
         app.queryValidation = await (isMutationCommand(argv) ? assertWriteQuery : validateReadQuery)(app, options);
       }
-      await app.guardMutationContext(argv);
-      await handler(argv, app);
+      // Under --impersonate the write context is the impersonated user's, so it is checked on that session.
+      const run = async () => { await app.guardMutationContext(argv); await handler(argv, app); };
+      await (argv.impersonate !== undefined ? runImpersonated(app, argv.impersonate.trim(), run) : run());
     } catch (err) {
       // All error rendering goes through the unified renderer in
       // src/errors.js — exit codes, stream choice, and the JSON envelope
@@ -210,6 +213,8 @@ export function buildCLI() {
       verbose: { type: 'boolean', description: 'Keep machine-output coaching and pretty-print JSON' },
       raw: { type: 'boolean', description: 'Print extracted strings without JSON quotes' },
       'include-reference-links': { type: 'boolean', description: 'Include Table API reference links on reads' },
+      impersonate: { type: 'string', description: 'Run this command as another user (user_name or sys_id) on a private session' },
+      'impersonate-writes': { type: 'boolean', description: 'Allow a write under --impersonate once your user has approved it' },
       styled: {
         type: 'boolean',
         description: 'Force styled output even when piped',
@@ -285,6 +290,10 @@ export function buildCLI() {
             });
           }
         }
+      },
+      (argv) => {
+        const refusal = argv.impersonate === undefined ? null : impersonationRefusal(argv);
+        if (refusal) guardExit(argv, { code: 'usage', message: `"jsn ${argv._.join(' ')}" cannot run with --impersonate: ${refusal}.`, hint: 'Impersonation runs one instance command as another user, for example: jsn records list --table incident --impersonate abel.tuter' });
       },
     ])
     .middleware(async (argv) => {
@@ -603,3 +612,4 @@ export function buildCLI() {
 export const cli = buildCLI();
 
 export { cancelBackgroundChecks } from './commands/version.js';
+export { impersonating } from './impersonation.js';

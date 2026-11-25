@@ -26,6 +26,40 @@ Treat `--force` as a deliberate boundary, not a convenience flag. Test against t
 
 [Read about safe deletion](/features/safe-servicenow-record-deletion-cli/).
 
+## Act as another user
+
+`--impersonate <user_name or sys_id>` runs one command as that user: a read
+returns the rows their roles and ACLs allow, and a write is made as them.
+
+```bash
+jsn records list --table incident --limit 5 --impersonate abel.tuter --json
+jsn records update --table incident --sys-id <sys_id> --data '{"state":"2"}' --impersonate abel.tuter --impersonate-writes
+```
+
+The profile's user needs the admin or impersonator role. JSN opens a UI
+session private to the process, switches it, and reads the session back before
+the command runs, because the instance accepts a refused switch with success.
+That session sends only its cookie and user token, since a per-request
+credential would sign in again as the real user. It is never saved. On
+success, failure, Ctrl+C or a closed pipe, JSN switches back, logs out and
+checks the session has ended.
+
+A write as another user never runs by default. In an interactive terminal JSN
+asks, naming the user. Anywhere else, including `--json` and agents, it stops
+with `confirmation_required` before any request and runs only when re-run with
+`--impersonate-writes` after your user approves; `--yes` and `--force` do not
+count. The usual guards still apply: a read-only profile refuses the write,
+deletes still confirm, and the expected scope and update set are checked
+against the impersonated user's context, since their update set captures the
+change.
+
+Refused before any request: local commands such as `setup` and `auth`;
+`records watch` and `logs follow`, which keep running after the command
+returns; `compare`, `plugins compare`, `store compare`, `updatesets diff` and
+`diff record`, which read through other profiles; and browser-session
+profiles, whose cookies are the browser's own session. `upgrade prep
+--related-profile` reads its related profiles as their own users.
+
 ## Credential destination policy
 
 Project `.servicenow/config.json` files can select connection settings, but cannot

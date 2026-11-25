@@ -12,6 +12,7 @@ declareCapabilities('records', {
   mutationContext: 'table',
   filteredMutationSubcommands: ['delete-many', 'bulk'],
   mutationSubcommands: ['create', 'update', 'delete', 'delete-many', 'bulk'],
+  noImpersonateSubcommands: ['watch'],
 });
 
 const tableDefaultColumns = {
