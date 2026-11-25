@@ -705,6 +705,45 @@ templates and other trigger families (timer, catalog, REST, SLA) are reported as
 `unsupported` with the trigger type named, because the platform exposes no
 table-scoped join for them; no text match over flow definitions is guessed.
 
+## Table audit status
+
+`src/table-audit.js` is the read-only layer behind
+`jsn tables audit <table> [--field <name>]`. It reports what the platform writes
+to `sys_audit` and `sys_audit_delete` for one table, from bounded GET reads: the
+`sys_db_object` chain, the `sys_schema_attribute` ids of `no_audit`, `audit`,
+`audit_type` and `no_audit_delete`, their `sys_schema_attribute_m2m` rows for the
+chain, every `sys_dictionary` row of the table and its ancestors, and three
+`sys_properties`. A read returning more than 2000 rows is refused, not half used.
+
+- **Table audit** is the Audit tick on the table's own collection row. It does
+  not inherit; an audited ancestor is named so the gap is visible.
+- **Mode** is `whitelist` when that row carries `audit_type=whitelist`; then
+  only columns with `audit=true` are audited.
+- **Column verdicts**, first match wins: table off; `sys_*` except
+  `sys_class_name` and `sys_domain_id`; encrypted types (`password`,
+  `password2`, `glide_encrypted`); whitelist; `no_audit` by presence, whatever
+  its value. When a column has rows on the table and an ancestor, the nearest
+  row wins.
+- **Inserts** are audited only on an audited table with
+  `glide.sys.audit_inserts=true`. **Updates** follow the table tick.
+- **Deletes** go to `sys_audit_delete` whether or not the table is audited,
+  unless its collection row carries `no_audit_delete`, it is listed in
+  `glide.db.audit.ignore.delete` (a set property replaces the documented
+  default list), or it is a `sys_` table missing from
+  `glide.ui.audit_deleted_tables` (its documented default list while unset).
+- **Reads** are never audited.
+- **Properties**: an empty `sys_properties` read is refused, never taken as
+  "unset, defaults apply"; the Table API filters rows a non-admin cannot read.
+- **Attribute sources**: verdicts follow the `attributes` string. Attribute
+  rows exist only for `no_audit` and `no_audit_delete` (`audit` and
+  `audit_type` have no `sys_schema_attribute` record on dev485581, so they are
+  reported as string only). Rows join on the raw dictionary sys_id, and every
+  disagreement between the two sources is listed.
+
+Not modelled: dictionary overrides, the undocumented
+`glide.db.audit.enable_audit_inserts`, and an ancestor's `no_audit_delete` or
+whitelist mode.
+
 ## Flow inspection
 
 `src/flow-inspection.js` is the single deep module for `flows show` and the

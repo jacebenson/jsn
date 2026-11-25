@@ -279,6 +279,7 @@ jsn flows create --data-file flow.manifest.json # Create a draft record-triggere
 jsn workflows list --table incident             # Legacy Workflow Editor, read-only (wf_* tables)
 jsn workflows show "Incident approval"          # Versions, activities, transitions, conditions, scripts
 jsn rules list --query "collection=incident"
+jsn tables audit incident --field work_notes   # Audited or not, and why (read-only)
 jsn updatesets set "My Feature"
 
 # Generic table access
