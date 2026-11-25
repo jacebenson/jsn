@@ -14,7 +14,7 @@ const TOWER = [
   '    ___/___\\___      The AI control tower for business reinvention,',
   '   | [] [] [] |      now broadcasting from your terminal.',
   '    \\_________/',
-  '       |   |         Inspired by the AI Control Tower. Powered by three counts.',
+  '       |   |         Inspired by the AI Control Tower. Powered by No Assist.',
   '       |   |         Superintelligence: not included.',
   '    ___|___|___',
 ];
@@ -39,7 +39,7 @@ const signOff = kill => kill ? 'Business paused. 0 records changed.' : 'Business
 
 export function formatTower({ instance, radar, kill_switch: kill }) {
   const lines = [...TOWER, ''];
-  if (kill) lines.push('KILL SWITCH ENGAGED. Radar powered down, no requests sent.', 'Every AI agent jsn runs has been stopped. All zero of them.');
+  if (kill) lines.push('KILL SWITCH ENGAGED. Radar powered down, no requests sent.', 'Otto the autopilot has been stopped.');
   else if (!instance) lines.push('Radar sweep: no instance in range. The radar is empty.', 'Run: jsn setup');
   else {
     lines.push(`Radar sweep: ${instance}`);

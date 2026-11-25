@@ -65,13 +65,15 @@ test('the tower is static and names the tagline it riffs on', async () => {
   const text = formatTower(data);
   assert.equal(text, formatTower(data));
   assert.match(text, /The AI control tower for business reinvention/);
-  assert.match(text, /AI Control Tower/);
+  assert.match(text, /AI Control Tower\. Powered by No Assist\./);
   assert.match(text, /Open incidents awaiting reinvention \.+ 42\n/);
   assert.match(text, /Transactions running right now \.+ 1\n/);
   assert.match(text, /Records deleted today \.+ 376\n/);
   assert.ok(text.endsWith('Business reinvented. 0 records changed.\n'));
   const killed = formatTower({ ...data, radar: [], kill_switch: true });
   assert.match(killed, /KILL SWITCH ENGAGED\. Radar powered down, no requests sent\./);
+  assert.match(killed, /Powered by No Assist\./);
+  assert.match(killed, /\nOtto the autopilot has been stopped\.\n/);
   assert.doesNotMatch(killed, /Radar sweep/);
   assert.ok(killed.endsWith('Business paused. 0 records changed.\n'));
 });
