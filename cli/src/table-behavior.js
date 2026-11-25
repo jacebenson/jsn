@@ -261,7 +261,7 @@ export function normalizeCategories(input) {
   return categories;
 }
 
-async function loadHierarchy(sdk, requested) {
+export async function loadHierarchy(sdk, requested) {
   const nodes = [];
   const seen = new Set();
   let query = `name=${requested}`;
