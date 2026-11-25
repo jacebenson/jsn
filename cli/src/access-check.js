@@ -7,6 +7,7 @@ import { findUser } from './impersonation.js';
 import { isSysId } from './resolve-record.js';
 
 const OPERATIONS = ['read', 'write', 'delete'];
+const ACL_RESULTS = ['passed', 'blocked', 'skipped', 'undefined'];
 const MARK = 'JSN_ACCESS_CHECK:';
 const RULE_LIMIT = 50;
 const malformed = () => new AppError(CodeAPI, 'The access evaluation returned no readable result.');
@@ -63,8 +64,13 @@ function aclResult(checks) {
 function verdict(name, operations, read, rules) {
   const acl = operations.find(op => op.operation === 'read');
   if (!acl) return { returned: `A read as ${name} returns this record.`, not_returned: `A read as ${name} does not return this record.`, refused: `The instance refused a read as ${name}.` }[read];
-  if (acl.acl_blocked) return read === 'returned' ? `ACLs block ${name} from reading this record, yet a read as ${name} returned it.` : `ACLs block ${name} from reading this record.`;
+  if (acl.acl_result === 'blocked') return read === 'returned' ? `ACLs block ${name} from reading this record, yet a read as ${name} returned it.` : `ACLs block ${name} from reading this record.`;
   if (read === 'returned') return `${name} can read this record.`;
+  if (acl.acl_result !== 'passed') {
+    return read === 'refused'
+      ? `The analyzer did not decide the ACLs (${acl.acl_result}), and the instance refused a read as ${name}.`
+      : `The analyzer did not decide the ACLs (${acl.acl_result}), and a read as ${name} does not return this record; check the before-query rules listed.`;
+  }
   // A query rule filters rows and never refuses, so a refusal points elsewhere.
   if (read === 'refused') return `ACLs allow ${name} to read this record, but the instance refused a read as ${name}.`;
   return rules.length
@@ -92,9 +98,12 @@ export async function checkAccess(sdk, input, { asUser }) {
   const operations = options.operations.map(op => {
     const d = out.ops?.[op];
     if (!d || typeof d.status !== 'boolean' || !Array.isArray(d.acls) || !Array.isArray(d.rules)) throw malformed();
-    if (!Array.isArray(d.results) || !d.results.length || d.results.some(result => result !== 'passed' && result !== 'blocked')) throw malformed();
+    const results = Array.isArray(d.results) ? d.results.map(result => String(result).toLowerCase()) : [];
+    if (!results.length || results.some(result => !ACL_RESULTS.includes(result))) throw malformed();
     if (d.acls.some(acl => !acl || !isSysId(acl.sys_id) || !acl.checks || typeof acl.checks !== 'object')) throw malformed();
-    return { operation: op, allowed: d.status, acl_blocked: d.results.includes('blocked'), acls: d.acls.map(acl => ({ ...acl, ...aclResult(acl.checks) })) };
+    // Any block decides; passed needs every entry passed; otherwise the analyzer left the ACLs undecided.
+    const aclState = results.includes('blocked') ? 'blocked' : results.find(result => result !== 'passed') || 'passed';
+    return { operation: op, allowed: d.status, acl_result: aclState, acls: d.acls.map(acl => ({ ...acl, ...aclResult(acl.checks) })) };
   });
 
   // A query rule on global runs for every table.
@@ -122,7 +131,9 @@ export async function checkAccess(sdk, input, { asUser }) {
 export function formatAccessCheck(data) {
   const lines = [`Live access check for ${data.user.user_name} on ${data.table} ${data.record} (no analysis saved)`];
   for (const op of data.operations) {
-    lines.push(`${op.operation}: ${op.acl_blocked ? 'blocked by ACL' : op.allowed ? 'allowed' : 'denied by the analyzer, though no ACL blocks it'}`);
+    const state = { blocked: 'blocked by ACL', passed: op.allowed ? 'allowed' : 'denied by the analyzer, though no ACL blocks it' }[op.acl_result]
+      ?? `${op.allowed ? 'allowed' : 'denied'} by the analyzer, ACL check ${op.acl_result}`;
+    lines.push(`${op.operation}: ${state}`);
     for (const acl of op.acls) {
       const roles = Array.isArray(acl.roles) && acl.roles.length ? `, roles ${acl.roles.join(', ')}` : '';
       const result = acl.result === 'failed' ? `failed on ${acl.failed_checks.join(', ')}` : acl.result.replace('_', ' ');

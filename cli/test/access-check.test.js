@@ -22,9 +22,9 @@ const acls = allowed => [
   { sys_id: id(43), path: 'record/incident/read', decision_type: 'ALLOW_IF', roles: ['admin'], checks: checks('NOT_EVALUATED', { applies_to: 'FALSE' }) },
 ];
 // status is the analyzer's overall decision; results are its ACL verdicts, one SecurityRulesInfo entry each.
-const evaluation = ({ allowed = true, blocked = !allowed, ops = ['read', 'write', 'delete'], ...rest } = {}) => ({
+const evaluation = ({ allowed = true, blocked = !allowed, result = blocked ? 'blocked' : 'passed', ops = ['read', 'write', 'delete'], ...rest } = {}) => ({
   tables: ['incident', 'task'], error: 0, errorMessage: '',
-  ops: Object.fromEntries(ops.map(op => [op, { status: allowed, results: [blocked ? 'blocked' : 'passed'], rules: [RULE], acls: acls(!blocked) }])), ...rest,
+  ops: Object.fromEntries(ops.map(op => [op, { status: allowed, results: [result], rules: [RULE], acls: acls(!blocked) }])), ...rest,
 });
 const printed = body => `*** Script: JSN_ACCESS_CHECK:${typeof body === 'string' ? body : JSON.stringify(body)}`;
 
@@ -97,6 +97,13 @@ test('ACLs that allow a read the user cannot make point at the before-query rule
   assert.match(formatAccessCheck(refusedData), /Read as abel\.tuter: refused \(HTTP 403\)/);
   const refusedBlocked = fixture({ output: printed(evaluation({ allowed: false })), read: forbidden() });
   assert.equal((await checkAccess(refusedBlocked.sdk, input(), refusedBlocked)).verdict, 'ACLs block abel.tuter from reading this record.');
+  // A skipped or undefined ACL step is undecided, never read as ACLs allowing.
+  const skipped = fixture({ output: printed(evaluation({ allowed: false, blocked: false, result: 'Skipped' })), read: [] });
+  const skippedData = await checkAccess(skipped.sdk, input(), skipped);
+  assert.equal(skippedData.verdict, 'The analyzer did not decide the ACLs (skipped), and a read as abel.tuter does not return this record; check the before-query rules listed.');
+  assert.match(formatAccessCheck(skippedData), /read: denied by the analyzer, ACL check skipped/);
+  const undecidedRefused = fixture({ output: printed(evaluation({ allowed: false, blocked: false, result: 'undefined' })), read: forbidden() });
+  assert.equal((await checkAccess(undecidedRefused.sdk, input(), undecidedRefused)).verdict, 'The analyzer did not decide the ACLs (undefined), and the instance refused a read as abel.tuter.');
   const contradicted = fixture({ output: printed(evaluation({ allowed: false })) });
   assert.equal((await checkAccess(contradicted.sdk, input(), contradicted)).verdict, 'ACLs block abel.tuter from reading this record, yet a read as abel.tuter returned it.');
   const write = fixture({ output: printed(evaluation({ ops: ['write'] })), read: [] });

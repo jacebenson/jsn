@@ -89,7 +89,8 @@ default `read,write,delete`),
 lists the active before-query business rules on the table, its parents and
 `global` (the `b4rules` filter), and reads the record as `--user` through
 `--impersonate`'s session. "Blocked by ACL" comes from the analyzer's ACL result
-alone, since its overall decision also counts query rules. When ACLs allow the
+alone, since its overall decision also counts query rules; an ACL step it
+skipped or left undefined is shown as undecided, never as allowed. When ACLs allow the
 read but the read as the user returns nothing, it says a listed rule is the
 likely cause. It needs a basic or OAuth profile that can run background scripts
 and impersonate, and each run leaves an impersonation entry in the instance's logs.
