@@ -149,7 +149,8 @@ globalThis.fetch = (request, options) => {
       }, calls, count ? 2 : 1, t.rows.length);
     }
     for (const mode of ['full', 'outline', 'section']) {
-      await measure(`docs/${mode}`, ['docs', '--path', d.path, '--json', ...(mode === 'full' ? [] : [mode === 'outline' ? '--outline' : '--section', ...(mode === 'section' ? [d.section] : [])])],
+      // The family is named so this measures the read; choosing one is docs-instance-release.test.js's.
+      await measure(`docs/${mode}`, ['docs', '--path', d.path, '--release', d.release, '--json', ...(mode === 'full' ? [] : [mode === 'outline' ? '--outline' : '--section', ...(mode === 'section' ? [d.section] : [])])],
         (stdout, stderr) => {
           assert.equal(stderr, ''); const result = JSON.parse(stdout); assert.equal(result.ok, true);
           const data = result.data; assert.equal(data.revision, d.revision); assert.equal(data.release, d.release);
