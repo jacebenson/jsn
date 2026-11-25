@@ -6,6 +6,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { recordsCmd } from '../src/commands/records.js';
 import { isMutationCommand } from '../src/mutations.js';
+import { quoteShellArg } from '../src/helpers.js';
 
 const id = n => String(n).padStart(32, '0');
 const row = (table, n, { action = 'INSERT_OR_UPDATE', updated = '2026-11-25 06:00:00', mods = '3' } = {}) =>
@@ -80,11 +81,11 @@ test('import without --yes, or with --dry-run, previews the file and sends nothi
     assert.equal(f.data.value.dry_run, true);
     assert.deepEqual(f.data.value.tables, { incident: 2, sys_journal_field: 1 });
     assert.equal(f.data.value.deletes, 1);
-    assert.equal(f.data.value.rerun, `jsn records import ${file} --yes`);
+    assert.equal(f.data.value.rerun, `jsn records import ${quoteShellArg(file)} --yes`);
     // The hint keeps the profile, so following it cannot import into another instance.
     const pinned = fixture();
     await pinned.run({ ...args, profile: 'target' });
-    assert.equal(pinned.data.value.rerun, `jsn records import ${file} --yes --profile target`);
+    assert.equal(pinned.data.value.rerun, `jsn records import ${quoteShellArg(file)} --yes --profile ${quoteShellArg('target')}`);
     assert.match(f.data.meta.summary, /Dry run: would import 3 record\(s\) across 2 table\(s\), 1 marked DELETE; nothing was sent/);
   }
 });

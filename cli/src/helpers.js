@@ -82,14 +82,6 @@ export function formatCommandList({ title, commands, footer }) {
  */
 export function quoteShellArg(value) {
   const s = value == null ? '' : String(value);
-  if (process.platform === 'win32') {
-    // cmd and PowerShell reject POSIX single quotes, so a Windows path would be
-    // handed to the user wrapped in characters neither shell honours. A bare
-    // path is safe unless it holds whitespace or a character both shells act on.
-    if (s === '') return '""';
-    if (/^[A-Za-z0-9_@+=:,./\\~-]+$/.test(s)) return s;
-    return `"${s.split('"').join('\\"')}"`;
-  }
   if (s === '') return "''";
   if (/^[A-Za-z0-9_@%+=:,./^-]+$/.test(s)) return s;
   return `'${s.split("'").join("'\\''")}'`;
