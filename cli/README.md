@@ -53,6 +53,22 @@ Raw reference values and display labels are retained in JSON; joins use raw IDs.
 Passed, Blocked, Skipped and Undefined remain distinct. A record-availability
 failure with Business Rule evidence is not automatically an ACL failure.
 
+## Outbound email notifications
+
+```sh
+jsn notifications list --query "collection=incident^active=true"
+jsn notifications show "Incident opened and unassigned" --format styled
+jsn notifications show <sys_id> --get data._delivery
+```
+
+These commands read `sysevent_email_action` and never render or send email.
+`show` adds `_delivery`: what sends the notification (a record insert or update
+with its condition, an event, or a flow) and which body is used. A template
+with a body replaces the notification's own `message_html`; an empty template
+body leaves it in play. Mail script names come from the body in use. A template
+that cannot be read is reported `unavailable`, never as the notification's own
+body, and plain-text notifications are `unsupported`.
+
 ## Choose output
 
 Use the default terminal view for people, `--csv` or `--tsv` for flat rows, and `--json` when scripts need pagination, context, or errors. CSV/TSV do not fetch more pages or preserve both reference IDs and labels. Pagination notices go to stderr only when more results are explicitly known; silence does not prove completeness. JSON retains reference objects only if the command has not already flattened them. See [output details](https://jsn.jace.pro/docs/output/).
