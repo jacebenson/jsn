@@ -1208,30 +1208,35 @@ export class SDKClient {
 
   /**
    * Fetch catalog variables for a request item (RITM).
+   * sc_item_option has no request_item column; answers link to the RITM through sc_item_option_mtom.
    * @param {string} ritmSysID - Sys ID of the request item
-   * @returns {Promise<Array<{question: string, value: string}>>}
+   * @param {number} [limit=100] - Most answers to return; one more is read to detect truncation
+   * @returns {Promise<{variables: Array<{question: string, value: string}>, truncated: boolean}>}
    */
-  async fetchCatalogVariables(ritmSysID) {
+  async fetchCatalogVariables(ritmSysID, limit = 100) {
     const params = new URLSearchParams();
     params.set('sysparm_display_value', 'all');
-    params.set('sysparm_fields', 'item_option_new,value');
-    params.set('sysparm_query', `request_item=${ritmSysID}`);
-    params.set('sysparm_limit', '100');
+    params.set('sysparm_fields', 'request_item,sc_item_option.item_option_new,sc_item_option.value');
+    params.set('sysparm_query', `request_item=${ritmSysID}^ORDERBYsc_item_option.order`);
+    params.set('sysparm_limit', String(limit + 1));
 
-    const optRecords = await this.list('sc_item_option', params);
+    const links = await this.listStrict('sc_item_option_mtom', params);
     const variables = [];
 
-    for (const opt of optRecords) {
+    for (const link of links.slice(0, limit)) {
+      if (link?.request_item?.value !== ritmSysID) throw new Error(`sc_item_option_mtom returned an answer for another requested item (${link?.request_item?.value || 'none'}), so the RITM filter was not applied`);
+      const questionField = link['sc_item_option.item_option_new'];
+      const valueField = link['sc_item_option.value'];
       let question = '';
-      if (opt.item_option_new && typeof opt.item_option_new === 'object') {
-        question = opt.item_option_new.display_value || '';
+      if (questionField && typeof questionField === 'object') {
+        question = questionField.display_value || '';
       }
 
       let value = '';
-      if (opt.value && typeof opt.value === 'object') {
-        value = opt.value.display_value || opt.value.value || '';
-      } else if (typeof opt.value === 'string') {
-        value = opt.value;
+      if (valueField && typeof valueField === 'object') {
+        value = valueField.display_value || valueField.value || '';
+      } else if (typeof valueField === 'string') {
+        value = valueField;
       }
 
       if (question) {
@@ -1239,7 +1244,7 @@ export class SDKClient {
       }
     }
 
-    return variables;
+    return { variables, truncated: links.length > limit };
   }
 
   /**
