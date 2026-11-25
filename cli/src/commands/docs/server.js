@@ -3,7 +3,7 @@ import { SECTION_PROTOCOL } from './sections.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { resolveDocsDbPath, resolveDocsRelease } from './db.js';
+import { DEFAULT_DOCS_RELEASE, resolveDocsDbPath, resolveDocsRelease } from './db.js';
 import { fork } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { DocumentationIndex, documentationStatus } from './index.js';
@@ -22,6 +22,7 @@ export async function startDocumentationServer({ storage = serviceStorage(), hos
       if (url.pathname === '/up') return send(200, { service: 'jsn-docs', release });
       if (release && url.searchParams.has('release') && url.searchParams.get('release') !== release) return send(400, { error: `This documentation server serves ${release}.`, hint: `Use --release ${release}.` });
       if (url.pathname === '/api/docs/status') return send(200, { ...documentationStatus(storage), release });
+      if (url.pathname === '/api/docs/releases') return send(200, { releases: [{ release: release || DEFAULT_DOCS_RELEASE, revision: documentationStatus(storage).revision ?? null }] });
       if (!['/api/docs/search', '/api/docs/document'].includes(url.pathname) && !/^\/api\/docs\/\d{1,18}$/.test(url.pathname)) return send(404, { error: 'Not found.' });
       index = new DocumentationIndex(storage, release);
       const params = Object.fromEntries(url.searchParams);

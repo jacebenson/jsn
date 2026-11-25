@@ -306,6 +306,48 @@ describe('normalizeRecordWatcherEvent', () => {
     assert.equal(event.changes, undefined);
   });
 
+  it('reads a query-channel payload with changed field names and its entry/change/exit match', () => {
+    // Captured from dev485581 on 2026-11-25: an update that took the record out of the query.
+    const event = normalizeRecordWatcherEvent({
+      channel: '/rw/default/incident/cHJpb3JpdHk9MQ--',
+      data: {
+        changes_with_users: { urgency: 'admin', impact: 'admin', priority: 'admin' },
+        display_value: 'INC0010393',
+        sys_id: SYS_ID,
+        record: { priority: { display_value: '4 - Low', value: '4' }, sys_updated_by: { display_value: 'admin', value: 'admin' } },
+        changes: ['impact', 'priority', 'urgency'],
+        action: 'exit',
+        operation: 'update',
+        table_name: 'incident',
+      },
+    }, {}, '2026-11-25T07:10:53.059Z');
+    assert.equal(event.operation, 'updated');
+    assert.equal(event.action, 'update', 'action keeps the raw operation word');
+    assert.equal(event.match, 'exit');
+    assert.equal(event.table, 'incident');
+    assert.equal(event.sys_id, SYS_ID);
+    assert.deepEqual(event.changes, [{ field: 'impact' }, { field: 'priority' }, { field: 'urgency' }]);
+    assert.equal(event.record.priority.value, '4');
+  });
+
+  it('unwraps the trimmed payload sent to a user who cannot read the record', () => {
+    // Captured from dev485581 on 2026-11-25, received by a user with no roles.
+    const event = normalizeRecordWatcherEvent({
+      channel: '/rw/default/incident/cHJpb3JpdHk9MQ--',
+      data: {
+        amb_include_fields: ['short_description', 'activity_due', 'sys_updated_on'],
+        metadata: { display_value: 'INC0010393', sys_id: SYS_ID, changes: ['short_description', 'activity_due'], action: 'change', operation: 'update', table_name: 'incident' },
+        record: { sys_id: SYS_ID, table: 'incident' },
+      },
+    }, {}, '2026-11-25T07:10:40.000Z');
+    assert.equal(event.operation, 'updated');
+    assert.equal(event.match, 'change');
+    assert.equal(event.display_value, 'INC0010393');
+    assert.equal(event.sys_id, SYS_ID);
+    assert.deepEqual(event.changes.map(c => c.field), ['short_description', 'activity_due']);
+    assert.equal(event.record, undefined, 'an identity-only record carries no field values');
+  });
+
   it('normalizes delete and positional change payloads', () => {
     const event = normalizeRecordWatcherEvent({
       channel: '/rw/default/incident/abc',

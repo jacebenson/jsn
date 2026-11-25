@@ -62,7 +62,7 @@ import {
   scriptactionsCmd, scheduledjobsCmd, asyncrulesCmd, triggersCmd,
   assignmentsCmd,
   emailCmd,
-  restmessageCmd, soapmessagesCmd,
+  notificationsCmd, restmessageCmd, soapmessagesCmd,
   uimacrosCmd, uxlistsCmd, uxapplicabilityCmd,
 } from './commands/_simple.js';
 import { decisiontablesCmd } from './commands/decisiontables.js';
@@ -409,6 +409,7 @@ export function buildCLI() {
     .command(scrapiCmd(wrap))
     .command(emailCmd(wrap))
     // AUTOMATION — Outbound
+    .command(notificationsCmd(wrap))
     .command(restmessageCmd(wrap))
     .command(soapmessagesCmd(wrap))
     // ACCESS
