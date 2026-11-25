@@ -21,6 +21,9 @@ Discover commands with `jsn --help`, `jsn discover "search words"`, and
 - Deleting several records by filter is `jsn records delete-many`, not `eval`.
   It previews without `--yes`, and a real delete requires the exact
   `--expect-count` from that preview.
+- Finding a REST endpoint is `jsn scrapi search <words>`, which lists every API on
+  the instance, out of the box and scripted, with its method and route; then
+  `jsn scrapi spec "<API name>"` prints its OpenAPI document.
 
 For development:
 

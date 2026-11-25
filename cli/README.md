@@ -53,6 +53,22 @@ Raw reference values and display labels are retained in JSON; joins use raw IDs.
 Passed, Blocked, Skipped and Undefined remain distinct. A record-availability
 failure with Business Rule evidence is not automatically an ACL failure.
 
+## Find a REST API
+
+```sh
+jsn scrapi search attachment --method POST
+jsn scrapi search change --namespace sn_chg_rest --json
+jsn scrapi spec "Table API" > table-api.json
+jsn scrapi spec "Attachment API" --yaml > attachment-api.yaml
+```
+
+`search` reads the catalogue the instance's REST API Explorer uses, out-of-the-box and scripted
+APIs alike, and matches case-insensitively on API name, route and descriptions. Each row's
+`route` is the path `jsn rest` takes. `--namespace` reads only that namespace, and an unknown one
+is an error naming the nearest. `spec` prints the API's OpenAPI 3 document as the instance gives
+it (`--json` wraps it in the envelope); a name several APIs match is refused with the candidates
+and their namespaces. Both are reads and work on read-only profiles.
+
 ## Choose output
 
 Use the default terminal view for people, `--csv` or `--tsv` for flat rows, and `--json` when scripts need pagination, context, or errors. CSV/TSV do not fetch more pages or preserve both reference IDs and labels. Pagination notices go to stderr only when more results are explicitly known; silence does not prove completeness. JSON retains reference objects only if the command has not already flattened them. See [output details](https://jsn.jace.pro/docs/output/).
