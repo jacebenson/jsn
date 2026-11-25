@@ -416,8 +416,10 @@ The CLI's migration to these endpoints is separate from implementing this servic
 ### JSN docs commands consume the hosted REST API
 
 Replace CLI-local docs indexing and serving with `docs search`, `docs show`, and
-remote `docs status`. These commands use the public service without instance
-credentials, login, local index initialization, or dataset downloads. Preserve
+remote `docs status`. These commands use the public service without login, local
+index initialization, or dataset downloads. With no release named, they read the
+selected profile's `glide.war` to choose the family, never prompting, and fall back
+to the newest family the service lists when they cannot. Preserve
 JSON envelopes, full Markdown bodies, `--get`, styled previews and pagination.
 Use `JSN_DOCS_URL` for a local or alternate deployment. The default production
 host still requires deployment of the Rails service before those APIs work.
@@ -800,6 +802,20 @@ supplied token and GCK policies, existing bootstrap-unavailable Bearer fallback,
 and bounded recovery/mutation-replay rules are unchanged. No 403 warm/retry is
 introduced. See [OAuth request transport](../guides/setup.md#oauth-request-transport).
 
+### Table audit status extends `tables` (2026-11-25)
+
+`jsn tables audit <table> [--field <name>]` is a read-only subcommand of `tables`,
+like `tables behavior`, so it adds no root command and inherits the family's
+capabilities. It answers "is this audited, and why not" from the dictionary and
+three properties rather than from `sys_audit` rows, because missing history
+cannot show which rule suppressed it. Verdicts follow the dictionary
+`attributes` string; `sys_schema_attribute_m2m` rows are compared and every
+disagreement is listed. It reads every dictionary row of the table and its
+ancestors in one bounded query (2000 rows), because CMDB child tables carry
+their own rows for inherited columns: on dev485581 the `cmdb_ci_linux_server`
+chain has 552 rows, and 113 of its elements are defined on more than one table
+in the chain. See [Table audit status](domain-model.md#table-audit-status).
+
 ### One directory per owner at the repository root
 
 The repository root holds `cli/`, `docs/`, `site/`, and GitHub metadata under
@@ -873,7 +889,8 @@ Update this file when a durable project fact changes. Do not turn it into a dail
 ## Targeted documentation retrieval
 
 The document reader supports `--outline` and `--section` alongside `--path`.
-Full-document reads remain the default. No ServiceNow connection is needed.
+Full-document reads remain the default. No ServiceNow connection is needed, though a
+selected profile chooses the family when no release is named.
 
 ```sh
 node cli/bin/jsn.js docs --path api-reference/web-services/scripted-graph-ql.md --json

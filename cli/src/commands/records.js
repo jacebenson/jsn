@@ -1,17 +1,19 @@
 import { formatCommandList, formatRecordForDisplay, findOmittedColumns, buildQuerySuffix, buildRecordPayload, getStringField, interactiveList, resolveFieldsParam, checkDerivedFields, confirmDelete, verifyWriteBack, quoteShellArg } from '../helpers.js';
 import { listRecords, recordListParams, getRecord, createRecord, updateRecord, deleteRecord } from '../records-engine.js';
 import { resolveRecord, unwrapSysId } from '../resolve-record.js';
+import { findDeletedRecord, restoreDeletedRecord } from '../record-undelete.js';
 import { errUsage } from '../errors.js';
 import { AmbClient } from '../amb.js';
 import { watchRecord } from '../record-watch.js';
 import { declareCapabilities } from '../capabilities.js';
 import { assertMutationRecordScope, assertMutationScope } from '../intended-context.js';
 import { validateReadQuery, assertWriteQuery, queryDiagnostics, invalidateAfterMutation } from '../query-validate.js';
+import { previewCascade } from '../delete-cascade.js';
 
 declareCapabilities('records', {
   mutationContext: 'table',
   filteredMutationSubcommands: ['delete-many', 'bulk'],
-  mutationSubcommands: ['create', 'update', 'delete', 'delete-many', 'bulk'],
+  mutationSubcommands: ['create', 'update', 'delete', 'delete-many', 'bulk', 'undelete'],
 });
 
 const tableDefaultColumns = {
@@ -472,9 +474,13 @@ export function recordsCmd(wrap) {
             .option('yes', { type: 'boolean', default: false, describe: 'Confirm deletion (requires --expect-count)' })
             .option('dry-run', { type: 'boolean', default: false, describe: 'Preview only, even with --yes' })
             .option('limit', { type: 'number', default: 200, describe: 'Safety cap: refuse if matches exceed this count' })
-            .epilogue('Without --yes, reports count and up to 10 sample records without writes.\nDeletion uses per-record Table API DELETE, then re-counts the query. Concurrent changes cannot be made atomic.'),
+            .option('preview-cascade', { type: 'boolean', default: false, describe: 'Also preview the records the delete would cascade to, through a Data Management delete job that is never executed (admin)' })
+            .option('keep-job', { type: 'boolean', default: false, describe: 'With --preview-cascade, keep the delete job for review in the UI' })
+            .epilogue('Without --yes, reports count and up to 10 sample records without writes.\nDeletion uses per-record Table API DELETE, then re-counts the query. Concurrent changes cannot be made atomic.\n--preview-cascade inserts one sys_dm_delete job for the filter, previews up to 3 cascade levels (counts past the source table are estimates), then deletes the job unless --keep-job. Its sys_dm_delete_count rows stay behind: their delete ACL refuses even an admin. It never deletes the matching records; the --yes delete that follows records no rollback.'),
           handler: wrap(async (argv, app) => {
             if (!argv.query?.trim()) throw errUsage('--query must be nonempty. Use records delete for a single record.');
+            if (argv['preview-cascade'] && argv.yes) throw errUsage('--preview-cascade previews only. Run it without --yes, then delete with the command it prints.');
+            if (argv['keep-job'] && !argv['preview-cascade']) throw errUsage('--keep-job needs --preview-cascade.');
             // Complete original filter validated before count/enumeration/scope reads or any write.
             await assertWriteQuery(app, { table: argv.table, query: argv.query, refresh: argv['refresh-metadata'] });
             if (!Number.isSafeInteger(argv.limit) || argv.limit < 1) throw errUsage('--limit must be a positive safe integer.');
@@ -496,10 +502,19 @@ export function recordsCmd(wrap) {
             const breadcrumbs = [{ action: 'verify', cmd: `jsn records aggregate --table ${quoteShellArg(argv.table)} --query ${quoteShellArg(argv.query)}`, description: 'Re-check matching records' }];
             if (dryRun) {
               const sample = count ? await readPage(Math.min(10, count), 0) : [];
-              return app.ok({ table: argv.table, query: argv.query, count, dry_run: true, sample, rerun }, {
-                summary: `Dry run: ${count} record(s) in ${argv.table} would be deleted`,
-                breadcrumbs: [{ action: 'delete', cmd: rerun, description: 'Delete with this exact expected count' }],
+              const cascade = argv['preview-cascade'] && count
+                ? await previewCascade(app.sdk, { table: argv.table, query: argv.query, count, keepJob: argv['keep-job'] }) : undefined;
+              const others = cascade?.tables.filter(t => t.table !== argv.table) || [];
+              const left = cascade && cascade.job.status !== 'deleted';
+              app.ok({ table: argv.table, query: argv.query, count, dry_run: true, sample, rerun, ...(cascade ? { cascade } : {}) }, {
+                summary: `Dry run: ${count} record(s) in ${argv.table} would be deleted` + (cascade
+                  ? `; cascade preview: about ${others.reduce((n, t) => n + t.count, 0)} more in ${others.length} other table(s)${cascade.more_levels ? ', and deeper levels were not counted' : ''}` : '')
+                  + (left && cascade.job.status !== 'kept' ? `; delete job ${cascade.job.number} (${cascade.job.sys_id}) left in sys_dm_delete: ${cascade.job.status}` : ''),
+                breadcrumbs: [{ action: 'delete', cmd: rerun, description: 'Delete with this exact expected count' },
+                  ...(left ? [{ action: 'job', cmd: `jsn records get --table sys_dm_delete --sys-id ${cascade.job.sys_id}`, description: `Delete job ${cascade.job.number}, ${cascade.job.status === 'kept' ? 'kept for review' : 'left behind'}` }] : [])],
               });
+              if (left && cascade.job.status !== 'kept') process.exitCode = 1;
+              return;
             }
             // Snapshot all targets before deleting: offset paging over a shrinking set skips rows.
             const targets = [];
@@ -536,6 +551,28 @@ export function recordsCmd(wrap) {
               breadcrumbs,
             });
             if (!verified) process.exitCode = 1;
+          }),
+        })
+        .command({
+          command: 'undelete',
+          describe: 'Restore a deleted record from Deleted Records (sys_audit_delete)',
+          builder: (y) => y
+            .option('table', { type: 'string', demandOption: true, describe: "The deleted record's own table (incident, not task)" })
+            .option('sys-id', { type: 'string', demandOption: true, describe: "The deleted record's sys_id" })
+            .option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' })
+            .epilogue('Restores the newest deleted copy with its sys_id and created date, as the Undelete Record action does. Attachments and records its delete cascaded to stay deleted, and references other records held to it may stay cleared. The restore is an insert, so business rules run. Needs admin and background script access.'),
+          handler: wrap(async (argv, app) => {
+            const entry = await findDeletedRecord(app, argv.table, argv['sys-id']);
+            const display = entry.display_value || entry.documentkey;
+            await confirmDelete(app, argv, `Restore ${argv.table} ${display} (${entry.documentkey}), deleted ${entry.sys_created_on} by ${entry.sys_created_by}; its attachments and cascaded records stay deleted`,
+              { rerun: ['records', 'undelete', '--table', argv.table, '--sys-id', entry.documentkey] });
+            await restoreDeletedRecord(app.sdk, entry);
+            invalidateAfterMutation(app, argv.table);
+            app.ok({ restored: true, table: argv.table, sys_id: entry.documentkey, display_value: entry.display_value, audit_delete: entry.sys_id,
+              deleted_on: entry.sys_created_on, deleted_by: entry.sys_created_by }, {
+              summary: `Restored ${argv.table} ${display} from Deleted Records`,
+              breadcrumbs: [{ action: 'get', cmd: `jsn records get --table ${quoteShellArg(argv.table)} --sys-id ${entry.documentkey}`, description: 'Read the restored record' }],
+            });
           }),
         })
         .command({
@@ -705,6 +742,28 @@ export function recordsCmd(wrap) {
               summary: `Inspected ${argv.table} ${argv.identifier}`,
               breadcrumbs,
             });
+          }),
+        })
+        .command({
+          command: 'versions <table> <identifier>',
+          describe: 'List a record\'s update versions and compare one to the current version (read-only)',
+          discoveryTasks: [{
+            phrases: ['version history', 'record versions', 'compare to current', 'which update set captured a record', 'show latest update'],
+            args: ['--json'], description: 'List sys_update_version history and the latest captured update for one record',
+          }],
+          builder: (y) => y
+            .positional('table', { describe: 'Table name (e.g. sys_script_include)', type: 'string' })
+            .positional('identifier', { describe: 'Record sys_id, or the value of --identifier-field', type: 'string' })
+            .option('identifier-field', { type: 'string', describe: 'Exact identifier field (default sys_id), e.g. name' })
+            .option('limit', { type: 'number', default: 20, describe: 'Max versions, newest first (1-200)' })
+            .option('diff', { type: 'number', describe: 'Compare version N (1 = newest) to the current version' })
+            .epilogue('Versions come from sys_update_version by the record\'s sys_update_name; current means the version in state current, not the live record.\nExample: jsn records versions sys_script_include MyUtil --identifier-field name --diff 2'),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const { recordVersions, formatVersions } = await import('../records/versions.js');
+            const data = await recordVersions(app.sdk, { table: argv.table, identifier: argv.identifier, identifierField: argv.identifierField, limit: argv.limit, diff: argv.diff });
+            Object.defineProperty(data, '_formatted', { value: formatVersions(data), enumerable: false });
+            app.ok(data, { summary: `${data.count} version(s) of ${data.record.update_name}${data.diff ? `; version ${data.diff.version} vs current: ${data.diff.status}` : ''}` });
           }),
         })
 

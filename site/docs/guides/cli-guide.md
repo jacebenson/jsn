@@ -279,6 +279,7 @@ jsn flows create --data-file flow.manifest.json # Create a draft record-triggere
 jsn workflows list --table incident             # Legacy Workflow Editor, read-only (wf_* tables)
 jsn workflows show "Incident approval"          # Versions, activities, transitions, conditions, scripts
 jsn rules list --query "collection=incident"
+jsn tables audit incident --field work_notes   # Audited or not, and why (read-only)
 jsn updatesets set "My Feature"
 
 # Generic table access
@@ -290,6 +291,7 @@ jsn records list --table incident --limit 10 --no-count                       # 
 jsn records bulk --table incident --query "priority=1" --set '{"state":"3"}'  # dry-run by default
 jsn records get --table incident --sys-id 8a1234abcd5678 --attachments        # record + its files
 jsn records list --table incident --limit 10 --csv                            # output CSV
+jsn columns show incident.priority                                            # dictionary entry + choices; names the table they come from
 
 # Attachment transfers (standalone, also discoverable via jsn attachments --help)
 jsn attachments list --sys-id <record-id> --json
@@ -593,7 +595,7 @@ Run `jsn` for the full grouped list. Commands are organized by ServiceNow domain
 
 **User Experience** — `forms`, `lists`, `clientscripts`, `uipolicies`, `uiactions`
 
-**Data** — `records` (list/get/create/update/delete/count/bulk), `attachments` (list/download/upload), `diff record` (cross-profile read-only comparison), `tables`, `columns`, `includes`, `import`, `logs` (list/show/follow), `snippets` (save/run), `users`, `groups`
+**Data** — `records` (list/get/create/update/delete/count/bulk), `attachments` (list/download/upload), `diff record` (cross-profile read-only comparison), `tables`, `columns`, `includes`, `import`, `logs` (list/show/follow), `snippets` (save/run), `users` (list/show/roles), `groups`
 
 **Platform** — `platform health` (cluster records) and `platform stats` (bounded, read-only `/xmlstats.do` summary; allowlisted metrics only)
 
