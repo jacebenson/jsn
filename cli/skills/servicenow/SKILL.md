@@ -82,6 +82,14 @@ update-set-tracked record held, or which update set captured it last, use
 `jsn records versions <table> <sys_id> [--diff N]`. It reads saved versions,
 not the live record; no versions does not mean unchanged.
 
+Checking what a user can see: add `--impersonate <user_name>` to a read, for
+example `jsn records list --table incident --impersonate abel.tuter --json`,
+instead of an eval with `gs.getSession().impersonate`. It needs the admin or
+impersonator role. A record write as that user stops with
+`confirmation_required` before any request; ask the human, then re-run with
+`--impersonate-writes`. Customization writes, `eval` and `rest` writes are
+refused under `--impersonate`; make those as the profile's own user.
+
 For incoming update sets: import the XML, preview the set, and resolve preview
 errors with the human where needed. Once the preview is clear, commit the set
 and verify the results.

@@ -19,6 +19,8 @@ declareCapabilities('records', {
   // An unload file names its own tables; the capture-context guard classifies one --table.
   mutationContextExemptSubcommands: ['import'],
   localPreviewSubcommands: ['import'],
+  // Watching keeps running after the command returns, so --impersonate refuses it.
+  noImpersonateSubcommands: ['watch'],
 });
 
 const tableDefaultColumns = {

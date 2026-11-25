@@ -17,6 +17,7 @@ declareCapabilities('updatesets', { queryTable: 'sys_update_set',
   mutationSubcommands: ['create', 'set', 'complete', 'ignore', 'parent', 'import', 'reopen', 'preview', 'commit'],
   mutationContextExemptSubcommands: ['create', 'set', 'import', 'reopen', 'preview', 'commit'],
   skipContextHeaderSubcommands: ['diff'],
+  noImpersonateSubcommands: ['diff'],
   localPreviewSubcommands: ['import'],
 });
 
