@@ -89,17 +89,22 @@ test('a family the docs lack, or list before publishing, falls back to the newes
   assert.deepEqual(await chooseDocsRelease({}, f.app), { release: 'australia', source: 'fallback', note: 'the instance runs brazil; newest available' });
 });
 
-test('no profile, or a refused or unreadable glide.war, falls back to the newest family; only a timeout or lost connection is asked again', async t => {
+test('no profile, or a refused or unreadable glide.war, falls back to the newest family; a failed sign-in or connection is asked again', async t => {
   const none = fixture(t, { releases: ['zurich', 'australia', 'brazil'], instance: '' });
   assert.deepEqual(await chooseDocsRelease({}, none.app), { release: 'brazil', source: 'fallback', note: 'no instance profile; newest available' });
   assert.equal(none.reads.length, 0);
-  for (const war of [Object.assign(new Error('Forbidden'), { status: 403 }), null, 'not-a-war']) {
+  for (const war of [Object.assign(new Error('Access forbidden (HTTP 403).'), { code: 'forbidden', status: 403 }), null, 'not-a-war']) {
     const f = fixture(t, { releases: ['zurich', 'australia'], war });
     assert.deepEqual(await chooseDocsRelease({}, f.app), { release: 'australia', source: 'fallback', note: "could not read the instance's release; newest available" });
     await chooseDocsRelease({}, f.app);
     assert.equal(f.reads.length, 1, 'an answer with no family is kept for the day');
   }
-  for (const war of [Object.assign(new Error('Network error: Request timed out'), { code: 'network_error' }), new TypeError('fetch failed')]) {
+  for (const war of [
+    Object.assign(new Error('Network error: Request timed out'), { code: 'network_error' }),
+    new TypeError('fetch failed'),
+    Object.assign(new Error('Secure credential storage unavailable or readback failed.'), { code: 'credential_storage_error' }),
+    Object.assign(new Error('Authentication failed (HTTP 401).'), { code: 'auth_error', status: 401 }),
+  ]) {
     const offline = fixture(t, { war });
     assert.equal((await chooseDocsRelease({}, offline.app)).note, "could not read the instance's release; newest available");
     await chooseDocsRelease({}, offline.app);

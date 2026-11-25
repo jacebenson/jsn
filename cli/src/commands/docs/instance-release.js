@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { cacheDir } from '../../config.js';
-import { CodeNetwork } from '../../errors.js';
+import { CodeForbidden } from '../../errors.js';
 import { listHostedReleases, configuredDocsService } from './client.js';
 import { DEFAULT_DOCS_RELEASE, resolveDocsRelease } from './db.js';
 import { listDocsReleases } from './releases.js';
@@ -29,8 +29,8 @@ export function newestFamily(families) {
   return newest;
 }
 
-// shortcut: a timeout or lost connection is not kept, so an unreachable instance is asked again
-// on the next search (each try bounded by 5 s); keep those too if that proves slow.
+// shortcut: only the instance's own answer is kept, so an unreachable or signed-out instance is asked
+// again on the next search (each try bounded by 5 s); keep failures for a while if that proves slow.
 async function daily(key, now, load) {
   const file = path.join(cacheDir(), 'docs-release-v1.json');
   const read = () => { try { return JSON.parse(fs.readFileSync(file, 'utf8')) || {}; } catch { return {}; } };
@@ -63,9 +63,9 @@ async function instanceFamily(app, now) {
     // No auth recovery, no prompt (sign-in or MFA code), and 5 s for each step including a login.
     const sdk = Object.assign(app.getSDKForProfile(instance, { username, authMethod: profile?.auth_method, profile }), { canInteract: () => false, timeout: 5000 });
     const rows = await sdk.listStrict('sys_properties', { sysparm_query: 'name=glide.war', sysparm_fields: 'value', sysparm_limit: '1' })
-      // fetch reports a refused, unresolved or redirected connection as a bare TypeError.
-      .catch(error => error?.code === CodeNetwork || error instanceof TypeError ? null : []);
-    // '' keeps an answer with no family (refused, empty or unrecognised) for the day.
+      // A 403 is the instance's answer; a sign-in, credential or connection failure is asked again.
+      .catch(error => error?.code === CodeForbidden ? [] : null);
+    // '' keeps an answer with no family (a 403, no row or an unrecognised value) for the day.
     return rows && (familyFromWar(rows[0]?.value) ?? '');
   });
   return typeof family === 'string' && FAMILY.test(family) ? family : null;
