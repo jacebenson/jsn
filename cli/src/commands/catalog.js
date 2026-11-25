@@ -1,6 +1,7 @@
 import { getStringField, interactiveList, resolveItemOptionType, formatCommandList, quoteShellArg } from '../helpers.js';
 import { catalogOrderCommands } from './catalog-order.js';
-import { resolveSysId } from '../resolve-record.js';
+import { resolveSysId, resolveRecord, unwrapSysId } from '../resolve-record.js';
+import { errUsage } from '../errors.js';
 import { declareCapabilities } from '../capabilities.js';
 import { enrichCatalogItem, buildCatalogFormatted } from './catalog/enrich.js';
 
@@ -145,8 +146,11 @@ export function catalogCmd(wrap) {
           describe: 'Show a catalog item, its questions and required answers',
           handler: wrap(async (argv, app) => {
             app.requireInstance();
-            const id = await resolveSysId(app.sdk, { table: 'sc_cat_item', identifier: argv.id, matchField: 'name', resource: 'Catalog item' });
-            await showItem(app, id);
+            // No field projection: this readable row is also the full definition.
+            const item = await resolveRecord(app.sdk, { table: 'sc_cat_item', identifier: argv.id, matchField: 'name', resource: 'Catalog item' });
+            const id = unwrapSysId(item);
+            if (!id) throw errUsage('The matched record has no readable sys_id; check field ACLs before retrying.');
+            await showItem(app, id, item);
           }),
         });
     },
@@ -157,11 +161,12 @@ export function catalogCmd(wrap) {
   };
 }
 
-async function showItem(app, sysID) {
+async function showItem(app, sysID, item) {
   const { data, variables, totalVars, source } = await enrichCatalogItem({
     sdk: app.sdk,
     instanceUrl: app.getEffectiveInstance(),
     sysID,
+    item,
   });
 
   // Styled-mode rendering (non-enumerable so JSON output stays clean)
