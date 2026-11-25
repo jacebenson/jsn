@@ -65,12 +65,12 @@ records tracked by update sets have them.
 ```sh
 jsn access-analyzer list --limit 20 --profile <name>
 jsn access-analyzer show <request-id> --json
-jsn access-analyzer explain <result-id> --format styled
+jsn access-analyzer show <result-id> --format styled
 jsn access-analyzer show <request-id> --get data.request.user.value
 jsn access-analyzer check --user abel.tuter --table incident --record <sys_id>
 ```
 
-`list`, `show` and `explain` read saved `sn_access_analyzer_request`,
+`list` and `show` read saved `sn_access_analyzer_request`,
 `sn_access_analyzer_access_result`, and `sn_access_analyzer_debug_log` records.
 They never evaluate access or save an analysis. The Access Analyzer application
 and read permissions on its tables are required; denied or unavailable table
@@ -81,7 +81,7 @@ IDs must be exact 32-character hexadecimal sys_ids. Each command supports
 `--limit` (1–200) and `--offset` (default 0). JSON includes `pagination.has_more`
 and `next_offset` from one-row lookahead, not a total count. `show` preserves
 per-operation execution IDs; these are not shared run IDs and do not imply
-that outcomes belong to the request's last run. `explain` orders checks by log sequence then sys_id.
+that outcomes belong to the request's last run. `show` takes either id: a request prints one line per operation, an operation result prints its checks ordered by log sequence then sys_id, and the JSON `kind` says which was found. A sys_id is unique per table, not across tables, so a request wins if an id exists in both.
 
 `check` evaluates access live and saves no analysis. It runs the Access Analyzer's
 own evaluation as a background script without a rollback context (`--operations`,

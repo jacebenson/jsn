@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { listAccessAnalyses, showAccessAnalysis, explainAccessResult, formatAccessAnalysis } from '../src/access-analyzer.js';
+import { listAccessAnalyses, showAccessAnalysis, formatAccessAnalysis } from '../src/access-analyzer.js';
 import { loopbackCredentialArgs, loopbackFixtureEnv } from './support/loopback-credential-fixture.mjs';
 
 const id = n => n.toString(16).padStart(32, '0');
@@ -39,25 +39,29 @@ test('list preserves reference identities, bounded lookahead and deterministic q
   assert.match(formatAccessAnalysis(data, 'list'), /Synthetic User[\s\S]*SYN0001[\s\S]*2026-01-01/);
 });
 
-test('show joins raw request ID and preserves states without inventing shared runs', async () => {
+test('show with a request ID joins raw identity and preserves states without inventing shared runs', async () => {
   const sdk = fixtureSdk();
   const data = await showAccessAnalysis(sdk, id(1));
+  assert.equal(data.kind, 'request');
+  assert.equal(sdk.calls[0].params.get('sysparm_query'), `sys_id=${id(1)}`);
   assert.equal(sdk.calls[1].params.get('sysparm_query'), `access_analyzer_request=${id(1)}^ORDERBYexecution_id^ORDERBYoperation^ORDERBYsys_id`);
   assert.deepEqual(data.records.map(row => row.overall_access.value), ['Passed', 'Blocked', 'Skipped', 'Undefined']);
   assert.equal(Object.hasOwn(data, 'executions'), false);
-  for (const state of ['Passed', 'Blocked', 'Skipped', 'Undefined']) assert.ok(formatAccessAnalysis(data, 'show').includes(state));
+  for (const state of ['Passed', 'Blocked', 'Skipped', 'Undefined']) assert.ok(formatAccessAnalysis(data, data.kind).includes(state));
   const next = await showAccessAnalysis(sdk, id(1), { limit: 2, offset: 2 });
   assert.equal(next.count, 2);
   assert.equal(next.pagination.has_more, false);
 });
 
-test('explain joins raw result ID, requests sequence ordering and distinguishes query filtering from ACL failures', async () => {
+test('show with a result ID falls through to the checks, ordering them by sequence', async () => {
   const sdk = fixtureSdk();
-  const data = await explainAccessResult(sdk, id(2), { limit: 2, offset: 1 });
-  assert.equal(sdk.calls[1].params.get('sysparm_query'), `access_result=${id(2)}^ORDERBYlog_sequence^ORDERBYsys_id`);
+  const data = await showAccessAnalysis(sdk, id(2), { limit: 2, offset: 1 });
+  assert.equal(data.kind, 'result');
+  assert.equal(sdk.calls[0].params.get('sysparm_query'), `sys_id=${id(2)}`, 'the request table is asked first');
+  assert.equal(sdk.calls[2].params.get('sysparm_query'), `access_result=${id(2)}^ORDERBYlog_sequence^ORDERBYsys_id`);
   assert.deepEqual(data.records.map(row => row.log_sequence.value), ['2', '3']);
   assert.equal(data.pagination.has_more, true);
-  const human = formatAccessAnalysis(data, 'explain');
+  const human = formatAccessAnalysis(data, data.kind);
   assert.match(human, /not itself an ACL failure/);
   assert.match(human, /Skipped[\s\S]*Undefined/);
 });
@@ -65,22 +69,21 @@ test('explain joins raw result ID, requests sequence ordering and distinguishes 
 test('all invalid IDs and bounds reject before transport', async () => {
   const sdk = fixtureSdk();
   for (const invalid of ['', 'bad', ` ${id(1)}`, `${id(1)}^NQ`, 123]) {
-    for (const read of [showAccessAnalysis, explainAccessResult]) await assert.rejects(read(sdk, invalid), /sys_id/);
+    await assert.rejects(showAccessAnalysis(sdk, invalid), /sys_id/);
   }
   for (const options of [{ limit: 0 }, { limit: 201 }, { limit: 1.5 }, { offset: -1 }, { offset: Infinity }, { offset: Number.MAX_SAFE_INTEGER }]) {
     await assert.rejects(listAccessAnalyses(sdk, options), /--limit|--offset/);
     await assert.rejects(showAccessAnalysis(sdk, id(1), options), /--limit|--offset/);
-    await assert.rejects(explainAccessResult(sdk, id(2), options), /--limit|--offset/);
   }
   assert.equal(sdk.calls.length, 0);
 });
 
 test('missing, empty, denied, unavailable and malformed evidence is never reported as successful access', async () => {
-  await assert.rejects(showAccessAnalysis(fixtureSdk(), id(99)), /not found or is not readable/);
-  await assert.rejects(explainAccessResult(fixtureSdk(), id(99)), /not found or is not readable/);
+  await assert.rejects(showAccessAnalysis(fixtureSdk(), id(99)), /not found as an analysis request or an operation result/);
   const empty = await showAccessAnalysis(fixtureSdk({ sn_access_analyzer_access_result: [] }), id(1));
+  assert.equal(empty.kind, 'request');
   assert.equal(empty.count, 0);
-  assert.match(formatAccessAnalysis(empty, 'show'), /do not prove access/);
+  assert.match(formatAccessAnalysis(empty, empty.kind), /do not prove access/);
   for (const status of [403, 404]) {
     const error = Object.assign(new Error('Synthetic read denied'), { status });
     await assert.rejects(listAccessAnalyses({ listStrict: async () => { throw error; } }), e => e === error);
@@ -91,8 +94,9 @@ test('missing, empty, denied, unavailable and malformed evidence is never report
 test('verified No record availability and blank Business Rule paths retain actionable rule evidence', async () => {
   const result = { ...results[0], record_available: field('no', 'No'), overall_access: field('Passed') };
   const log = { ...logs[0], path: field(''), record_ref: field(id(80), 'Synthetic incident query'), log_table_name: field('sys_script'), status: field('Passed'), roles_result: field('Blocked') };
-  const data = await explainAccessResult(fixtureSdk({ sn_access_analyzer_access_result: [result], sn_access_analyzer_debug_log: [log] }), id(2));
-  const human = formatAccessAnalysis(data, 'explain');
+  const data = await showAccessAnalysis(fixtureSdk({ sn_access_analyzer_access_result: [result], sn_access_analyzer_debug_log: [log] }), id(2));
+  assert.equal(data.kind, 'result');
+  const human = formatAccessAnalysis(data, data.kind);
   assert.match(human, /not itself an ACL failure/);
   assert.match(human, /Synthetic incident query/);
   assert.ok(human.includes(id(80)));
@@ -106,7 +110,7 @@ test('verified No record availability and blank Business Rule paths retain actio
 
 test('mismatched raw associations fail even when display labels look correct', async () => {
   await assert.rejects(showAccessAnalysis(fixtureSdk({ sn_access_analyzer_access_result: [{ ...results[0], access_analyzer_request: field(id(99), id(1)) }] }), id(1)), /mismatched/);
-  await assert.rejects(explainAccessResult(fixtureSdk({ sn_access_analyzer_debug_log: [{ ...logs[0], access_result: field(id(99), id(2)) }] }), id(2)), /mismatched/);
+  await assert.rejects(showAccessAnalysis(fixtureSdk({ sn_access_analyzer_debug_log: [{ ...logs[0], access_result: field(id(99), id(2)) }] }), id(2)), /mismatched/);
 });
 
 test('real CLI supports read-only profile, JSON, --get, human rendering, strict validation and discovery', async () => {
@@ -136,7 +140,7 @@ test('real CLI supports read-only profile, JSON, --get, human rendering, strict 
   const execute = promisify(execFile);
   const run = args => execute(process.execPath, [...loopbackCredentialArgs, cli, ...args], { env, cwd: dir, timeout: 20000 });
   try {
-    for (const args of [['list'], ['show', id(1)], ['explain', id(2)]]) {
+    for (const args of [['list'], ['show', id(1)], ['show', id(2)]]) {
       const { stdout } = await run(['access-analyzer', ...args, '--json']);
       const envelope = JSON.parse(stdout);
       assert.equal(envelope.ok, true);
@@ -147,12 +151,12 @@ test('real CLI supports read-only profile, JSON, --get, human rendering, strict 
     const get = await run(['access-analyzer', 'show', id(1), '--get', 'data.request.user.value']);
     assert.ok(get.stdout.includes(id(10)));
     const before = calls.length;
-    for (const args of [['show', 'bad'], ['explain', id(2), '--limit', '0'], ['list', '--offset', '-1'], ['list', '--typo'], ['evaluate']]) {
+    for (const args of [['show', 'bad'], ['show', id(2), '--limit', '0'], ['list', '--offset', '-1'], ['list', '--typo'], ['evaluate'], ['explain', id(2)]]) {
       await assert.rejects(run(['access-analyzer', ...args, '--json']), undefined, JSON.stringify(args));
     }
     assert.equal(calls.length, before);
     const help = await run(['access-analyzer', '--help']);
-    for (const name of ['list', 'show', 'explain']) assert.ok(help.stdout.includes(name));
+    for (const name of ['list', 'show', 'check']) assert.ok(help.stdout.includes(name));
     const discovery = await run(['access-analyzer', '--json']);
     assert.ok(discovery.stdout.includes('access-analyzer'));
     assert.ok(calls.filter(call => call.pathname.startsWith('/api/now/table/')).every(call => call.method === 'GET'));
