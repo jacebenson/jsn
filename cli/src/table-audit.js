@@ -191,7 +191,8 @@ export async function applyAuditChange(sdk, plan, written = []) {
   await sdk.update('sys_dictionary', plan.target.sys_id, plan.set);
   written.push({ action: 'update', table: 'sys_dictionary', sys_id: plan.target.sys_id, ...plan.set });
   if (!plan.attribute_id) return written;
-  const rows = await read(sdk, 'sys_schema_attribute_m2m', `schema=${plan.target.sys_id}^attribute=${plan.attribute_id}`, 'sys_id');
+  const rows = await read(sdk, 'sys_schema_attribute_m2m', `schema=${plan.target.sys_id}^attribute=${plan.attribute_id}`, 'sys_id,schema,attribute');
+  if (rows.some(row => raw(row, 'schema') !== plan.target.sys_id || raw(row, 'attribute') !== plan.attribute_id)) throw new Error(`sys_schema_attribute_m2m returned rows for another record or attribute; no attribute row was changed.`);
   if (plan.present && !rows.length) {
     const created = await sdk.create('sys_schema_attribute_m2m', { schema: plan.target.sys_id, attribute: plan.attribute_id, value: 'true' });
     written.push({ action: 'create', table: 'sys_schema_attribute_m2m', sys_id: raw(created, 'sys_id') || null });

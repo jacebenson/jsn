@@ -10,7 +10,9 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { withTableAudit } from '../src/commands/table-audit.js';
+import { yargs } from '../src/cli-adapter.js';
 import { tablesCmd } from '../src/commands/_simple.js';
+import { rankedDiscoveries } from '../src/commands/discover.js';
 import { isMutationCommand } from '../src/mutations.js';
 import { needsMutationContext } from '../src/mutation-context.js';
 import { loopbackCredentialArgs, loopbackFixtureEnv } from './support/loopback-credential-fixture.mjs';
@@ -37,7 +39,7 @@ function world(dictionary) {
 }
 
 // Writes change what the next read sees; `sync` plays a platform that rebuilds attribute rows from the string.
-function stateSdk(tables, { sync = false, failCreate = false, ignoreUpdate = false, dropCreate = false } = {}) {
+function stateSdk(tables, { sync = false, failCreate = false, ignoreUpdate = false, dropCreate = false, looseQuery = false } = {}) {
   const writes = [];
   const reads = [];
   const ids = { no_audit: NO_AUDIT, no_audit_delete: NO_AUDIT_DELETE };
@@ -47,7 +49,7 @@ function stateSdk(tables, { sync = false, failCreate = false, ignoreUpdate = fal
       const value = tables[table];
       if (typeof value === 'function') return value(params);
       const one = params.get('sysparm_query').match(/^schema=(\w+)\^attribute=(\w+)$/);
-      return one ? value.filter(link => link.schema === one[1] && link.attribute === one[2]) : value;
+      return one && !looseQuery ? value.filter(link => link.schema === one[1] && link.attribute === one[2]) : value;
     },
     async get(table, sysId) { return { sys_id: sysId, sys_scope: 'global' }; },
     async update(table, sysId, data) {
@@ -226,6 +228,43 @@ test('a failed write or a re-read that disagrees is reported and exits nonzero',
   const unchanged = await run(stateSdk({ ...world(), sys_schema_attribute: [] }, { ignoreUpdate: true }), { exclude: 'priority', yes: true });
   assert.deepEqual(unchanged.data.written.map(write => write.action), ['update']);
   assert.equal(unchanged.data.verified, false);
+});
+
+test('attribute rows for another record are never deleted', async () => {
+  const tables = world();
+  const [, other, priority] = tables.sys_dictionary;
+  Object.assign(priority, { attributes: 'no_audit=true' });
+  Object.assign(other, { attributes: 'no_audit_delete=true' });
+  tables.sys_schema_attribute_m2m.push({ sys_id: id('d'), schema: priority.sys_id, attribute: NO_AUDIT, value: 'true' }, { sys_id: id('e'), schema: other.sys_id, attribute: NO_AUDIT_DELETE, value: 'true' });
+  const sdk = stateSdk(tables, { looseQuery: true });
+  const { data } = await run(sdk, { include: 'priority', yes: true });
+  assert.deepEqual(sdk.writes.map(write => write.method), ['update']);
+  assert.equal(tables.sys_schema_attribute_m2m.length, 2);
+  assert.match(data.error, /another record or attribute/);
+  assert.equal(data.verified, false);
+});
+
+test('--deletes says when another rule still decides whether deletes are recorded', async () => {
+  const ignored = [{ name: 'glide.sys.audit_inserts', value: 'false' }, { name: 'glide.db.audit.ignore.delete', value: 'x_case' }];
+  const tables = { ...world(), sys_properties: ignored };
+  tables.sys_dictionary[0].attributes = 'no_audit_delete=true';
+  const done = await run(stateSdk(tables), { deletes: 'on', yes: true });
+  assert.equal(done.data.verified, true);
+  assert.match(done.meta.summary, /^Done: remove no_audit_delete from x_case; the re-read status agrees; deletes are still not recorded: x_case is listed in glide\.db\.audit\.ignore\.delete/);
+  const already = await run(stateSdk({ ...world(), sys_properties: ignored }), { deletes: 'on', yes: true });
+  assert.match(already.meta.summary, /^No change: x_case does not carry no_audit_delete\.; deletes are still not recorded: /);
+  const plain = await run(stateSdk(world()), { deletes: 'off' });
+  assert.doesNotMatch(plain.meta.summary, /still/);
+});
+
+test('each switch has its own discovery task', () => {
+  const registry = yargs().option('json', { type: 'boolean' }).command(tablesCmd(fn => fn)).commandRegistry({ details: true });
+  const first = query => rankedDiscoveries(registry, { query })[0]?.invocation;
+  assert.equal(first('turn off auditing'), 'jsn tables audit <table> --off');
+  assert.equal(first('turn on auditing'), 'jsn tables audit <table> --on');
+  assert.equal(first('stop auditing a field'), 'jsn tables audit <table> --exclude <field>');
+  assert.equal(first('stop auditing deletes'), 'jsn tables audit <table> --deletes off');
+  assert.equal(first('is this table audited'), 'jsn tables audit <table> --json');
 });
 
 test('a record outside the verified scope is refused before the first write', async () => {

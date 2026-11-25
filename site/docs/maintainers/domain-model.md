@@ -707,7 +707,7 @@ table-scoped join for them; no text match over flow definitions is guessed.
 
 ## Table audit status
 
-`src/table-audit.js` is the read-only layer behind
+`src/table-audit.js` is the layer behind
 `jsn tables audit <table> [--field <name>]`. It reports what the platform writes
 to `sys_audit` and `sys_audit_delete` for one table, from bounded GET reads: the
 `sys_db_object` chain, the `sys_schema_attribute` ids of `no_audit`, `audit`,
@@ -749,8 +749,11 @@ whitelist mode.
 One switch per run changes one `sys_dictionary` row: `--on` and `--off` set the
 collection row's `audit`; `--deletes off|on` adds or removes `no_audit_delete`
 on it; `--exclude` and `--include` add or remove the column's `no_audit`, or in
-whitelist mode remove or add its `audit=true`. Every switch is checked before
-the first request.
+whitelist mode remove or add its `audit=true`. Two switches, a bad field name
+or a bad `--deletes` value are refused before the first request; an unknown or
+inherited field is refused after the status read and before the first write.
+`--deletes` changes only `no_audit_delete`; when the ignore list or the `sys_`
+rule still decides, the summary says so.
 
 - **Own rows only**: a column whose nearest row is on an ancestor is refused,
   naming the ancestor, because changing it there changes every table that

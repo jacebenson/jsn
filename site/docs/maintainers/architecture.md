@@ -798,7 +798,7 @@ introduced. See [OAuth request transport](../guides/setup.md#oauth-request-trans
 
 ### Table audit status extends `tables` (2026-11-25)
 
-`jsn tables audit <table> [--field <name>]` is a read-only subcommand of `tables`,
+`jsn tables audit <table> [--field <name>]` is a subcommand of `tables`,
 like `tables behavior`, so it adds no root command and inherits the family's
 capabilities. It answers "is this audited, and why not" from the dictionary and
 three properties rather than from `sys_audit` rows, because missing history

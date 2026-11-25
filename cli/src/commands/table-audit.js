@@ -17,7 +17,9 @@ async function changeAudit(app, argv, data, change) {
     ...(plan.attribute_id ? [`  Then     ${plan.present ? 'add' : 'remove'} its sys_schema_attribute_m2m ${plan.attribute} row, unless the platform already has`] : [])] : [record];
   const send = (out, summary, extra = [], breadcrumbs = [{ action: 'verify', cmd: status, description: 'Re-read the audit status' }]) =>
     app.ok(human ? { ...out, _formatted: [summary, ...steps, ...extra].join('\n') } : out, { summary, breadcrumbs });
-  if (plan.already) return send({ table: data.table, change, ...plan, written: [] }, `No change: ${plan.already}`);
+  // no_audit_delete is one of several delete rules; say when another one still decides.
+  const deletesNote = status => change.name === 'deletes' && status && status.deletes.recorded !== (change.value === 'on') ? `; deletes are still ${status.deletes.recorded ? 'recorded' : 'not recorded'}: ${status.deletes.reason}` : '';
+  if (plan.already) return send({ table: data.table, change, ...plan, written: [] }, `No change: ${plan.already}${deletesNote(data)}`);
   if (!argv.yes) return send({ table: data.table, change, ...plan, dry_run: true, rerun }, `Dry run: would ${describeAuditChange(plan)}`, ['', `Rerun with --yes to write: ${rerun}`], [{ action: 'update', cmd: rerun, description: 'Write this change' }]);
   // Preflight the record's scope before the first write, as records delete-many does.
   await assertMutationRecordScope(app, 'sys_dictionary', plan.target.sys_id);
@@ -31,7 +33,7 @@ async function changeAudit(app, argv, data, change) {
   catch (failure) { verificationError = failure.message || String(failure); }
   const verified = !error && after !== null && auditChangeHolds(after, plan);
   send({ table: data.table, change, ...plan, written, verified, ...(error ? { error } : {}), ...(verificationError ? { verification_error: verificationError } : {}), status: after },
-    verified ? `Done: ${describeAuditChange(plan)}; the re-read status agrees` : `Change incomplete or unverified: ${written.length} write(s)${error ? `; failed: ${error}` : ''}${verificationError ? `; re-read failed: ${verificationError}` : ''}`,
+    verified ? `Done: ${describeAuditChange(plan)}; the re-read status agrees${deletesNote(after)}` : `Change incomplete or unverified: ${written.length} write(s)${error ? `; failed: ${error}` : ''}${verificationError ? `; re-read failed: ${verificationError}` : ''}`,
     after ? ['', formatTableAudit(after)] : []);
   if (!verified) process.exitCode = 1;
 }
@@ -47,11 +49,11 @@ export function withTableAudit(command, wrap) {
       phrases: ['is this table audited', 'table auditing', 'field not audited', 'no_audit', 'audit history missing', 'are deletes audited'],
       args: ['--json'],
       description: 'Show whether the table and its fields are audited, and why',
-    }, {
-      phrases: ['turn off auditing', 'turn on auditing', 'stop auditing a field', 'exclude field from audit', 'stop auditing deletes'],
-      args: ['--off'],
-      description: 'Preview an audit change; --yes writes it and re-reads the status',
-    }],
+    },
+    { phrases: ['turn off auditing', 'disable table auditing'], args: ['--off'], description: 'Preview turning table auditing off; --yes writes it' },
+    { phrases: ['turn on auditing', 'enable table auditing'], args: ['--on'], description: 'Preview turning table auditing on; --yes writes it' },
+    { phrases: ['stop auditing a field', 'exclude field from audit'], args: ['--exclude', '<field>'], description: 'Preview excluding a field from auditing; --yes writes it' },
+    { phrases: ['stop auditing deletes', 'stop recording deletes'], args: ['--deletes', 'off'], description: 'Preview adding no_audit_delete; --yes writes it' }],
     builder: (y) => y.strict()
       .positional('table', { type: 'string', describe: 'Table name (e.g. incident)' })
       .option('field', { type: 'string', describe: 'Column to give a verdict for, with its reason' })
@@ -59,7 +61,7 @@ export function withTableAudit(command, wrap) {
       .option('off', { type: 'boolean', describe: 'Turn table auditing off' })
       .option('exclude', { type: 'string', describe: 'Stop auditing a field: add no_audit (whitelist mode: remove audit=true)' })
       .option('include', { type: 'string', describe: 'Audit a field again: remove no_audit (whitelist mode: add audit=true)' })
-      .option('deletes', { type: 'string', choices: ['on', 'off'], describe: 'Record deletes in sys_audit_delete (on) or not (off), through no_audit_delete' })
+      .option('deletes', { type: 'string', choices: ['on', 'off'], describe: 'Remove (on) or add (off) no_audit_delete, which stops deletes reaching sys_audit_delete' })
       .option('yes', { type: 'boolean', default: false, describe: 'Write the switch; without it, preview only' })
       .epilogue([
         'Without a switch it only reads: sys_db_object, sys_dictionary, sys_schema_attribute, sys_schema_attribute_m2m and sys_properties, with GET requests.',
