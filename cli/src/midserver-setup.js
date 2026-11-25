@@ -66,13 +66,33 @@ export async function diagnoseMidAccount(sdk, instanceURL, username) {
     if (configured === undefined) issues.push('cannot verify configured Basic Auth allowed_roles');
     else {
       const allowed = configured.split(',').map(r => r.trim()).filter(Boolean);
-      if (!allowed.some(role => roleNames.has(role))) {
+      // Australia platform documentation explicitly exempts WSAO accounts.
+      if (!bool(value(user, 'web_service_access_only')) && !allowed.some(role => roleNames.has(role))) {
         let exceptions;
         try { exceptions = await list('sys_user_basic_auth_exception', `user=${id}`, 'sys_id,user', '2'); }
         catch { throw new Error(`Cannot inspect sys_user_basic_auth_exception for user=${id}; Basic Auth authorization is unknown. Inspect ${recordURL}`); }
-        // A row alone does not establish applicability (expiry/scope vary by release).
-        issues.push(exceptions.length
-          ? `Basic Auth exception exists but applicability is unknown; inspect sys_user_basic_auth_exception user=${id} and configured allowed roles: ${allowed.join(', ') || '(none)'}`
+        // The documented table tracks decisions; its existence is not an exemption.
+        // Decisions apply by granting a role or converting the account to WSAO.
+        if (exceptions.length === 1) {
+          let schema, choices;
+          try {
+            schema = await list('sys_dictionary', 'name=sys_user_basic_auth_exception^element=decision', 'element,internal_type', '2');
+            choices = await list('sys_choice', 'name=sys_user_basic_auth_exception^element=decision^language=en^inactive=false', 'value,label');
+            exceptions = await list('sys_user_basic_auth_exception', `user=${id}`, 'sys_id,user,decision', '2');
+          } catch { throw new Error(`Cannot inspect Basic Auth exception decision schema/values; applicability is unknown. Inspect sys_user_basic_auth_exception user=${id}`); }
+          let decision = exceptions.length === 1 ? value(exceptions[0], 'decision') : undefined;
+          const labels = raw => choices.filter(c => value(c, 'value') === raw).map(c => value(c, 'label'));
+          let label = decision === undefined ? undefined : labels(decision)[0];
+          if (label?.toLowerCase().startsWith('apply default')) {
+            decision = policy[`${prefix}restriction.default_decision`];
+            label = labels(decision)[0];
+          }
+          const known = schema.length === 1 && labels(decision).length === 1 && label;
+          issues.push(known
+            ? `Basic Auth exception decision '${label}' observed, but no configured allowed role or WSAO exemption is effective; inspect sys_user_basic_auth_exception user=${id}`
+            : `Basic Auth exception exists but applicability is unknown; inspect its decision schema/values in sys_user_basic_auth_exception user=${id}`);
+        } else issues.push(exceptions.length
+          ? `Multiple Basic Auth exception rows; applicability is unknown for user=${id}`
           : `missing configured Basic Auth role (${allowed.join(', ') || '(none)'}) and no sys_user_basic_auth_exception user=${id}`);
       }
     }

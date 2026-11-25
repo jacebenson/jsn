@@ -54,10 +54,11 @@ export function registerMidInstallationDirectory(instanceURL, name, directory, {
   fs.writeFileSync(file, `${JSON.stringify(entry)}\n`, { mode: 0o600, flag: 'wx' });
   return entry;
 }
-export function forgetMidInstallationDirectory(instanceURL, name, { target = '', homeDirectory = os.homedir() } = {}) {
+export function forgetMidInstallationDirectory(instanceURL, name, { directory, target = '', homeDirectory = os.homedir() } = {}) {
   const key = identity(instanceURL, name, target), file = locationFile(key, homeDirectory);
   // Read and validate identity and permissions before unlinking; never removes runtime files.
   const resolved = resolveMidInstallationDirectory(instanceURL, name, { target, homeDirectory });
+  if (directory && path.resolve(directory) !== path.resolve(resolved)) return;
   if (resolved === midInstallDirectory(instanceURL, name, homeDirectory) && !fs.existsSync(file)) return;
   fs.unlinkSync(file);
 }

@@ -18,23 +18,40 @@ After the MID credential probe succeeds, JSN uses its existing authenticated
 session for read-only account, role and Basic Auth property checks. It requires
 `mid_server`, active/unlocked/web-service-only account flags, and checks the actual
 configured `glide.authenticate.basic_auth.allowed_roles` when restrictions are active
-and enforced. Unreadable policy or exception applicability is reported as unknown,
-not as a proven password or role failure. An exception row alone is not treated as
-proof that its scope/expiry permits this request. JSN never grants roles or changes
+and enforced. Web Services Access Only accounts are exempt under the documented
+Australia policy. The exception table records administrator decisions, not blanket
+permissions. When needed, JSN reads the decision dictionary and actual English
+choice values; missing/ambiguous schema is unknown. A selected decision is not proof
+that its role grant or account conversion has taken effect. JSN never grants roles or changes
 authentication policy. HTTP 401 and 403 remain distinct; neither proves a missing
 role. Credential acceptance, registration Up and manual trust validation are separate.
 
 For SSH installs, `--directory` still names **local ownership metadata**, not the
-remote runtime location. Native target paths are reported after remote preparation
-and before download; remote path prompting/overrides require the remote setup API
-to support a read-only destination preflight. Remote Docker uses owned volumes,
-not a host compose directory. These remote limitations are not changed here.
+remote runtime location. Native SSH setup resolves and validates the target default
+on the target before writing controller metadata or downloading. Interactive setup
+offers that default; `--remote-directory` overrides the native target path. Linux
+uses the target home and Windows uses the target USERPROFILE, both partitioned as
+`.servicenow/mids/<instance>/<mid-name>`. Existing targets, linked ancestors and
+unsafe parents reject. Remote Docker uses owned named volumes, not a target compose
+directory; `--remote-directory` is explicitly rejected for that mode.
 
 Successful setup records a nonsecret private location mapping under
 `~/.servicenow/mid-locations/`, keyed by instance origin, normalized name and SSH
 alias. This is discovery data, never proof of runtime ownership. Lifecycle callers
-must resolve it and then apply their existing ownership checks; until those callers
-are integrated, continue passing custom `--directory` for lifecycle operations.
+resolve it for start/stop/logs/remove and then apply their existing ownership checks.
+Verified teardown forgets the matching mapping; failed teardown retains it. An
+explicit override cannot clear a mapping for a different installation.
+
+Direct lifecycle reconciles persisted state against actual owned processes before
+rejecting a start. Windows console SIGINT/SIGTERM waits for verified owned-process
+exit; stale state alone does not block recovery. Removal stops the owned runtime
+and verifies exit before files and the instance record can be deleted. Unknown
+process identity or failed exit verification retains files and the location mapping.
+
+Policy references: [Basic authentication restriction](https://github.com/ServiceNow/ServiceNowDocs/blob/australia/markdown/platform-security/authentication/basic-auth-restriction.md)
+and [Basic authentication exceptions](https://github.com/ServiceNow/ServiceNowDocs/blob/australia/markdown/platform-security/authentication/basic-auth-exceptions.md).
+These documents identify WSAO exemptions and decision effects; they do not publish
+raw exception-choice enum values, which JSN does not guess.
 
 ## Remote MID management over SSH
 

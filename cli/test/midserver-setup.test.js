@@ -24,6 +24,7 @@ function sdkFixture({ roles = ['mid_server', 'custom_basic'], user = {}, policy 
     if (table === 'sys_user_has_role') return roles.map(role => ({ 'role.name': role }));
     if (table === 'sys_properties') return Object.entries({ 'restriction.active': 'true', 'restriction.enforce': 'true', allowed_roles: 'custom_basic', ...policy }).map(([name, value]) => ({ name: `glide.authenticate.basic_auth.${name}`, value }));
     if (table === 'sys_user_basic_auth_exception') return exceptions;
+    if (table === 'sys_dictionary' || table === 'sys_choice') return [];
     assert.fail(table);
   } };
 }
@@ -72,13 +73,33 @@ test('read-only account checks use actual configured roles, not a hard-coded Bas
 });
 test('diagnostics distinguish missing roles, unsafe account flags and unreadable authorization', async () => {
   await assert.rejects(diagnoseMidAccount(sdkFixture({ roles: ['custom_basic'] }), url, 'mid'), /missing role mid_server.*sys_user_has_role/);
-  await assert.rejects(diagnoseMidAccount(sdkFixture({ roles: ['mid_server'] }), url, 'mid'), /missing configured Basic Auth role \(custom_basic\)/);
+  await assert.rejects(diagnoseMidAccount(sdkFixture({ roles: ['mid_server'], user: { web_service_access_only: 'false' } }), url, 'mid'), /missing configured Basic Auth role \(custom_basic\)/);
   await assert.rejects(diagnoseMidAccount(sdkFixture({ user: { active: 'false', locked_out: 'true', web_service_access_only: 'false' } }), url, 'mid'), /active=true.*locked_out=false.*web_service_access_only=true/);
   await assert.rejects(diagnoseMidAccount(sdkFixture({ denied: 'sys_properties' }), url, 'mid'), /authorization is unknown/);
-  await assert.rejects(diagnoseMidAccount(sdkFixture({ roles: ['mid_server'], exceptions: [{ sys_id: id }] }), url, 'mid'), /applicability is unknown/);
+  await assert.rejects(diagnoseMidAccount(sdkFixture({ roles: ['mid_server'], user: { web_service_access_only: 'false' }, exceptions: [{ sys_id: id }] }), url, 'mid'), /applicability is unknown/);
   await diagnoseMidAccount(sdkFixture({ roles: ['mid_server'], policy: { 'restriction.enforce': 'false' } }), url, 'mid');
   await assert.rejects(diagnoseMidAccount(sdkFixture(), url, 'mid^ORactive=true'), /unsafe|invalid|query/i);
 });
+test('documented WSAO exemption needs no Basic Auth role or exception; decision values are read, never guessed', async () => {
+  const wsao = sdkFixture({ roles: ['mid_server'] });
+  await diagnoseMidAccount(wsao, url, 'mid');
+  assert.equal(wsao.calls.some(([table]) => table === 'sys_user_basic_auth_exception'), false);
+  for (const label of ['Maintain current login - Basic Auth API and UI login allowed', 'Revoke Basic Auth API login', 'Convert to web service access only account']) {
+    const sdk = sdkFixture({ roles: ['mid_server'], user: { web_service_access_only: 'false' }, exceptions: [{ sys_id: id, user: id, decision: 'provider-defined-value' }] });
+    const original = sdk.list.bind(sdk);
+    sdk.list = async (table, params) => {
+      if (table === 'sys_dictionary') return [{ element: 'decision', internal_type: 'string' }];
+      if (table === 'sys_choice') return [{ value: 'provider-defined-value', label }];
+      return original(table, params);
+    };
+    await assert.rejects(diagnoseMidAccount(sdk, url, 'mid'), error => {
+      assert.ok(error.message.includes(label));
+      assert.match(error.message, /no configured allowed role or WSAO exemption is effective/);
+      return true;
+    });
+  }
+});
+
 test('401 and 403 do not establish a role failure or usable password', async () => {
   for (const status of [401, 403]) {
     await assert.rejects(validateMidCredentials(url, 'mid', 'fixture-secret', async () => ({ status, ok: false })), error => {

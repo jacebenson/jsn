@@ -27,6 +27,8 @@ mock.module('../src/midserver-setup.js', { namedExports: {
 } });
 mock.module('../src/midserver-locations.js', { namedExports: {
   assertMidInstallationLocationAvailable: () => {}, registerMidInstallationDirectory: () => {},
+  resolveMidInstallationDirectory: (_url, _name, { directory } = {}) => directory || '/isolated/mid',
+  forgetMidInstallationDirectory: () => {},
 } });
 const { midserversCmd } = await import('../src/commands/midservers.js');
 const children = [], builder = { command(c) { children.push(c); return builder; } };
