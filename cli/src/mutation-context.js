@@ -35,10 +35,15 @@ async function isCustomizationTable(sdk, table) {
   throw contextFailure('Table ancestry exceeds the verification bound.');
 }
 
-export async function guardMutationContext(app, argv, { ask = confirm, rawArgs = process.argv.slice(2) } = {}) {
-  if (!needsMutationContext(argv) || !app.sdk) return null;
+export async function writesCustomization(sdk, argv) {
+  if (!needsMutationContext(argv)) return false;
   const caps = collectCapabilities().get(argv._?.[0]) || {};
-  if (caps.mutationContext === 'table' && !await isCustomizationTable(app.sdk, caps.table || argv.table)) return null;
+  return caps.mutationContext !== 'table' || isCustomizationTable(sdk, caps.table || argv.table);
+}
+
+export async function guardMutationContext(app, argv, { ask = confirm, rawArgs = process.argv.slice(2) } = {}) {
+  if (!app.sdk || !await writesCustomization(app.sdk, argv)) return null;
+  const caps = collectCapabilities().get(argv._?.[0]) || {};
   const expected = intendedContext(app, argv);
   const interactive = canUsePicker(app, argv);
   if (!interactive && (!expected.scope || !expected.update_set)) throw contextFailure('Noninteractive customization writes require intended scope and update set.');
