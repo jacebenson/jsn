@@ -44,6 +44,21 @@ to each role: a direct grant, a chain of contained roles, or a group. Groups
 appear by the name the platform prints; the API returns no sys_ids. A missing,
 denied or malformed reply is an error, never an empty answer.
 
+## Record version history
+
+```sh
+jsn records versions sys_script_include <sys_id>
+jsn records versions sys_script_include MyUtil --identifier-field name --diff 2
+jsn records versions sys_script <sys_id> --get data.latest_update.update_set.value
+```
+
+Lists a record's `sys_update_version` history newest first (1 is the newest),
+and the newest `sys_update_xml` capture with its update set. `--diff N` compares
+version N to the current version on raw values, line by line for scripts. Current
+means the version in state current, as the platform's Compare to Current uses; the
+live record is not read. Read-only. No versions does not mean unchanged: only
+records tracked by update sets have them.
+
 ## Saved Access Analyzer evidence
 
 ```sh
