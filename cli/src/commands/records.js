@@ -1,6 +1,7 @@
 import { formatCommandList, formatRecordForDisplay, findOmittedColumns, buildQuerySuffix, buildRecordPayload, getStringField, interactiveList, resolveFieldsParam, checkDerivedFields, confirmDelete, verifyWriteBack, quoteShellArg } from '../helpers.js';
 import { listRecords, recordListParams, getRecord, createRecord, updateRecord, deleteRecord } from '../records-engine.js';
 import { resolveRecord, unwrapSysId } from '../resolve-record.js';
+import { findDeletedRecord, restoreDeletedRecord } from '../record-undelete.js';
 import { errAPI, errUsage } from '../errors.js';
 import { exportRecordsXML, xmlExportCap, TABLE_NAME, UPDATE_SET_TABLES } from '../record-xml.js';
 import fs from 'node:fs';
@@ -9,11 +10,12 @@ import { watchRecord } from '../record-watch.js';
 import { declareCapabilities } from '../capabilities.js';
 import { assertMutationRecordScope, assertMutationScope } from '../intended-context.js';
 import { validateReadQuery, assertWriteQuery, queryDiagnostics, invalidateAfterMutation } from '../query-validate.js';
+import { previewCascade } from '../delete-cascade.js';
 
 declareCapabilities('records', {
   mutationContext: 'table',
   filteredMutationSubcommands: ['delete-many', 'bulk'],
-  mutationSubcommands: ['create', 'update', 'delete', 'delete-many', 'bulk'],
+  mutationSubcommands: ['create', 'update', 'delete', 'delete-many', 'bulk', 'undelete'],
 });
 
 const tableDefaultColumns = {
@@ -223,10 +225,13 @@ export function recordsCmd(wrap) {
         })
         .command({
           command: 'watch',
-          describe: 'Stream change events for one record through ServiceNow AMB record watchers',
+          describe: 'Stream change events for one record, or every record matching a query, through ServiceNow AMB record watchers',
           builder: (y) => y
             .option('table', { type: 'string', demandOption: true, describe: 'Table name' })
             .option('sys-id', { type: 'string', describe: 'Record sys_id' })
+            .option('query', { type: 'string', describe: 'Encoded query: watch every matching record (e.g. "priority=1^active=true")' })
+            .option('operation', { type: 'string', choices: ['insert', 'update', 'delete'], describe: 'Only emit this kind of change' })
+            .option('on-change', { type: 'string', describe: 'Only emit changes to one of these comma-separated fields (e.g. "state,assigned_to")' })
             .option('identifier', { type: 'string', describe: 'Identifier value; use --identifier-field number/name/etc for human identifiers' })
             .option('identifier-field', { type: 'string', describe: 'Exact identifier field (default sys_id); disambiguates names and legacy sys_ids' })
             .option('timeout', { type: 'number', default: 0, describe: 'Stop after this many seconds (0 = until interrupted)' })
@@ -236,18 +241,31 @@ export function recordsCmd(wrap) {
             .option('reconnect', { type: 'boolean', default: true, describe: 'Reconnect after a dropped connection and report the gap; use --no-reconnect to fail fast' })
             .option('poll-timeout', { type: 'number', default: 60000, describe: 'Long-poll hold timeout in milliseconds (advanced)' })
             .epilogue([
-              'Emits newline-delimited JSON events (type record_change, gap, subscribed, reconnected, watch_summary) with --json or when piped.',
+              'Emits newline-delimited JSON events (type record_change, gap, subscribed, reconnected, watch_summary) with --json or when piped; a --query that cannot be fully verified first emits query_validation.',
               'The notification is emitted as the event; a fetched record is attached separately as event.state (source: "fetched").',
               'Record watchers are best effort: after a reconnect the stream reports a gap and does not replay missed events.',
-              'Requires an interactive ServiceNow session (jsn auth login --browser). Not a durable queue or scheduler.',
+              'Needs a ServiceNow UI session, which jsn opens from basic, OAuth or browser (gck) profiles. Not a durable queue or scheduler.',
               'Example: jsn records watch --table incident --sys-id <sys_id> --timeout 300 --json',
               'Example: jsn records watch --table incident --identifier INC0010001 --identifier-field number --max-events 1 --json',
+              'Example: jsn records watch --table incident --query "priority=1^active=true" --operation update --on-change state,assigned_to --timeout 300 --json',
             ].join('\n')),
           handler: wrap(async (argv, app) => {
-            const lookup = recordLookup(argv);
-            const record = await resolveRecord(app.sdk, { ...lookup, fields: ['sys_id'] });
-            const sysID = unwrapSysId(record);
-            if (!sysID) throw errUsage('The matched record has no readable sys_id; check field ACLs before retrying.');
+            const query = argv.query;
+            const onChange = argv['on-change'] === undefined ? [] : argv['on-change'].split(',').map(field => field.trim()).filter(Boolean);
+            if (argv['on-change'] !== undefined && !onChange.length) throw errUsage('--on-change needs at least one field name.');
+            let sysID = null;
+            if (query !== undefined) {
+              if (argv['sys-id'] !== undefined || argv.identifier !== undefined || argv.identifierField !== undefined) throw errUsage('--query watches every matching record; it cannot be combined with --sys-id, --identifier or --identifier-field.');
+              if (!query.trim()) throw errUsage('--query needs an encoded query, for example "priority=1^active=true".');
+              // A misspelt field must not silently widen or empty the channel: refuse what is invalid, report what is unverified.
+              const { query_validation: validation, warnings = [] } = queryDiagnostics(await validateReadQuery(app, { table: argv.table, query, refresh: argv['refresh-metadata'] }));
+              if (warnings.length) app.output.writeEvent({ type: 'query_validation', ...validation, warnings }, { line: warnings.map(warning => `⚠ ${warning}`).join('\n') });
+            } else {
+              if (argv['sys-id'] === undefined && argv.identifier === undefined) throw errUsage('Supply exactly one of --sys-id, --identifier or --query.');
+              const record = await resolveRecord(app.sdk, { ...recordLookup(argv), fields: ['sys_id'] });
+              sysID = unwrapSysId(record);
+              if (!sysID) throw errUsage('The matched record has no readable sys_id; check field ACLs before retrying.');
+            }
             const stateFields = argv.fields ? argv.fields.split(',').filter(Boolean) : null;
 
             const controller = new AbortController();
@@ -273,10 +291,13 @@ export function recordsCmd(wrap) {
               if (event.type === 'record_change') {
                 const id = event.display_value || event.sys_id;
                 const changes = (event.changes || [])
+                  .filter(c => c.value !== undefined || c.previous_value !== undefined || c.display_value !== undefined)
                   .map(c => `${c.field}: ${c.previous_value ?? '?'} → ${c.display_value ?? c.value ?? '?'}`)
                   .join(', ');
-                const detail = changes || describeRecord(event.record);
-                return `${event.received_at} ${event.table} ${id} ${event.operation}${detail ? ` — ${detail}` : ''}`;
+                // Field names alone when the platform withheld the values.
+                const detail = changes || describeRecord(event.record) || (event.changes || []).map(c => c.field).join(', ');
+                const moved = event.operation === 'updated' ? { entry: ' (now matches)', exit: ' (no longer matches)' }[event.match] || '' : '';
+                return `${event.received_at} ${event.table} ${id} ${event.operation}${moved}${detail ? ` — ${detail}` : ''}`;
               }
               if (event.type === 'unsubscribed') return `unsubscribed${event.reason ? ` (${event.reason})` : ''}`;
               if (event.type === 'gap') return `⚠ connection gap since ${event.since}: ${event.reason} (events in this window were not observed)`;
@@ -290,9 +311,11 @@ export function recordsCmd(wrap) {
             const onStatus = status => emit(status, formatEventLine(status));
             const onEvent = async event => emit(event, formatEventLine(event));
 
-            const fetchState = async () => {
+            const fetchState = async event => {
+              const id = sysID || event.sys_id;
+              if (!/^[\w-]+$/.test(id ?? '')) throw errUsage('The notification carried no usable sys_id, so the record was not read.');
               const params = new URLSearchParams({
-                sysparm_query: `sys_id=${sysID}`,
+                sysparm_query: `sys_id=${id}`,
                 sysparm_limit: '1',
                 sysparm_display_value: 'all',
               });
@@ -312,6 +335,9 @@ export function recordsCmd(wrap) {
                 client,
                 table: argv.table,
                 sysID,
+                query,
+                operation: { insert: 'created', update: 'updated', delete: 'deleted' }[argv.operation],
+                onChange,
                 timeoutMs: argv.timeout > 0 ? argv.timeout * 1000 : 0,
                 maxEvents: argv['max-events'] ?? argv.maxEvents,
                 signal: controller.signal,
@@ -450,9 +476,13 @@ export function recordsCmd(wrap) {
             .option('yes', { type: 'boolean', default: false, describe: 'Confirm deletion (requires --expect-count)' })
             .option('dry-run', { type: 'boolean', default: false, describe: 'Preview only, even with --yes' })
             .option('limit', { type: 'number', default: 200, describe: 'Safety cap: refuse if matches exceed this count' })
-            .epilogue('Without --yes, reports count and up to 10 sample records without writes.\nDeletion uses per-record Table API DELETE, then re-counts the query. Concurrent changes cannot be made atomic.'),
+            .option('preview-cascade', { type: 'boolean', default: false, describe: 'Also preview the records the delete would cascade to, through a Data Management delete job that is never executed (admin)' })
+            .option('keep-job', { type: 'boolean', default: false, describe: 'With --preview-cascade, keep the delete job for review in the UI' })
+            .epilogue('Without --yes, reports count and up to 10 sample records without writes.\nDeletion uses per-record Table API DELETE, then re-counts the query. Concurrent changes cannot be made atomic.\n--preview-cascade inserts one sys_dm_delete job for the filter, previews up to 3 cascade levels (counts past the source table are estimates), then deletes the job unless --keep-job. Its sys_dm_delete_count rows stay behind: their delete ACL refuses even an admin. It never deletes the matching records; the --yes delete that follows records no rollback.'),
           handler: wrap(async (argv, app) => {
             if (!argv.query?.trim()) throw errUsage('--query must be nonempty. Use records delete for a single record.');
+            if (argv['preview-cascade'] && argv.yes) throw errUsage('--preview-cascade previews only. Run it without --yes, then delete with the command it prints.');
+            if (argv['keep-job'] && !argv['preview-cascade']) throw errUsage('--keep-job needs --preview-cascade.');
             // Complete original filter validated before count/enumeration/scope reads or any write.
             await assertWriteQuery(app, { table: argv.table, query: argv.query, refresh: argv['refresh-metadata'] });
             if (!Number.isSafeInteger(argv.limit) || argv.limit < 1) throw errUsage('--limit must be a positive safe integer.');
@@ -474,10 +504,19 @@ export function recordsCmd(wrap) {
             const breadcrumbs = [{ action: 'verify', cmd: `jsn records aggregate --table ${quoteShellArg(argv.table)} --query ${quoteShellArg(argv.query)}`, description: 'Re-check matching records' }];
             if (dryRun) {
               const sample = count ? await readPage(Math.min(10, count), 0) : [];
-              return app.ok({ table: argv.table, query: argv.query, count, dry_run: true, sample, rerun }, {
-                summary: `Dry run: ${count} record(s) in ${argv.table} would be deleted`,
-                breadcrumbs: [{ action: 'delete', cmd: rerun, description: 'Delete with this exact expected count' }],
+              const cascade = argv['preview-cascade'] && count
+                ? await previewCascade(app.sdk, { table: argv.table, query: argv.query, count, keepJob: argv['keep-job'] }) : undefined;
+              const others = cascade?.tables.filter(t => t.table !== argv.table) || [];
+              const left = cascade && cascade.job.status !== 'deleted';
+              app.ok({ table: argv.table, query: argv.query, count, dry_run: true, sample, rerun, ...(cascade ? { cascade } : {}) }, {
+                summary: `Dry run: ${count} record(s) in ${argv.table} would be deleted` + (cascade
+                  ? `; cascade preview: about ${others.reduce((n, t) => n + t.count, 0)} more in ${others.length} other table(s)${cascade.more_levels ? ', and deeper levels were not counted' : ''}` : '')
+                  + (left && cascade.job.status !== 'kept' ? `; delete job ${cascade.job.number} (${cascade.job.sys_id}) left in sys_dm_delete: ${cascade.job.status}` : ''),
+                breadcrumbs: [{ action: 'delete', cmd: rerun, description: 'Delete with this exact expected count' },
+                  ...(left ? [{ action: 'job', cmd: `jsn records get --table sys_dm_delete --sys-id ${cascade.job.sys_id}`, description: `Delete job ${cascade.job.number}, ${cascade.job.status === 'kept' ? 'kept for review' : 'left behind'}` }] : [])],
               });
+              if (left && cascade.job.status !== 'kept') process.exitCode = 1;
+              return;
             }
             // Snapshot all targets before deleting: offset paging over a shrinking set skips rows.
             const targets = [];
@@ -514,6 +553,28 @@ export function recordsCmd(wrap) {
               breadcrumbs,
             });
             if (!verified) process.exitCode = 1;
+          }),
+        })
+        .command({
+          command: 'undelete',
+          describe: 'Restore a deleted record from Deleted Records (sys_audit_delete)',
+          builder: (y) => y
+            .option('table', { type: 'string', demandOption: true, describe: "The deleted record's own table (incident, not task)" })
+            .option('sys-id', { type: 'string', demandOption: true, describe: "The deleted record's sys_id" })
+            .option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' })
+            .epilogue('Restores the newest deleted copy with its sys_id and created date, as the Undelete Record action does. Attachments and records its delete cascaded to stay deleted, and references other records held to it may stay cleared. The restore is an insert, so business rules run. Needs admin and background script access.'),
+          handler: wrap(async (argv, app) => {
+            const entry = await findDeletedRecord(app, argv.table, argv['sys-id']);
+            const display = entry.display_value || entry.documentkey;
+            await confirmDelete(app, argv, `Restore ${argv.table} ${display} (${entry.documentkey}), deleted ${entry.sys_created_on} by ${entry.sys_created_by}; its attachments and cascaded records stay deleted`,
+              { rerun: ['records', 'undelete', '--table', argv.table, '--sys-id', entry.documentkey] });
+            await restoreDeletedRecord(app.sdk, entry);
+            invalidateAfterMutation(app, argv.table);
+            app.ok({ restored: true, table: argv.table, sys_id: entry.documentkey, display_value: entry.display_value, audit_delete: entry.sys_id,
+              deleted_on: entry.sys_created_on, deleted_by: entry.sys_created_by }, {
+              summary: `Restored ${argv.table} ${display} from Deleted Records`,
+              breadcrumbs: [{ action: 'get', cmd: `jsn records get --table ${quoteShellArg(argv.table)} --sys-id ${entry.documentkey}`, description: 'Read the restored record' }],
+            });
           }),
         })
         .command({
@@ -728,6 +789,28 @@ export function recordsCmd(wrap) {
               summary: `Inspected ${argv.table} ${argv.identifier}`,
               breadcrumbs,
             });
+          }),
+        })
+        .command({
+          command: 'versions <table> <identifier>',
+          describe: 'List a record\'s update versions and compare one to the current version (read-only)',
+          discoveryTasks: [{
+            phrases: ['version history', 'record versions', 'compare to current', 'which update set captured a record', 'show latest update'],
+            args: ['--json'], description: 'List sys_update_version history and the latest captured update for one record',
+          }],
+          builder: (y) => y
+            .positional('table', { describe: 'Table name (e.g. sys_script_include)', type: 'string' })
+            .positional('identifier', { describe: 'Record sys_id, or the value of --identifier-field', type: 'string' })
+            .option('identifier-field', { type: 'string', describe: 'Exact identifier field (default sys_id), e.g. name' })
+            .option('limit', { type: 'number', default: 20, describe: 'Max versions, newest first (1-200)' })
+            .option('diff', { type: 'number', describe: 'Compare version N (1 = newest) to the current version' })
+            .epilogue('Versions come from sys_update_version by the record\'s sys_update_name; current means the version in state current, not the live record.\nExample: jsn records versions sys_script_include MyUtil --identifier-field name --diff 2'),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const { recordVersions, formatVersions } = await import('../records/versions.js');
+            const data = await recordVersions(app.sdk, { table: argv.table, identifier: argv.identifier, identifierField: argv.identifierField, limit: argv.limit, diff: argv.diff });
+            Object.defineProperty(data, '_formatted', { value: formatVersions(data), enumerable: false });
+            app.ok(data, { summary: `${data.count} version(s) of ${data.record.update_name}${data.diff ? `; version ${data.diff.version} vs current: ${data.diff.status}` : ''}` });
           }),
         })
 
