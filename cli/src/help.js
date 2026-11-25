@@ -84,7 +84,7 @@ const AUTOMATION_COMMANDS = [
   { name: 'assignments', desc: 'Assignment rules' },
 
   { divider: '── Inbound ──' },
-  { name: 'scrapi', desc: 'Scripted REST APIs' },
+  { name: 'scrapi', desc: 'Scripted REST APIs; search every REST API and its spec' },
   { name: 'email', desc: 'Inbound email actions' },
 
   { divider: '── Outbound ──' },
