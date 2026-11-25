@@ -69,7 +69,7 @@ export const docsCmd = wrap => ({ ...docsCmdDefinition, load: () => require('./c
 export const perfCmdDefinition = {
   command: 'perf [subcommand]',
   aliases: ['performance'],
-  describe: 'Capture and compare read-only ServiceNow performance summaries',
+  describe: 'Capture and compare performance summaries and rank slow pattern logs (read-only)',
 };
 
 export const perfCmd = wrap => ({ ...perfCmdDefinition, load: () => require('./commands/perf.js').perfCmd(wrap) });

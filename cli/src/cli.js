@@ -11,9 +11,11 @@ import { App } from './app.js';
 import { resolveSession, applySession } from './session.js';
 import { renderHelp, renderTips } from './help.js';
 import { isMutationCommand, refreshMutationCommands } from './mutations.js';
+import { impersonationRefusal, confirmImpersonatedWrite, runImpersonated } from './impersonation.js';
 import { maybeShowHome } from './welcome.js';
 import { isLocalPreview, noInstanceCommands, dailyCheckSkipCommands, collectCapabilities } from './capabilities.js';
-import { guardExit, exitWithError, AppError, CodeUsage } from './errors.js';
+import { guardExit, exitWithError, AppError, CodeUsage, errUsageHint } from './errors.js';
+import { writesCustomization } from './mutation-context.js';
 import { formatCommandList } from './helpers.js';
 
 // Command modules
@@ -60,7 +62,7 @@ import {
   scriptactionsCmd, scheduledjobsCmd, asyncrulesCmd, triggersCmd,
   assignmentsCmd,
   emailCmd,
-  restmessageCmd, soapmessagesCmd,
+  notificationsCmd, restmessageCmd, soapmessagesCmd,
   uimacrosCmd, uxlistsCmd, uxapplicabilityCmd,
 } from './commands/_simple.js';
 import { decisiontablesCmd } from './commands/decisiontables.js';
@@ -126,6 +128,7 @@ function wrap(handler) {
         process.stderr.write('Error: App context not initialized.\n');
         process.exit(1);
       }
+      if (argv.impersonate !== undefined) await confirmImpersonatedWrite(app, argv);
       const caps = collectCapabilities().get(argv._?.[0]) || {};
       app.queryValidation = null;
       if (((typeof argv.query === 'string' && argv.query.trim()) || caps.filteredMutationSubcommands?.includes(argv._?.[1]))
@@ -134,8 +137,14 @@ function wrap(handler) {
         const options = { table: target, query: argv.query, refresh: argv['refresh-metadata'] };
         app.queryValidation = await (isMutationCommand(argv) ? assertWriteQuery : validateReadQuery)(app, options);
       }
-      await app.guardMutationContext(argv);
-      await handler(argv, app);
+      if (argv.impersonate === undefined) {
+        await app.guardMutationContext(argv);
+        await handler(argv, app);
+      } else {
+        // A record write to a sys_metadata table is customization; ancestry is read as the real user, since the target may not read sys_db_object.
+        if (await writesCustomization(app.sdk, argv)) throw errUsageHint(`"jsn ${argv._.join(' ')}" cannot run with --impersonate: it writes customization, which would be captured in that user's update set.`, 'Make customization changes as yourself; --impersonate writes ordinary records.');
+        await runImpersonated(app, argv.impersonate.trim(), () => handler(argv, app));
+      }
     } catch (err) {
       // All error rendering goes through the unified renderer in
       // src/errors.js — exit codes, stream choice, and the JSON envelope
@@ -210,6 +219,8 @@ export function buildCLI() {
       verbose: { type: 'boolean', description: 'Keep machine-output coaching and pretty-print JSON' },
       raw: { type: 'boolean', description: 'Print extracted strings without JSON quotes' },
       'include-reference-links': { type: 'boolean', description: 'Include Table API reference links on reads' },
+      impersonate: { type: 'string', description: 'Run this command as another user (user_name or sys_id) on a private session' },
+      'impersonate-writes': { type: 'boolean', description: 'Allow a write under --impersonate once your user has approved it' },
       styled: {
         type: 'boolean',
         description: 'Force styled output even when piped',
@@ -285,6 +296,10 @@ export function buildCLI() {
             });
           }
         }
+      },
+      (argv) => {
+        const refusal = argv.impersonate === undefined ? null : impersonationRefusal(argv);
+        if (refusal) guardExit(argv, { code: 'usage', message: `"jsn ${argv._.join(' ')}" cannot run with --impersonate: ${refusal}.`, hint: 'Impersonation runs one instance command as another user, for example: jsn records list --table incident --impersonate abel.tuter' });
       },
     ])
     .middleware(async (argv) => {
@@ -394,6 +409,7 @@ export function buildCLI() {
     .command(scrapiCmd(wrap))
     .command(emailCmd(wrap))
     // AUTOMATION — Outbound
+    .command(notificationsCmd(wrap))
     .command(restmessageCmd(wrap))
     .command(soapmessagesCmd(wrap))
     // ACCESS
@@ -603,3 +619,4 @@ export function buildCLI() {
 export const cli = buildCLI();
 
 export { cancelBackgroundChecks } from './commands/version.js';
+export { impersonating } from './impersonation.js';

@@ -375,7 +375,7 @@ export class OutputWriter {
     // logic belongs in the command that owns the domain — output.js stays
     // generic. Other underscore-prefixed side-channel keys commands may
     // attach: `_context` ({instance_url, table} consumed by the record
-    // renderer), `_attachments`, `_variables`, `_variable_sets` (record card sections), plus
+    // renderer), `_attachments`, `_variables`, `_choices`, `_variable_sets` (record card sections), plus
     // `records`/`columns`/`table`/`relationships` for the generic table and
     // record views below.
     const hasFormatted = data && typeof data === 'object' && data._formatted;
@@ -593,6 +593,28 @@ export class OutputWriter {
         const arrow = rel.direction === 'upstream' ? '↑' : '↓';
         this.writer.write(`  ${arrow} ${rel.name} (${rel.class}) — ${rel.type}\n`);
       }
+      this.writer.write('\n');
+    }
+
+    // Column choices (columns show): which table's sys_choice list applies.
+    if (data._choices && typeof data._choices === 'object') {
+      const c = data._choices;
+      const own = c.source === c.table;
+      const count = c.truncated ? `first ${c.choices.length}` : c.choices?.length;
+      const others = (c.searched || []).filter(name => name !== c.source).join(', ');
+      const title = c.error || c.choice_table ? '' : !c.source ? ` (none active found on ${others})`
+        : own ? ` (${count} on ${c.source})` : ` (${count} inherited from ${c.source}; none active on ${others})`;
+      this.writer.write(`─ Choices${title} ─\n`);
+      if (c.error) this.writer.write(`  Unavailable: ${c.error}\n`);
+      if (!c.error && !c.choice_table && !c.source) this.writer.write('  Row ACLs can hide sys_choice rows, so this does not prove the field has none.\n');
+      if (c.choice_table) {
+        const from = [c.choice_table, c.choice_field].filter(Boolean).join('.');
+        this.writer.write(`  Defined by the choice table ${from}${c.choice_field ? `: jsn columns show ${from}` : ''}\n`);
+      }
+      for (const row of c.choices || []) {
+        this.writer.write(`  value: ${row.value} | label: ${row.label} | sequence: ${row.sequence}${row.dependent_value ? ` | dependent_value: ${row.dependent_value}` : ''}${row.inactive ? ' | inactive: true' : ''}\n`);
+      }
+      if (c.truncated) this.writer.write(`  All: jsn records list --table sys_choice --query "name=${c.source}^element=${c.element}^language=en" --limit 1000\n`);
       this.writer.write('\n');
     }
 
