@@ -36,6 +36,20 @@ describe('local CLI adapter', () => {
     assert.match(failures[0], /--name/);
   });
 
+  it('keeps a parent option marked global: false out of its subcommands', async () => {
+    const seen = [], failures = [];
+    const parent = (argv) => yargs(argv).command({
+      command: 'transactions', builder: (y) => y.option('query', { type: 'string', global: false })
+        .command({ command: 'active', builder: (y) => y.strict().option('user', { type: 'string' }), handler: (argv) => seen.push(argv) }),
+      handler: (argv) => seen.push(argv),
+    }).fail((msg) => failures.push(msg));
+    await parent(['transactions', '--query', 'type=rest']).parse();
+    assert.equal(seen[0].query, 'type=rest');
+    await parent(['transactions', 'active', '--query', 'type=rest']).parse();
+    assert.equal(seen.length, 1);
+    assert.match(failures[0], /Unknown option: --query/);
+  });
+
   it('preserves repeated array options as a flat array', async () => {
     let seen;
     await yargs(['catalogitems', 'create', '--name', 'Laptop', '--variable', 'model:string:Model', '-v', 'serial:string:Serial'])

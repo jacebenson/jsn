@@ -21,6 +21,8 @@ Discover commands with `jsn --help`, `jsn discover "search words"`, and
 - Deleting several records by filter is `jsn records delete-many`, not `eval`.
   It previews without `--yes`, and a real delete requires the exact
   `--expect-count` from that preview.
+- What is running on the instance now, on every node, is
+  `jsn transactions active` (`--older-than 5m`, `--user`, `--type`), not `eval`.
 
 For development:
 

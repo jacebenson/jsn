@@ -170,10 +170,11 @@ export class LocalCLI {
   }
   _lookup(list, value) { return list.find((n) => n.name === value || n.aliases.includes(value)); }
   _knownOptions(nodes) {
-    const map = new Map();
-    for (const node of [this.root, ...nodes]) for (const [name, spec] of node.options) {
+    const map = new Map(), chain = [this.root, ...nodes];
+    chain.forEach((node, index) => { for (const [name, spec] of node.options) {
+      if (spec.global === false && index < chain.length - 1) continue; // yargs: not passed down to subcommands
       map.set(name, spec); for (const alias of names(spec.alias)) map.set(alias, spec);
-    }
+    } });
     return map;
   }
   _findPath(args) {
