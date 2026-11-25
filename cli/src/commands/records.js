@@ -2,7 +2,7 @@ import { formatCommandList, formatRecordForDisplay, findOmittedColumns, buildQue
 import { deferredFamilyDefinition } from '../command-families.js';
 import { listRecords, recordListParams, getRecord, createRecord, updateRecord, deleteRecord } from '../records-engine.js';
 import { resolveRecord, unwrapSysId } from '../resolve-record.js';
-import { findDeletedRecord, restoreDeletedRecord } from '../record-undelete.js';
+import { findDeletedRecord, restoreDeletedRecord, previewRelatedUndelete, runRelatedUndelete } from '../record-undelete.js';
 import { errAPI, errUsage } from '../errors.js';
 import { exportRecordsXML, xmlExportCap, TABLE_NAME, UPDATE_SET_TABLES, MAX_UNLOAD_BYTES, planUnloadImport, importUnloadXML, countByTable } from '../record-xml.js';
 import fs from 'node:fs';
@@ -554,10 +554,27 @@ export function recordsCmd(wrap) {
             .option('table', { type: 'string', demandOption: true, describe: "The deleted record's own table (incident, not task)" })
             .option('sys-id', { type: 'string', demandOption: true, describe: "The deleted record's sys_id" })
             .option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' })
-            .epilogue('Restores the newest deleted copy with its sys_id and created date, as the Undelete Record action does. Attachments and records its delete cascaded to stay deleted, and references other records held to it may stay cleared. The restore is an insert, so business rules run. Needs admin and background script access.'),
+            .option('with-related', { type: 'boolean', default: false, describe: 'Also restore what the delete cascaded to and the references it cleared, from its delete recovery; preview by default' })
+            .option('yes', { type: 'boolean', default: false, describe: 'With --with-related: run it' })
+            .epilogue('Restores the newest deleted copy with its sys_id and created date, as the Undelete Record action does. Attachments and records its delete cascaded to stay deleted, and references other records held to it may stay cleared. The restore is an insert, so business rules run. Needs admin and background script access.\nWith --with-related, does what the Undelete With Related action does: without --yes, counts by table what the delete recovery would bring back, without writes; with --yes, starts the platform worker (AJAXRollbackWorker), waits up to two minutes, and succeeds only when the record reads back. A delete recovery exists only when a script deleted the record (a business rule or background script), and the docs give seven days to use it. Needs admin.'),
           handler: wrap(async (argv, app) => {
+            if (argv.yes && !argv['with-related']) throw errUsage('--yes goes with --with-related. To restore the record alone, confirm when asked or pass --force.');
             const entry = await findDeletedRecord(app, argv.table, argv['sys-id']);
             const display = entry.display_value || entry.documentkey;
+            if (argv['with-related']) {
+              const plan = await previewRelatedUndelete(app.sdk, entry);
+              const counts = plan.operations.map(op => `${op.table} ${op.operation} ${op.count}`).join(', ');
+              if (!argv.yes) {
+                return app.ok({ ...plan, restored: false }, {
+                  summary: `Preview: undeleting ${argv.table} ${display} with related records replays ${plan.total} operation(s) from ${plan.rollback_context.number}: ${counts}`,
+                  breadcrumbs: [{ action: 'undelete', cmd: `jsn records undelete --table ${quoteShellArg(argv.table)} --sys-id ${entry.documentkey} --with-related --yes`, description: 'Run this undelete' }],
+                });
+              }
+              const done = await runRelatedUndelete(app.sdk, plan);
+              for (const table of new Set([argv.table, ...plan.operations.map(op => op.table)])) invalidateAfterMutation(app, table);
+              return app.ok(done, { summary: `Restored ${argv.table} ${display} with related records from ${plan.rollback_context.number} (${plan.total} operation(s) replayed: ${counts})`,
+                breadcrumbs: [{ action: 'get', cmd: `jsn records get --table ${quoteShellArg(argv.table)} --sys-id ${entry.documentkey}`, description: 'Read the restored record' }] });
+            }
             await confirmDelete(app, argv, `Restore ${argv.table} ${display} (${entry.documentkey}), deleted ${entry.sys_created_on} by ${entry.sys_created_by}; its attachments and cascaded records stay deleted`,
               { rerun: ['records', 'undelete', '--table', argv.table, '--sys-id', entry.documentkey] });
             await restoreDeletedRecord(app.sdk, entry);
