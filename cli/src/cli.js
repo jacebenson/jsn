@@ -14,7 +14,8 @@ import { isMutationCommand, refreshMutationCommands } from './mutations.js';
 import { impersonationRefusal, confirmImpersonatedWrite, runImpersonated } from './impersonation.js';
 import { maybeShowHome } from './welcome.js';
 import { isLocalPreview, noInstanceCommands, dailyCheckSkipCommands, collectCapabilities } from './capabilities.js';
-import { guardExit, exitWithError, AppError, CodeUsage } from './errors.js';
+import { guardExit, exitWithError, AppError, CodeUsage, errUsageHint } from './errors.js';
+import { writesCustomization } from './mutation-context.js';
 import { formatCommandList } from './helpers.js';
 
 // Command modules
@@ -136,9 +137,14 @@ function wrap(handler) {
         const options = { table: target, query: argv.query, refresh: argv['refresh-metadata'] };
         app.queryValidation = await (isMutationCommand(argv) ? assertWriteQuery : validateReadQuery)(app, options);
       }
-      // Under --impersonate the write context is the impersonated user's, so it is checked on that session.
-      const run = async () => { await app.guardMutationContext(argv); await handler(argv, app); };
-      await (argv.impersonate !== undefined ? runImpersonated(app, argv.impersonate.trim(), run) : run());
+      if (argv.impersonate === undefined) {
+        await app.guardMutationContext(argv);
+        await handler(argv, app);
+      } else {
+        // A record write to a sys_metadata table is customization; ancestry is read as the real user, since the target may not read sys_db_object.
+        if (await writesCustomization(app.sdk, argv)) throw errUsageHint(`"jsn ${argv._.join(' ')}" cannot run with --impersonate: it writes customization, which would be captured in that user's update set.`, 'Make customization changes as yourself; --impersonate writes ordinary records.');
+        await runImpersonated(app, argv.impersonate.trim(), () => handler(argv, app));
+      }
     } catch (err) {
       // All error rendering goes through the unified renderer in
       // src/errors.js — exit codes, stream choice, and the JSON envelope

@@ -29,7 +29,8 @@ Treat `--force` as a deliberate boundary, not a convenience flag. Test against t
 ## Act as another user
 
 `--impersonate <user_name or sys_id>` runs one command as that user: a read
-returns the rows their roles and ACLs allow, and a write is made as them.
+returns the rows their roles and ACLs allow, and a record write is made as
+them.
 
 ```bash
 jsn records list --table incident --limit 5 --impersonate abel.tuter --json
@@ -48,17 +49,18 @@ A write as another user never runs by default. In an interactive terminal JSN
 asks, naming the user. Anywhere else, including `--json` and agents, it stops
 with `confirmation_required` before any request and runs only when re-run with
 `--impersonate-writes` after your user approves; `--yes` and `--force` do not
-count. The usual guards still apply: a read-only profile refuses the write,
-deletes still confirm, and the expected scope and update set are checked
-against the impersonated user's context, since their update set captures the
-change.
+count. The usual guards still apply: a read-only profile refuses the write and
+deletes still confirm. Customization writes are refused, because the
+impersonated user's update set would capture them: `eval`, `rest` writes and
+other commands that may write customization before any request, and record
+writes to tables under `sys_metadata` once JSN has read the table's ancestry
+as your own user.
 
-Refused before any request: local commands such as `setup` and `auth`;
-`records watch` and `logs follow`, which keep running after the command
-returns; `compare`, `plugins compare`, `store compare`, `updatesets diff` and
-`diff record`, which read through other profiles; and browser-session
-profiles, whose cookies are the browser's own session. `upgrade prep
---related-profile` reads its related profiles as their own users.
+Also refused before any request: local commands such as `setup`, `auth` and
+`upgrade`; `records watch` and `logs follow`, which keep running after the
+command returns; `compare`, `plugins compare`, `store compare`,
+`updatesets diff` and `diff record`, which read through other profiles; and
+browser-session profiles, whose cookies are the browser's own session.
 
 ## Credential destination policy
 

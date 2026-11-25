@@ -47,7 +47,8 @@ async function withInstance(options, fn) {
       const name = field === 'sys_id' ? Object.keys(users).find(key => users[key] === value) : value;
       return json(200, { result: users[name] ? [{ sys_id: users[name], user_name: name }] : [] });
     }
-    if (url.pathname === '/api/now/table/sys_db_object') return json(200, { result: [{ sys_id: id(20), name: 'incident', super_class: '' }] });
+    if (url.pathname === `/api/now/table/sys_db_object/${id(21)}`) return json(200, { result: { sys_id: id(21), name: 'sys_metadata', super_class: '' } });
+    if (url.pathname === '/api/now/table/sys_db_object') { const name = (call.query || '').split('=')[1]; return json(200, { result: [{ sys_id: id(20), name, super_class: name === 'incident' ? '' : id(21) }] }); }
     if (url.pathname.startsWith('/api/now/table/incident')) {
       if (state.holdCommand) return held.push(res);
       if (state.failCommand) return json(500, { error: { message: 'synthetic failure' } });
@@ -87,8 +88,9 @@ test('refuses local-state commands, commands that would not run as the user, and
   const argv = (words, impersonate = 'abel.tuter') => ({ _: words, impersonate });
   for (const words of [['setup'], ['auth', 'login'], ['skill']]) assert.match(impersonationRefusal(argv(words)), /local state/, words.join(' '));
   for (const words of [['records', 'watch'], ['logs', 'follow'], ['compare'], ['plugins', 'compare'], ['store', 'compare'], ['updatesets', 'diff'], ['diff', 'record']]) assert.match(impersonationRefusal(argv(words)), /would not run as that user/, words.join(' '));
+  for (const words of [['eval'], ['rest'], ['flows', 'publish']]) assert.match(impersonationRefusal({ ...argv(words), method: 'POST' }), /may write customization/, words.join(' '));
   for (const user of [true, '', '  ', '--json', 'abel^ORuser_name=admin', 'javascript:gs.getUserName()', 'abel\ntuter']) assert.match(impersonationRefusal(argv(['records', 'get'], user)), /user_name or sys_id/, JSON.stringify(user));
-  for (const words of [['records', 'get'], ['records', 'list'], ['users', 'show'], ['logs', 'list'], ['plugins', 'list'], ['updatesets', 'show'], ['records', 'create'], ['eval']]) assert.equal(impersonationRefusal(argv(words)), null, words.join(' '));
+  for (const words of [['records', 'get'], ['records', 'list'], ['users', 'show'], ['logs', 'list'], ['plugins', 'list'], ['updatesets', 'show'], ['records', 'create'], ['records', 'delete'], ['rest']]) assert.equal(impersonationRefusal(argv(words)), null, words.join(' '));
   assert.equal(impersonationRefusal(argv(['records', 'get'], id(2))), null);
 });
 
@@ -196,6 +198,8 @@ test('refused commands send nothing to the instance', async () => {
     for (const rest of [
       ['updatesets', 'diff', '--source', 'fixture', '--target', 'fixture'],
       ['compare', '--source', 'fixture', '--target', 'fixture'],
+      ['eval', '--script', 'gs.info(1)'],
+      ['rest', '/api/now/table/incident', '--method', 'POST', '--data', '{}'],
       ['records', 'watch', '--table', 'incident', '--sys-id', id(9)],
       ['logs', 'follow'],
       ['setup'],
@@ -226,7 +230,7 @@ test('a write as another user needs --impersonate-writes, and without it nothing
   });
 });
 
-test('an approved write runs on the impersonated session, with its write context checked as that user', async () => {
+test('an approved record write runs on the impersonated session, with its table classified as the real user first', async () => {
   await withInstance({}, async ({ run, calls }) => {
     const envelope = JSON.parse((await run([...create, '--impersonate-writes'])).stdout);
     assert.equal(envelope.ok, true);
@@ -236,8 +240,17 @@ test('an approved write runs on the impersonated session, with its write context
     assert.ok(write.cookie.includes(COOKIE));
     const switched = calls.findIndex(call => call.pathname === `/api/now/ui/impersonate/${users['abel.tuter']}`);
     const context = calls.findIndex(call => call.pathname === '/api/now/table/sys_db_object');
-    assert.ok(context > switched && calls[context].as === 'abel.tuter', 'the write context is read on the impersonated session');
+    assert.ok(context >= 0 && context < switched && calls[context].as === 'fixture', 'table ancestry is read as the real user, which a role-free user may not read');
     assertEnded(calls);
+  });
+});
+
+test('a customization write is refused under --impersonate before the switch, since capture would follow that user', async () => {
+  await withInstance({}, async ({ fail, calls }) => {
+    const error = await fail(['records', 'create', '--table', 'sys_script_include', '--data', '{"name":"x"}', '--yes', '--json', '--impersonate', 'abel.tuter', '--impersonate-writes']);
+    assert.equal(error.code, 2);
+    assert.match(JSON.parse(error.stdout).error, /customization/);
+    assert.equal(calls.some(call => call.method !== 'GET' && call.pathname.startsWith('/api/now/')), false, 'no switch and no write');
   });
 });
 

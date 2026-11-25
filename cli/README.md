@@ -63,7 +63,7 @@ Use `jsn auth modify <profile> --read-only` to block instance writes. ServiceNow
 
 Writes are not universally dry-run operations or confirmation prompts. Inspect each command's help, target profile, scope, and update set before changing anything. Use `--force` only for an approved operation. See [safety guidance](https://jsn.jace.pro/docs/safety/).
 
-To run a command as another user, add `--impersonate <user_name or sys_id>`: `jsn records list --table incident --impersonate abel.tuter` shows what that user sees. It needs the admin or impersonator role and runs on a private session that is switched back and logged out afterwards. A write as that user asks first in a terminal; elsewhere it runs only with `--impersonate-writes`, once your user has approved it, and the usual write guards still apply.
+To run a command as another user, add `--impersonate <user_name or sys_id>`: `jsn records list --table incident --impersonate abel.tuter` shows what that user sees. It needs the admin or impersonator role and runs on a private session that is switched back and logged out afterwards. A record write as that user asks first in a terminal; elsewhere it runs only with `--impersonate-writes`, once your user has approved it, and the usual write guards still apply. Customization writes, `eval` and `rest` writes are refused under `--impersonate`.
 
 ## AI agents
 

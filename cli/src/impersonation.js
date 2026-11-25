@@ -8,6 +8,7 @@
 import { SDKClient } from './sdk.js';
 import { AppError, CodeAPI, CodeUsage, CodeConfirmationRequired, errAuth, errAuthHint, errUsageHint, errNotFound } from './errors.js';
 import { isMutationCommand } from './mutations.js';
+import { needsMutationContext } from './mutation-context.js';
 import { collectCapabilities } from './capabilities.js';
 import { isSysId } from './resolve-record.js';
 import { canUsePicker } from './helpers.js';
@@ -24,6 +25,8 @@ export function impersonationRefusal(argv, caps = collectCapabilities()) {
   if (/^-|[\^\p{Cc}]|javascript:/iu.test(user)) return `"${user}" is not a user_name or sys_id`;
   const cap = caps.get(argv._?.[0]) || {};
   if (cap.noInstance) return 'it manages local state rather than reading the instance';
+  // Writes the context guard cannot place on an ordinary table count as customization, captured in that user's update set.
+  if (needsMutationContext(argv) && cap.mutationContext !== 'table') return 'it may write customization, which would be captured in that user\'s update set';
   if (cap.noImpersonateSubcommands?.some(sub => sub === '' || sub === argv._?.[1])) return 'it would not run as that user: it reads through another profile or keeps running after the command returns';
   return null;
 }
