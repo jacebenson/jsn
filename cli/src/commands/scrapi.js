@@ -6,16 +6,15 @@
 //     --resource create=POST:/create:./create.js \
 //     --resource comment=POST:/comment:./comment.js
 
+import { deferredFamilyDefinition } from '../command-families.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { formatRecordForDisplay, getStringField, isHexString } from '../helpers.js';
 import { errAPI, errUsage, errUsageHint } from '../errors.js';
-import { declareCapabilities } from '../capabilities.js';
 import { levenshtein } from '../query-parse.js';
 
 // `scrapi create` builds a full Scripted REST API in one call (list/show/search/spec are
 // reads). Registered at the root.
-declareCapabilities('scrapi', { queryTable: 'sys_ws_operation', transactionScopeOption: 'scope', mutationSubcommands: ['create'] });
 
 // The REST API Explorer catalogue: doc/services answers {result: {namespace: {title: api}}} for the
 // whole instance, or one namespace with ?namespace=, and an unknown namespace with 200 {"result":{}}.
@@ -115,9 +114,7 @@ function readScriptFile(filePath) {
 
 export function scrapiCmd(wrap) {
   return {
-    command: 'scrapi [subcommand]',
-    aliases: ['scripted-rest', 'rest-api'],
-    describe: 'Manage Scripted REST APIs (list, show, create) and search every REST API and its OpenAPI spec',
+    ...deferredFamilyDefinition('scrapi'),
     builder: (yargs) => {
       return yargs
         // ── list ──

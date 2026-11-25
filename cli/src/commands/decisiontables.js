@@ -1,3 +1,4 @@
+import { deferredFamilyDefinition } from '../command-families.js';
 import fs from 'node:fs';
 import { assertMutationScope } from '../intended-context.js';
 import { getStringField, formatRecordForDisplay, interactiveList, assertSafeExactMatch, confirmDelete } from '../helpers.js';
@@ -5,13 +6,10 @@ import { resolveRecord, unwrapSysId, isSysId } from '../resolve-record.js';
 import { inspectDecisionTable } from '../decision-table-inspection.js';
 import { evaluateDecisionTable } from '../decision-table-evaluate.js';
 import { DecisionTableCRUD } from '../decision-table-crud.js';
-import { declareCapabilities } from '../capabilities.js';
 
 export const decisiontablesCmd = (wrap) => {
   const name = 'decisiontables';
   const singular = 'decision table';
-  declareCapabilities(name, { queryTable: 'sys_decision', mutationSubcommands: ['create', 'update', 'delete'] });
-
   const readData = (argv) => {
     if (argv.dataFile) return fs.readFileSync(argv.dataFile, 'utf8');
     if (argv.data) return argv.data;
@@ -61,9 +59,7 @@ export const decisiontablesCmd = (wrap) => {
     app.ok(result, { summary: `Decision table ${operation}d` });
   });
   return {
-    command: `${name} [subcommand]`,
-    aliases: ['decisiontable'],
-    describe: 'Manage decision tables',
+    ...deferredFamilyDefinition('decisiontables'),
     builder: (yargs) => yargs
       .command({
         command: 'list', aliases: ['ls'], describe: 'List decision tables',

@@ -17,11 +17,24 @@ test('real executable loads only selected heavy families; discovery retains eage
     JSN_TEST_MODULE_TRACE: trace, JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1',
     JSN_NO_PROMPTS: '1', CI: 'true', TERM: 'dumb' };
   try {
+    // Families that must stay unloaded unless the command line reaches them.
+    const heavy = ['records', 'updatesets', 'auth', 'setup', 'midservers', 'docs/docs',
+      '_simple', 'atf', 'catalog', 'cases', 'transactions', 'knowledge', 'decisiontables', 'scan'];
+    const loadedFamilies = (modules) => new Set(modules
+      .map(url => url.match(/\/commands\/(.+)\.js$/)?.[1])
+      .filter(Boolean));
     for (const args of [['version', '--json'], ['--help'], ['records', 'list', '--help'], ['--profile', 'flows', 'flow', 'update', '--help']]) {
       execFileSync(process.execPath, ['--import', new URL('./fixtures/trace-modules.mjs', import.meta.url).href, 'bin/jsn.js', ...args], { cwd: cliDir, env, timeout: 15000 });
       const modules = JSON.parse(fs.readFileSync(trace, 'utf8'));
+      const families = loadedFamilies(modules);
       assert.ok(!modules.some(url => /\/commands\/(midservers|docs\/[^/]+)\.js$/.test(url)), args.join(' '));
       assert.equal(modules.some(url => url.endsWith('/commands/flows.js')), args.includes('flow'));
+      // A path that resolves to `records list` may load records; nothing else may.
+      const reachesRecords = args[0] === 'records';
+      for (const family of heavy) {
+        if (reachesRecords && family === 'records') continue;
+        assert.ok(!families.has(family), `${args.join(' ')} loaded ${family}`);
+      }
     }
     const script = `
       const { cli } = await import('./src/cli.js');
@@ -77,4 +90,37 @@ test('root help summaries leave families unloaded; complete discovery loads them
   assert.equal(loads, 0);
   assert.deepEqual(cli.commandRegistry().commands[0].subcommands, ['show']);
   assert.equal(loads, 1);
+});
+
+// Every declared family's root identity is the same identity its implementation
+// publishes; a deferred handler is never the source of a signature, alias or
+// description that help, discovery and dispatch resolve.
+test('deferred declarations match the implementations they load, before and after loading', async () => {
+  const { buildCLI } = await import('../src/cli.js');
+  const { collectCapabilities, mutationPaths } = await import('../src/capabilities.js');
+  const cli = buildCLI();
+  // Function-valued declarations (queryTable) are behavior: call them with
+  // representative argv shapes so a changed rule fails even though the two
+  // closures are different objects.
+  const SAMPLE_ARGV = [{ _: [] }, { _: ['atf', 'suites'] }, { _: ['atf', 'results'] }, { _: ['flows', 'executions'] }];
+  const materialize = value => typeof value === 'function'
+    ? { fn: SAMPLE_ARGV.map(argv => value(argv)) }
+    : value;
+  const folded = caps => JSON.stringify(Object.fromEntries([...caps].map(([name, value]) => [name, value])),
+    (key, value) => (typeof value === 'object' && value !== null ? Object.fromEntries(Object.entries(value).map(([k, v]) => [k, materialize(v)])) : value));
+  const before = folded(collectCapabilities());
+  const pathsBefore = mutationPaths().map(path => path.join(' ')).sort();
+  const deferred = cli.root.children.filter(node => typeof node.definition.load === 'function');
+  assert.ok(deferred.length > 0);
+  for (const node of deferred) {
+    const implementation = node.definition.load();
+    for (const key of ['command', 'describe', 'summary']) {
+      assert.equal(implementation[key] ?? '', node.definition[key] ?? '', `${node.name} ${key}`);
+    }
+    // A command that lists its own name as an alias publishes one token once.
+    assert.deepEqual((implementation.aliases || []).filter(alias => alias !== node.name), node.aliases, `${node.name} aliases`);
+  }
+  // Loading implementations must not change a single capability or guard path.
+  assert.equal(folded(collectCapabilities()), before);
+  assert.deepEqual(mutationPaths().map(path => path.join(' ')).sort(), pathsBefore);
 });

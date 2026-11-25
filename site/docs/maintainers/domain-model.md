@@ -342,10 +342,22 @@ one. Commands are the unit the CLI registers, guards, and renders output for.
 ## Lazy command family
 
 `src/command-families.js` owns lightweight root identity (signature, aliases,
-description) and eager capabilities for the heavyweight families it exports.
-The implementation spreads that same identity rather than maintaining a second
-help/alias declaration. Capability declarations must never be deferred with the
-handler: the entire registry and mutation paths are complete at `buildCLI()`.
+description, summary) and eager capabilities for every family whose
+implementation loads late. Each family declares its identity once in that
+module and its implementation spreads the same identity rather than maintaining
+a second help/alias declaration. Capability declarations must never be deferred
+with the handler: the entire registry and mutation paths are complete at
+`buildCLI()`, for the explicit families and for the families registered through
+`deferredFamily(name, wrap)`. A deferred registration names the module and its
+factory export; that module spreads `deferredFamilyDefinition(name)` and never
+publishes a signature, alias, description or capability policy of its own.
+Profile-backed families derive both from `record-command-profiles.js` through
+`profile-command-definitions.js`, so the data that configures a builder also
+defines its CLI surface. Use the deferred form for any
+command family whose factory pulls a substantial subtree (table CRUD factories,
+large command modules); leave genuinely shared infrastructure eager. Shared
+App/SDK infrastructure remains eager; unrelated docs setup/storage helpers
+must not be imported merely to configure another command.
 
 The adapter loads a family's implementation when the normal option-aware path
 resolver reaches its node, before child aliases, required options or middleware

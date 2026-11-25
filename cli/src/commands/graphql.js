@@ -1,9 +1,8 @@
 import fs from 'node:fs';
-import { declareCapabilities } from '../capabilities.js';
+import { deferredFamilyDefinition } from '../command-families.js';
 
 // GraphQL documents may contain mutations. Gate the whole command so normal
 // instance/auth and read-only protections apply without attempting AST parsing.
-declareCapabilities('graphql', { encodedQuery: false, mutationSubcommands: [''] });
 
 function readStdin() {
   return new Promise((resolve, reject) => {
@@ -53,8 +52,7 @@ export function parseGraphQLVariables(value) {
 
 export function graphqlCmd(wrap) {
   return {
-    command: 'graphql [document]',
-    describe: 'Execute a GraphQL document against ServiceNow Now GraphQL',
+    ...deferredFamilyDefinition('graphql'),
     builder: (yargs) => yargs
       .positional('document', {
         describe: 'GraphQL document string',

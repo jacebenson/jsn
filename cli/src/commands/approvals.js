@@ -17,15 +17,14 @@
 //
 // approve/reject are mutations → confirmDelete + registered in MUTATION_COMMANDS.
 
+import { deferredFamilyDefinition } from '../command-families.js';
 import {
   getStringField, interactiveList,
   resolveFieldsParam, assertSafeExactMatch, confirmDelete,
 } from '../helpers.js';
 import { errUsage, errNotFound } from '../errors.js';
-import { declareCapabilities } from '../capabilities.js';
 
 // approve/reject/submit change approval state on records.
-declareCapabilities('approvals', { queryTable: 'sysapproval_approver', mutationContext: 'operational', mutationSubcommands: ['approve', 'reject', 'submit'] });
 
 // Raw sysapproval_approver.state values (verified live).
 const APPROVAL_STATES = [
@@ -171,9 +170,7 @@ export async function resolveCurrentUserSysID(app) {
 
 export function approvalsCmd(wrap) {
   return {
-    command: 'approvals [subcommand]',
-    describe: 'Manage approval requests (list, approve, reject, submit, history)',
-    summary: 'List, approve, or reject approval requests',
+    ...deferredFamilyDefinition('approvals'),
     builder: (yargs) => {
       return yargs
         .command({

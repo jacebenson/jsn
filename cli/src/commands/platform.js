@@ -1,4 +1,4 @@
-import { declareCapabilities } from '../capabilities.js';
+import { deferredFamilyDefinition } from '../command-families.js';
 import { formatCommandList } from '../helpers.js';
 
 function numberOrString(value) {
@@ -267,10 +267,9 @@ function formatHealth(nodes) {
 }
 
 export function platformCmd(wrap) {
-  declareCapabilities('platform', { mutationSubcommands: [] });
+
   return {
-    command: 'platform',
-    describe: 'Inspect read-only platform health and node statistics',
+    ...deferredFamilyDefinition('platform'),
     // Parent discovery. This parent had no handler, so `jsn platform` and
     // `jsn platform --json` exited 0 with no output at all — silent success.
     // Children come from the registry, not a second hand-written list.

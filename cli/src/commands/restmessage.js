@@ -1,8 +1,10 @@
+import { deferredFamilyDefinition } from '../command-families.js';
 import { buildDevCmd } from './_generic.js';
 import { getStringField } from '../helpers.js';
 
-export const restmessageCmd = (wrap) => buildDevCmd('restmessage', 'sys_rest_message', ['rm', 'restmsg'],
+export const restmessageCmd = (wrap) => buildDevCmd('restmessage', 'sys_rest_message', [],
   ['name', 'endpoint', 'active', 'sys_scope'], wrap, {
+    definition: deferredFamilyDefinition('restmessage'),
     singular: 'REST message',
     scopeValidation: true,
     onShow: async (record, app) => {

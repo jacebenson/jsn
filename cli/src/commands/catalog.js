@@ -1,17 +1,13 @@
 import { getStringField, interactiveList, resolveItemOptionType, formatCommandList, quoteShellArg } from '../helpers.js';
+import { deferredFamilyDefinition } from '../command-families.js';
 import { catalogOrderCommands } from './catalog-order.js';
 import { resolveSysId, resolveRecord, unwrapSysId } from '../resolve-record.js';
 import { errUsage } from '../errors.js';
-import { declareCapabilities } from '../capabilities.js';
 import { enrichCatalogItem, buildCatalogFormatted } from './catalog/enrich.js';
-
-declareCapabilities('catalogitems', { queryTable: 'sc_cat_item', mutationSubcommands: ['create', 'order'], mutationContextExemptSubcommands: ['order'], localPreviewSubcommands: ['order'] });
 
 export function catalogCmd(wrap) {
   return {
-    command: 'catalogitems [subcommand]',
-    aliases: ['ci'],
-    describe: 'Manage Service Catalog items',
+    ...deferredFamilyDefinition('catalogitems'),
     builder: (yargs) => {
       for (const command of catalogOrderCommands(wrap)) yargs.command(command);
       return yargs

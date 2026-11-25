@@ -1,14 +1,10 @@
 import { formatRecordForDisplay, getStringField, interactiveList, resolveFieldsParam, assertSafeExactMatch, buildRecordPayload } from '../helpers.js';
-import { declareCapabilities } from '../capabilities.js';
 import { detailCount } from './_detail-count.js';
-
-declareCapabilities('groups', { queryTable: 'sys_user_group', mutationContext: 'operational', mutationSubcommands: ['create', 'update', 'delete'] });
+import { deferredFamilyDefinition } from '../command-families.js';
 
 export function groupsCmd(wrap) {
   return {
-    command: 'groups [subcommand]',
-    aliases: ['group'],
-    describe: 'Manage ServiceNow groups',
+    ...deferredFamilyDefinition('groups'),
     builder: (yargs) => {
       return yargs
         .command({

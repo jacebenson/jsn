@@ -1,12 +1,11 @@
 import { spawnSync } from 'node:child_process';
-import { declareCapabilities } from '../capabilities.js';
+import { deferredFamilyDefinition } from '../command-families.js';
 import { AppError, CodeAPI, CodeNetwork } from '../errors.js';
 import { checkLatest, getReleaseChannel, getVersion } from './version.js';
 import { collectUpgradePrep, prepSummary } from '../upgrade-prep.js';
 
-for (const name of ['upgrade', 'update']) {
-  declareCapabilities(name, { noInstance: true, skipDailyChecks: true });
-}
+// `upgrade` (and its legacy `update` alias) carry no instance policy; both are
+// declared once in command-families.js.
 
 function installPackage(args, { structured }) {
   const result = spawnSync('npm', args, { stdio: structured ? 'pipe' : 'inherit', encoding: 'utf8' });
@@ -40,9 +39,7 @@ function isNewer(candidate, installed) {
 
 export function upgradeCmd(wrap, { version = getVersion, check = checkLatest, install = installPackage } = {}) {
   return {
-    command: 'upgrade',
-    aliases: ['update'],
-    describe: 'Upgrade jsn through npm (preserves the installed release channel)',
+    ...deferredFamilyDefinition('upgrade'),
     builder: (y) => y
       .command({ command: 'prep', describe: 'Collect read-only platform and Store upgrade preparation evidence',
         builder: p => p

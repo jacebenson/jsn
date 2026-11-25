@@ -1,13 +1,14 @@
+import { deferredFamilyDefinition } from '../command-families.js';
 import { buildDevCmd } from './_generic.js';
 import { getStringField, quoteShellArg } from '../helpers.js';
 import { errUsage } from '../errors.js';
-import { declareCapabilities } from '../capabilities.js';
 import { readImportFile, checkStagingTable, loadImportRows, loadRerun, formatLoad, activeTransformMaps, readImportSet, checkTransformable,
   transformImportSet, transformResult } from '../import-sets.js';
 import { detailCount } from './_detail-count.js';
 
-export const importCmd = (wrap) => withWrites(buildDevCmd('import', 'sys_import_set', ['imports', 'imp'],
+export const importCmd = (wrap) => withWrites(buildDevCmd('import', 'sys_import_set', [],
   ['name', 'sys_target_table', 'state', 'sys_created_on'], wrap, {
+    definition: deferredFamilyDefinition('import'),
     singular: 'import set',
     readOnly: true,
     extraSubcommands: [{ name: 'load', description: 'Load rows into a staging table and transform them' },
@@ -33,7 +34,7 @@ export const importCmd = (wrap) => withWrites(buildDevCmd('import', 'sys_import_
 
 function withWrites(base, wrap) {
   // Loaded rows and transformed targets are data, not customizations.
-  declareCapabilities('import', { mutationContext: 'operational', queryTable: 'sys_import_set', mutationSubcommands: ['load', 'transform'] });
+
   return {
     ...base,
     builder: y => base.builder(y)

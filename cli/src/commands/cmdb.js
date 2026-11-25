@@ -5,6 +5,7 @@
 // Table API GETs). Direction semantics: parent=current → other is child →
 // downstream; child=current → other is parent → upstream.
 
+import { deferredFamilyDefinition } from '../command-families.js';
 import {
   assertSafeExactMatch,
   buildQuerySuffix,
@@ -15,8 +16,6 @@ import {
   resolveFieldsParam,
 } from '../helpers.js';
 import { errNotFound, errUsage } from '../errors.js';
-import { declareCapabilities } from '../capabilities.js';
-declareCapabilities('cmdb', { queryTable: 'cmdb_ci' });
 
 import { cmdbSearchCmd } from './cmdb-search.js';
 
@@ -367,8 +366,7 @@ export function formatCMDBShow(root, groups, { instanceURL = '', record } = {}) 
 
 export function cmdbCmd(wrap) {
   return {
-    command: 'cmdb [subcommand]',
-    describe: 'Query the Configuration Management Database (CMDB) — CIs and relationship traversal (read-only)',
+    ...deferredFamilyDefinition('cmdb'),
     // Parent discovery. Without a handler `jsn cmdb` exited 0 having printed
     // nothing: a script reads that as success and a human as a hang. The child
     // list comes from the registry (argv.subcommands), so it cannot drift from

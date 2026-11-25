@@ -1,16 +1,12 @@
 import { formatRecordForDisplay, getStringField, interactiveList, resolveFieldsParam, buildRecordPayload, quoteShellArg } from '../helpers.js';
+import { deferredFamilyDefinition } from '../command-families.js';
 import { resolveRecord, resolveSysId } from '../resolve-record.js';
 import { listUserRoles, explainUserRoles, formatUserRoleWhy } from '../user-roles.js';
-import { declareCapabilities } from '../capabilities.js';
 import { errUsage } from '../errors.js';
-
-declareCapabilities('users', { queryTable: 'sys_user', mutationContext: 'operational', mutationSubcommands: ['create', 'update', 'delete'] });
 
 export function usersCmd(wrap) {
   return {
-    command: 'users [subcommand]',
-    aliases: ['user'],
-    describe: 'Manage ServiceNow users',
+    ...deferredFamilyDefinition('users'),
     builder: (yargs) => {
       return yargs
         .command({

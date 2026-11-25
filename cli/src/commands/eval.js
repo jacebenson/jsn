@@ -1,17 +1,17 @@
 import fs from 'node:fs';
+import { deferredFamilyDefinition } from '../command-families.js';
 import { getCurrentUser, getCurrentApplication } from '../context.js';
-import { declareCapabilities } from '../capabilities.js';
 import { runRepl } from '../eval-repl.js';
 import { guardExit, CodeUsage } from '../errors.js';
 import { previewRollback, runRollback } from '../eval-rollback.js';
 
-// The whole command is a mutation surface (runs arbitrary server-side JS) —
-// declared as `['']` so the root `jsn eval` command are gated.
-declareCapabilities('eval', { transactionScopeOption: 'scope', mutationSubcommands: [''] });
+// The whole command is a mutation surface (runs arbitrary server-side JS):
+// command-families.js declares `mutationSubcommands: ['']` so `jsn eval` itself
+// is gated.
 
 export function evalCmd(wrap) {
   return {
-    command: 'eval',
+    ...deferredFamilyDefinition('eval'),
     defaultPositionals: true, // a stray positional still reaches the handler's own error, as before rollback existed
     describe: 'Execute background scripts on the instance (--repl for interactive mode)',
     builder: (yargs) => {
