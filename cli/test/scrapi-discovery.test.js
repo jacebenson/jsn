@@ -75,7 +75,7 @@ test('scrapi search and spec are registered reads with their options; create sta
   assert.equal(isMutationCommand({ _: ['scrapi', 'create'] }), true);
 });
 
-test('search matches namespace, API name, route and descriptions case-insensitively in one read', async () => {
+test('search matches API name, route (which carries the namespace) and descriptions case-insensitively in one read', async () => {
   const f = fixture();
   await f.search({ term: 'TABLE' });
   assert.equal(f.calls.length, 1);
@@ -83,7 +83,7 @@ test('search matches namespace, API name, route and descriptions case-insensitiv
   assert.equal(f.calls[0].opts.method, 'GET');
   assert.deepEqual(f.data.records[0], { namespace: 'now', api: 'Table API', version: 'latest', method: 'GET', route: '/api/now/table/{tableName}', description: 'Retrieve records from a table' });
   assert.deepEqual(f.data.records.map(r => r.route), ['/api/now/table/{tableName}', '/api/now/table/{tableName}', '/api/now/v2/table/{tableName}']);
-  for (const [term, routes] of [['widget', ['/api/x_acme/generic/widget/{id}']], ['acme', ['/api/x_acme/generic/widget/{id}']], ['upload', ['/api/now/attachment/file']], ['nothing-here', []]]) {
+  for (const [term, routes] of [['widget', ['/api/x_acme/generic/widget/{id}']], ['acme', ['/api/x_acme/generic/widget/{id}']], ['upload', ['/api/now/attachment/file']], ['crud', ['/api/now/table/{tableName}', '/api/now/table/{tableName}', '/api/now/v2/table/{tableName}']], ['nothing-here', []]]) {
     const g = fixture();
     await g.search({ term });
     assert.deepEqual(g.data.records.map(r => r.route), routes, term);
@@ -130,7 +130,7 @@ test('invalid input is refused before any request', async () => {
 });
 
 test('a missing, malformed or empty catalogue is never reported as no matches', async () => {
-  for (const body of [{ result: [] }, {}, null, { result: 'x' }]) {
+  for (const body of [{ result: [] }, {}, null, { result: 'x' }, { result: { now: { 'Table API': { versions: { v1: { resources: [{ httpMethod: 'GET' }] } } } } } }]) {
     const f = fixture({ services: () => body });
     await assert.rejects(f.search({ term: 'table' }), (err) => err.code === 'malformed_response', JSON.stringify(body));
   }

@@ -50,8 +50,9 @@ function searchRows(catalogue, term, method) {
   const has = v => lower(v).includes(wanted);
   const rows = [];
   for (const { namespace, name, api } of catalogueApis(catalogue)) {
-    // A hit on the API itself matches every endpoint it serves.
-    const apiHit = has(namespace) || has(name) || has(api.apiName) || has(api.description);
+    // A hit on the API itself matches every endpoint it serves. Every route and apiName
+    // starts with its namespace, so the namespace needs no match of its own.
+    const apiHit = has(name) || has(api.apiName) || has(api.description);
     for (const [version, entry] of Object.entries(isObject(api.versions) ? api.versions : {})) {
       for (const r of Array.isArray(entry?.resources) ? entry.resources : []) {
         if (!isObject(r) || typeof r.route !== 'string' || typeof r.httpMethod !== 'string') throw malformed(`Malformed REST API catalogue entry: ${namespace}/${name} ${version}`);
