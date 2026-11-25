@@ -421,10 +421,10 @@ export class SDKClient {
     return this._withAuthenticatedRequest(endpoint, requestOptions, { timeout, stateful });
   }
 
-  async rawRequest(endpoint, opts = {}, { timeout } = {}) {
-    return this._withAuthenticatedRequest(endpoint, opts, {
-      normalizeErrors: true,
-      timeout,
+  async rawRequest(endpoint, opts = {}) {
+    const { timeout = this.timeout, ...requestOptions } = opts;
+    return this._withAuthenticatedRequest(endpoint, requestOptions, {
+      timeout, normalizeErrors: true,
       prepare: (req) => {
         if (opts.body && typeof opts.body === 'string') {
           req.headers.set('Content-Type', opts.headers?.['Content-Type'] || 'application/x-www-form-urlencoded');
@@ -1146,10 +1146,11 @@ export class SDKClient {
    *   - quotaManagedTransaction (default true) → quota_managed_transaction
    *   - sandbox (default false) → sandbox (KittyScript, single expression)
    *   - scriptlet (default false) → scriptlet
-   *   - timeout (ms, default the client timeout) and signal (AbortSignal): when
-   *     either stops the wait, the script is cancelled on the instance through
-   *     cancel_my_transaction.do in the same session, and the error says
-   *     whether the platform confirmed it (error.cancel.status).
+   *   - timeout (ms) and signal (AbortSignal): a caller that passes either
+   *     gets the cancel. When either stops the wait, the script is cancelled on
+   *     the instance through cancel_my_transaction.do in the same session, and
+   *     the error says whether the platform confirmed it (error.cancel.status).
+   *     A caller with neither keeps the client timeout and no cancel.
    * @returns {Promise<string>} The script's output text
    */
   async executeScript(script, scope, opts = {}) {
@@ -1173,9 +1174,11 @@ export class SDKClient {
       scriptlet: opts.scriptlet,
     });
 
+    // Only callers that pass a timeout or a signal (jsn eval) get the cancel; others keep the plain request.
+    const cancellable = Boolean(opts.timeout || opts.signal);
     const timeout = opts.timeout || this.timeout;
     if (opts.signal?.aborted) throw new AppError('interrupted', 'Interrupted before the background script was sent; nothing ran on the instance.');
-    // The request outlives the deadline so it can carry the platform's answer to a cancel.
+    // A cancellable request outlives the deadline so it can carry the platform's answer to a cancel.
     const run = this.rawRequest(endpoint, {
       method: 'POST',
       headers: {
@@ -1183,11 +1186,14 @@ export class SDKClient {
         ...(cookies ? { Cookie: cookies } : {}),
       },
       body: formBody.toString(),
-    }, { timeout: timeout + SCRIPT_CANCEL_WAIT });
-    const stop = await stopReason(run, timeout, opts.signal);
+      ...(cancellable ? { timeout: timeout + SCRIPT_CANCEL_WAIT } : {}),
+    });
+    const stop = cancellable && await stopReason(run, timeout, opts.signal);
     if (stop) throw scriptStoppedError(stop, timeout, await this._cancelScript(cookies, run));
 
     const output = this._extractScriptOutput(await run);
+    // The platform ended it (transaction quota, or an admin's kill) before it finished.
+    if (/^Transaction cancelled\b/m.test(output)) throw new Error(`Background script was cancelled on the instance before it finished: ${output.trim()}`);
     const scriptError = detectScriptError(output);
     if (scriptError) throw new Error(`Background script failed: ${scriptError}`);
     return output;
@@ -1484,7 +1490,9 @@ export class SDKClient {
     } catch (error) {
       return { status: 'failed', message: error.message };
     }
-    const output = this._extractScriptOutput(await run.catch(() => ''));
+    // The wait for the platform's answer is bounded on its own, whatever --timeout is.
+    const answer = new Promise(resolve => setTimeout(resolve, SCRIPT_CANCEL_WAIT, '').unref());
+    const output = this._extractScriptOutput(await Promise.race([run.catch(() => ''), answer]));
     return { status: /^Transaction cancelled\b/m.test(output) ? 'cancelled' : 'not_confirmed', message, output };
   }
 
