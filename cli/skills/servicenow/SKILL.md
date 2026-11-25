@@ -18,6 +18,9 @@ names the table they come from when they are inherited from a parent.
 - Verify the intended instance and select it explicitly with `--profile <name>`.
 - Prefer purpose-built or records commands over `eval`. Explain the need and get
   approval before using eval; avoid bypassing ServiceNow protections.
+- Undoing what a background script wrote is `jsn eval rollback <execution>`, with
+  the execution id `jsn eval` reports, not a second script. It previews without
+  `--yes`; the platform keeps execution history for 7 days.
 - Honor delete confirmations. Get approval for destructive work and Global +
   Default mutations; use `--force` only for the approved operation.
 - Restoring a deleted record is `jsn records undelete --table <t> --sys-id <id>`,

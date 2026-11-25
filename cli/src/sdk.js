@@ -1156,6 +1156,11 @@ export class SDKClient {
    * @returns {Promise<string>} The script's output text
    */
   async executeScript(script, scope, opts = {}) {
+    return (await this.runBackgroundScript(script, scope, opts)).output;
+  }
+
+  /** executeScript, also returning the sys_script_execution_history id the page links to (null when absent). */
+  async runBackgroundScript(script, scope, opts = {}) {
     // Step 1: Warm up the session by hitting any REST API — this makes
     // ServiceNow issue session cookies for subsequent UI page requests.
     // We capture cookies to forward them (Node.js fetch() has no built-in cookie jar).
@@ -1193,12 +1198,14 @@ export class SDKClient {
     const stop = cancellable && await stopReason(run, timeout, opts.signal);
     if (stop) throw scriptStoppedError(stop, timeout, await this._cancelScript(cookies, run));
 
-    const output = this._extractScriptOutput(await run);
+    // The response body is needed twice: for the output and for the execution id.
+    const html = await run;
+    const output = this._extractScriptOutput(html);
     // The platform ended it (transaction quota, or an admin's kill) before it finished.
     if (cancelledByPlatform(output)) throw new Error(`Background script was cancelled on the instance before it finished: ${output}`);
     const scriptError = detectScriptError(output);
     if (scriptError) throw new Error(`Background script failed: ${scriptError}`);
-    return output;
+    return { output, execution_id: html.match(/sys_script_execution_history\.do\?sys_id=([0-9a-f]{32})/)?.[1] || null };
   }
 
   /**

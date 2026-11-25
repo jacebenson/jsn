@@ -166,7 +166,15 @@ describe('eval cancels its background script when it stops waiting', () => {
 });
 
 describe('jsn eval --timeout and Ctrl-C', () => {
-  const app = (executeScript) => makeApp({ sdk: { executeScript }, mutationContext: { scope: 'x_app', application_id: 'app1' } });
+  const app = (executeScript) => makeApp({
+    sdk: {
+      executeScript,
+      // jsn eval calls runBackgroundScript for the execution id; the real SDK's
+      // executeScript delegates to it, so the double mirrors that shape.
+      runBackgroundScript: async (...args) => ({ output: await executeScript(...args), execution_id: null }),
+    },
+    mutationContext: { scope: 'x_app', application_id: 'app1' },
+  });
 
   it('passes --timeout to executeScript in milliseconds', async () => {
     const seen = [];

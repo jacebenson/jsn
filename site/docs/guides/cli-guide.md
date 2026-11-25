@@ -323,6 +323,12 @@ jsn eval --file fix.js --timeout 600      # wait up to 10 minutes (default 30 s)
 # submissions, while database writes do. .clear .help .exit; Ctrl+D exits.
 jsn eval --repl --profile dev --scope x_my_app
 
+# Undo what a background script wrote, from the rollback context the platform
+# recorded. Use the execution id jsn eval reports (kept 7 days); preview first,
+# then --yes (admin). Records changed by anything else since are left alone.
+jsn eval rollback <execution>
+jsn eval rollback <execution> --yes
+
 # Now GraphQL (documents may contain mutations; read-only profiles are blocked)
 jsn graphql --query '{ GlideRecord_Query { incident(pagination: {limit: 2}) { _results { number { value } } } } }'
 cat incident.graphql | jsn graphql --stdin --variables '{"limit":2}'
