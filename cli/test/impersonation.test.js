@@ -178,7 +178,11 @@ test('a failed switch back still logs out, and the session is confirmed gone', a
   });
 });
 
-test('Ctrl-C ends the session, then exits 130', async () => {
+test('Ctrl-C ends the session, then exits 130', {
+  // Windows cannot deliver SIGINT to a child process: kill() terminates it, so
+  // neither the handler nor the session cleanup can run there.
+  skip: process.platform === 'win32' ? 'SIGINT cannot be delivered to a child process on Windows' : false,
+}, async () => {
   await withInstance({ holdCommand: true }, async ({ start, calls }) => {
     const child = start(get);
     const deadline = Date.now() + 15000;
