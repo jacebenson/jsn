@@ -29,6 +29,18 @@ jsn auth modify <profile>
 
 [Read the full authentication feature](/features/servicenow-cli-auth-setup/).
 
+## Keeping credentials in Bitwarden
+
+Profiles can store the credential in a Bitwarden vault instead of the OS keyring. The CLI uses the `bw` command and the session your vault is already unlocked with:
+
+```bash
+export BW_SESSION="$(bw unlock --raw)"
+jsn auth login dev12345 --name dev --basic        # writes the item
+jsn auth modify --profile dev --credential-store bitwarden
+```
+
+The item is a secure note named `servicenow-cli:<username>@<instance>`; its notes field holds the same credential JSON the keyring stores. `jsn auth status` reports which backend a profile uses. Without `BW_SESSION` a command that needs the vault fails with the export line rather than prompting in the middle of CI; `credential_store` appears in the profile's configuration, and an unknown value is a configuration error rather than a silent fallback to the keyring.
+
 ## Headless or locked keyring
 
 Credential storage is the OS keyring: Windows Credential Manager, the macOS login Keychain through `/usr/bin/security`, and libsecret (`secret-tool`) on Linux. Setup and login probe it *before* the first question: they write a throwaway probe value, read it back, and delete it. A binary that is installed but cannot reach an unlocked keyring fails that probe, so a server with no D-Bus session no longer accepts a full set of answers and then refuses to store the credential.

@@ -1059,6 +1059,7 @@ export async function showAuthStatus(argv, app) {
       stale: daysSinceLastSeen > 7,
       default: name === app.config.defaultProfile,
       read_only: profile.read_only || false,
+      credential_store: profile.credential_store || 'keyring',
       skip_confirmations: profile.skip_confirmations || false,
       include_counts: profile.include_counts !== false,
       diagnostics: {
