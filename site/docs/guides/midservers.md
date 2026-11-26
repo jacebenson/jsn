@@ -115,6 +115,36 @@ labels. Existing names, changed engines and missing/mismatched labels stop the
 operation. Stopping/removal failures preserve metadata and block MID-record
 cleanup rather than pretending teardown succeeded.
 
+## ECC queue backlog
+
+`midservers queue` answers "what is waiting for which MID?" without touching a
+MID's runtime. It reads `ecc_queue` through the Stats API and shows one row per
+`agent` routing value, ordered by waiting count and then the age of the oldest
+waiting row:
+
+```sh
+jsn --profile pdi midservers queue
+jsn --profile pdi midservers queue worker1 --older-than 2h --limit 50
+jsn --profile pdi midservers queue --older-than 1d --json --get data.agents
+```
+
+The filter is `queue=output` with `state` at `ready` or `processing`, created
+before the `--older-than` window (default `15m`, also `2h`/`1d`). Rows at
+`queue=input` in `state=error` are counted separately per agent. Each agent is
+joined to its `ecc_agent` row through the `mid.server.<name>` routing value that
+`midservers execute` writes. An agent with no matching `ecc_agent` row is shown
+as unknown, not as zero; a MID absent from the report simply had no rows in
+that window, which is not a health verdict.
+
+Verified on a live instance: `ecc_queue.queue` is the input/output direction
+(`sys_choice` values `input`/`output`), `ecc_queue.topic` is the named work type
+(observed values include `SystemCommand` and `HeartbeatProbe`), and `agent`
+holds `mid.server.<name>` or the broadcast value `mid.server.*`. The command is
+read-only and bounded: `--limit` defaults to 25 agents (maximum 200) and
+`--older-than` is rejected before any request when malformed. The verification
+instance had no waiting output rows during capture, so the backlog table is
+covered by synthetic tests rather than a live sample.
+
 ## Native Windows service
 
 ```sh

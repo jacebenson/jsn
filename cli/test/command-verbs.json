@@ -219,11 +219,14 @@
     },
     "revert": {
       "why": "records revert puts a record back to a saved sys_update_version through the platform's Revert to this version; update writes a payload the caller supplies, rollback undoes one eval run's own changes, and undelete restores a deleted copy."
+    },
+    "queue": {
+      "why": "midservers queue reads the ECC Queue backlog per MID Server; list reads ecc_agent rows and cannot show waiting ecc_queue work, while issues reads recorded MID issues rather than live queue rows."
     }
   },
   "budgets": {
     "$comment": "Subcommand count per family. A budget is a ratchet, not a ban: when a new command earns its place, raise the number in the same diff and say why in the PR. Adding a family means adding its budget entry.",
-    "total": 431,
+    "total": 432,
     "families": {
       "access-analyzer": 3,
       "acls": 5,
@@ -270,7 +273,7 @@
       "listcontrols": 5,
       "lists": 2,
       "logs": 3,
-      "midservers": 12,
+      "midservers": 13,
       "notifications": 2,
       "perf": 8,
       "platform": 2,
