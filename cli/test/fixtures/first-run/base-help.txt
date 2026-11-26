@@ -20,7 +20,7 @@ jsn --all-commands --help for details
                    rules decisiontables assignments scrapi email notifications
                    restmessage soapmessages
   ACCESS           access-analyzer acls b4rules roles privileges aliases groups
-                   groupmembers grouproles users
+                   groupmembers grouproles userroles users
   USER EXPERIENCE  forms lists clientscripts uipolicies uiactions views
                    catalogitems catalogscripts cataloguipolicies uipages
                    uimacros listcontrols sppages spwidgets uxscripts uxlists

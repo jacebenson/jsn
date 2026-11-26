@@ -45,6 +45,22 @@ to each role: a direct grant, a chain of contained roles, or a group. Groups
 appear by the name the platform prints; the API returns no sys_ids. A missing,
 denied or malformed reply is an error, never an empty answer.
 
+## Grant a role directly
+
+```sh
+jsn userroles list --query "user.user_name=abel.tuter^inherited=false"
+jsn userroles add --role itil --user abel.tuter,beth.anglin    # preview
+jsn userroles add --role itil --user abel.tuter --yes
+jsn userroles remove --role itil --user abel.tuter --expect-count 1 --yes
+```
+
+`add` creates one `sys_user_has_role` row per user and skips users who already
+hold the role directly; a user who holds it only through a group still gets a
+direct row. `remove` deletes only rows with `inherited=false`, so a role held
+through a group or a containing role stays, and `--yes` needs the
+`--expect-count` its preview printed. Both preview without `--yes`, take up to
+100 users, read the rows back, and exit nonzero unless every change is there.
+
 ## Record version history
 
 ```sh

@@ -281,6 +281,19 @@ const deferredFamilies = {
     },
     module: "./commands/grouproles.js", exportName: "groupRolesCmd",
   },
+  "userroles": {
+    definition: {
+      command: "userroles [subcommand]",
+      aliases: ["userrole", "urole", "ur"],
+      describe: "List, grant or remove direct user roles",
+    },
+    capabilities: {
+      queryTable: "sys_user_has_role",
+      mutationContext: "operational",
+      mutationSubcommands: ["add", "remove"],
+    },
+    module: "./commands/userroles.js", exportName: "userRolesCmd",
+  },
   "tickets": {
     definition: {
       command: "tickets [subcommand]",

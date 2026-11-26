@@ -219,11 +219,14 @@
     },
     "revert": {
       "why": "records revert puts a record back to a saved sys_update_version through the platform's Revert to this version; update writes a payload the caller supplies, rollback undoes one eval run's own changes, and undelete restores a deleted copy."
+    },
+    "userroles": {
+      "why": "userroles writes direct sys_user_has_role rows for chosen users; users roles only reads them, and grouproles grants through a group, which reaches every member rather than one user."
     }
   },
   "budgets": {
     "$comment": "Subcommand count per family. A budget is a ratchet, not a ban: when a new command earns its place, raise the number in the same diff and say why in the PR. Adding a family means adding its budget entry.",
-    "total": 431,
+    "total": 434,
     "families": {
       "access-analyzer": 3,
       "acls": 5,
@@ -310,6 +313,7 @@
       "uipolicies": 5,
       "updatesets": 14,
       "upgrade": 1,
+      "userroles": 3,
       "users": 6,
       "uxapplicability": 2,
       "uxlists": 2,
