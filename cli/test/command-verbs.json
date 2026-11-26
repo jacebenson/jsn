@@ -220,6 +220,9 @@
     "exclude": {
       "why": "audit exclude stops auditing one field; update writes a record payload, while this edits a dictionary attribute and needs its own path to be refused on read-only profiles."
     },
+    "explain": {
+      "why": "perf explain runs the platform's Explain Plan action and writes plan rows; show only prints the slow pattern's stored SQL and stack trace, so explain is a write with its own guard rather than a mode of show."
+    },
     "find": {
       "why": "records find names the table that holds one sys_id; get and show need the table first, and search suggests matching text across fields rather than one exact sys_id."
     },
@@ -247,6 +250,9 @@
     "runs": {
       "why": "import runs lists sys_import_set_run records (TH numbers) with their counts; list already lists import sets, and history reads one record's trail in approvals history rather than a table of transform runs."
     },
+    "suggest-index": {
+      "why": "perf suggest-index asks the platform's IndexSuggestionAPI for a suggestion and reads that record back; create writes a record the caller describes, while here the table and columns are the instance's answer, not caller input."
+    },
     "userroles": {
       "why": "userroles writes direct sys_user_has_role rows for chosen users; users roles only reads them, and grouproles grants through a group, which reaches every member rather than one user."
     },
@@ -256,7 +262,7 @@
   },
   "budgets": {
     "$comment": "Subcommand count per family. A budget is a ratchet, not a ban: when a new command earns its place, raise the number in the same diff and say why in the PR. Adding a family means adding its budget entry.",
-    "total": 458,
+    "total": 460,
     "families": {
       "access-analyzer": 3,
       "acls": 5,
@@ -306,7 +312,7 @@
       "logs": 3,
       "midservers": 13,
       "notifications": 2,
-      "perf": 8,
+      "perf": 10,
       "platform": 2,
       "plugins": 1,
       "privileges": 6,

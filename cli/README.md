@@ -298,6 +298,23 @@ and last seen times are UTC, and `--since` compares with them in UTC.
 or ACL-filtered list does not prove nothing is slow. `--limit` (1–200) and
 `--offset` page the list; JSON has `pagination.has_more` from one-row lookahead.
 
+```sh
+jsn perf explain <sys_id> --force
+jsn perf suggest-index <sys_id> --force
+```
+
+`perf explain` runs the platform's Explain Plan UI action
+(`GlideAQueryExplanation.explainPlan`) through a background script, then reads
+the plan rows back from `plan_execution` and its engine subclasses. It is a
+write — it creates plan rows — so a read-only profile refuses it and it asks for
+confirmation (or `--force`). `perf suggest-index` does the same through
+`SNC.IndexSuggestionAPI` and reads the `sys_index_suggestion` record back; it
+creates a suggestion, never an index, and the API is MySQL-only. A status that
+asks for fresh statistics, an engine that is not enabled, and a run that wrote
+no readable rows are all failures carrying the platform's message. Both commands
+are implemented from the platform's UI actions but have not been verified
+against a live instance yet.
+
 ## Work safely
 
 Use `jsn auth modify <profile> --read-only` to block instance writes. ServiceNow roles and ACLs still decide what you can access. Help and discovery may show a compact command list for the connected account; this is not an access grant or an exhaustive capability check.
