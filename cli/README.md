@@ -71,6 +71,19 @@ runs the platform's Revert to this version in a background script after a
 confirmation that names the fields it changes, then reads back the new current
 version and the live record. Records created on the instance have no base.
 
+```sh
+jsn records history incident INC0010001 --identifier-field number
+jsn records history incident <sys_id> --field assigned_to --since 2026-11-01
+jsn records history incident <sys_id> --get data.changes.0.user
+```
+
+`records history` lists one record's field changes from `sys_audit`, newest
+first: when (UTC), who, field, old and new value. Each read is keyed on the
+record's raw sys_id and bounded (`--limit` 1-200). A deleted record's history
+still reads by sys_id. An empty history names the audit setting that applies
+(table or field not audited, inserts not audited) and is never reported as
+unchanged. Read-only.
+
 ## Saved Access Analyzer evidence
 
 ```sh

@@ -290,6 +290,42 @@ jsn records revert sys_script_include <sys_id> --version <sys_update_version sys
   refused. An ACL's roles are files of their own (`sys_security_acl_role`), so
   reverting the ACL leaves them as they are.
 
+## Field history
+
+`jsn records history` lists one record's field changes from `sys_audit`, newest
+first: when (UTC), who, the field, and the old and new value. It only reads.
+
+```bash
+jsn records history incident INC0010001 --identifier-field number
+jsn records history incident <sys_id> --field assigned_to --since 2026-11-01
+jsn records history sys_script_include <sys_id> --limit 5 --json
+```
+
+- The record is resolved like `records journal`, then `sys_audit` is read by
+  `tablename` and `documentkey` (the raw sys_id). Rows are kept under the
+  record's own class, so a record resolved on `task` is read as `incident`.
+- Every read is keyed on the sys_id, bounded by `--limit` (1-200, default 20)
+  with one-row lookahead for `pagination.has_more`, and asks for no total
+  count, because `sys_audit` is one of an instance's largest tables. History
+  sets (`sys_history_set`) are not read; the platform builds them only when
+  someone opens History.
+- A deleted record keeps its audit rows, including a `DELETED` row, so a full
+  sys_id that no longer resolves is still read and says the record is gone. A
+  sys_id with no record and no rows is not found.
+- Values are the stored strings: reference fields hold sys_ids, and journal
+  entries appear as `JOURNAL FIELD ADDITION` rows. Human output cuts values
+  past 100 characters; `--json` keeps them whole.
+- An empty history is never reported as "unchanged". It reads the table's
+  audit settings as `jsn tables audit` does and names the one that applies:
+  table auditing off, a field that is excluded, encrypted or a system field,
+  or inserts not audited (`glide.sys.audit_inserts`). Import sets, update set
+  applies, Import XML and upgrades are never audited, and `sys_audit` is
+  admin-read by default, so an ACL-filtered list also comes back empty.
+- A row for another record or field, or a malformed page, fails.
+
+It does not resolve reference sys_ids to names or read `sys_audit_delete`
+(see `records deleted`).
+
 ## Records engine compatibility contract
 
 Audit for #313, prerequisite to #314–#321. Baseline: origin/main at a3b0e6f.

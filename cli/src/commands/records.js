@@ -928,6 +928,29 @@ export function recordsCmd(wrap) {
             app.ok(data, { summary: `${data.count} journal entr${data.count === 1 ? 'y' : 'ies'} for ${argv.table} ${argv.identifier}` });
           }),
         })
+        .command({
+          command: 'history <table> <identifier>',
+          describe: 'List a record\'s field changes from sys_audit: when, who, field, old and new value (read-only)',
+          discoveryTasks: [{
+            phrases: ['who changed this field', 'when did this field change', 'field change history', 'audit trail for a record', 'old and new values'],
+            args: ['--json'], description: 'List sys_audit field changes for one record, newest first',
+          }],
+          builder: (y) => y
+            .positional('table', { describe: 'Table name (e.g. incident)', type: 'string' })
+            .positional('identifier', { describe: 'Record sys_id, or the value of --identifier-field', type: 'string' })
+            .option('identifier-field', { type: 'string', describe: 'Exact identifier field (default sys_id), e.g. number' })
+            .option('field', { type: 'string', describe: 'Only changes to this field' })
+            .option('since', { type: 'string', describe: 'Only changes on or after this UTC date or date-time (YYYY-MM-DD or "YYYY-MM-DD HH:MM:SS")' })
+            .option('limit', { type: 'number', default: 20, describe: 'Max changes, newest first (1-200)' })
+            .epilogue('Changes come from sys_audit by the record\'s own table and raw sys_id, so a deleted record\'s history still reads by sys_id. Values are stored strings: reference fields hold sys_ids. Times are UTC. Inserts are audited only when glide.sys.audit_inserts is true; import sets, update set applies, Import XML and upgrades are never audited. sys_audit is admin-read by default.\nExample: jsn records history incident INC0010001 --identifier-field number --field assigned_to'),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const { recordHistory, formatHistory } = await import('../records/history.js');
+            const data = await recordHistory(app.sdk, { table: argv.table, identifier: argv.identifier, identifierField: argv.identifierField, field: argv.field, since: argv.since, limit: argv.limit });
+            Object.defineProperty(data, '_formatted', { value: formatHistory(data), enumerable: false });
+            app.ok(data, { summary: `${data.count} change(s) to ${data.record.table} ${data.record.sys_id}${data.pagination.has_more ? '; more exist' : ''}` });
+          }),
+        })
 
     },
     // Parent discovery through the output controller: the subcommand list is
