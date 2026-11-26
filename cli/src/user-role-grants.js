@@ -57,15 +57,17 @@ export async function addUserRoles(sdk, { role, user, yes = false }) {
   const base = { role: t.role, grant, skipped };
   if (!yes) return { ...base, dry_run: true, ...(grant.length ? { rerun: ['userroles', 'add', '--role', t.role.name || t.role.sys_id, '--user', grant.map(who).join(','), '--yes'] } : {}) };
   if (!grant.length) return { ...base, dry_run: false, granted: [], failed: [], unconfirmed: [], verified: true };
-  const failed = [];
+  const failed = [], empty = new Set();
   for (const u of grant) {
-    try { await sdk.create(TABLE, { user: u.sys_id, role: t.role.sys_id }); }
+    try { if (!(await sdk.create(TABLE, { user: u.sys_id, role: t.role.sys_id }))?.sys_id) empty.add(u.sys_id); }
     catch (error) { failed.push({ ...u, error: error.message || String(error) }); }
   }
   const now = new Set(direct(await readRows(sdk, t.role.sys_id, grant.map(u => u.sys_id))).map(r => raw(r.user)));
   const tried = grant.filter(u => !failed.some(f => f.sys_id === u.sys_id));
-  const granted = tried.filter(u => now.has(u.sys_id)), unconfirmed = tried.filter(u => !now.has(u.sys_id));
-  return { ...base, dry_run: false, granted, failed, unconfirmed, verified: !failed.length && !unconfirmed.length };
+  // The platform silently aborts a second direct insert and returns no row, so a direct row after an empty reply was already held.
+  const held2 = tried.filter(u => empty.has(u.sys_id) && now.has(u.sys_id));
+  const granted = tried.filter(u => now.has(u.sys_id) && !empty.has(u.sys_id)), unconfirmed = tried.filter(u => !now.has(u.sys_id));
+  return { ...base, skipped: [...skipped, ...held2.map(u => ({ ...u, reason: 'holds_directly' }))], dry_run: false, granted, failed, unconfirmed, verified: !failed.length && !unconfirmed.length };
 }
 
 export async function removeUserRoles(sdk, { role, user, yes = false, expectCount }) {

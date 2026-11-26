@@ -23,7 +23,7 @@ const NAMES = { [BETH]: 'beth.anglin', [ABEL]: 'abel.tuter', [DAVID]: 'david.loo
 const grant = (rowId, user, inherited) => ({ sys_id: field(rowId), user: field(user, NAMES[user]), role: field(ROLE, 'itil'), inherited: field(String(inherited)) });
 
 // A fake instance: itil exists, three users, and the sys_user_has_role rows in `rows`.
-function fixture(rows = [], { createError = {}, deleteError = {}, keepDeleted = false, dropCreated = false } = {}) {
+function fixture(rows = [], { createError = {}, deleteError = {}, keepDeleted = false, dropCreated = false, raced = [] } = {}) {
   const calls = [];
   const state = [...rows];
   const sdk = {
@@ -46,6 +46,7 @@ function fixture(rows = [], { createError = {}, deleteError = {}, keepDeleted = 
     create: async (table, data) => {
       calls.push(['create', table, data]);
       if (createError[data.user]) throw createError[data.user];
+      if (raced.includes(data.user)) { state.push(grant(id('9'), data.user, false)); return null; } // another grant landed first; the platform aborts ours silently
       if (!dropCreated) state.push(grant(String(state.length + 100).padStart(32, 'c'), data.user, false));
       return { sys_id: 'x' };
     },
@@ -140,6 +141,16 @@ describe('userroles', () => {
     await add({ app: dropped.app, role: 'itil', user: ['david.loo'], yes: true });
     assert.deepEqual(dropped.app.lastOk.data.unconfirmed.map(u => u.user_name), ['david.loo']);
     assert.equal(process.exitCode, 1);
+  });
+
+  it('add reports a create that returns no row, with a direct row on the read-back, as already held rather than granted', async () => {
+    const { app } = fixture([], { raced: [ABEL] });
+    await add({ app, role: 'itil', user: ['abel.tuter', 'david.loo'], yes: true });
+    const { data, opts } = app.lastOk;
+    assert.deepEqual(data.granted.map(u => u.user_name), ['david.loo']);
+    assert.deepEqual(data.skipped, [{ sys_id: ABEL, user_name: 'abel.tuter', reason: 'holds_directly' }]);
+    assert.equal(data.verified, true);
+    assert.equal(opts.summary, 'Granted itil directly to 1 user(s); 1 skipped');
   });
 
   for (const [label, args] of [
