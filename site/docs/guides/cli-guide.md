@@ -320,6 +320,8 @@ jsn rules list --query "collection=incident"
 jsn tables audit incident --field work_notes   # Audited or not, and why (read-only)
 jsn tables audit exclude x_case priority       # Preview; --yes writes no_audit and re-reads the status
 jsn restmessage logs "Payroll API" --status 5xx  # Recent outbound calls, newest first; credentials redacted
+jsn scheduledjobs health                       # Overdue, erroring and stuck triggers (read-only)
+jsn scheduledjobs why "Nightly sync"           # Why one job did not run (read-only)
 jsn updatesets set "My Feature"
 
 # Generic table access

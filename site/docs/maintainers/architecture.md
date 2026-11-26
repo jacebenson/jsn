@@ -838,6 +838,23 @@ The read stays the default path for `audit`, so a caller who passes only a table
 name still reads; a table literally named like a verb is reached by the verb
 names being matched first, which is why the verbs are reserved words here.
 
+### Scheduler diagnosis extends `scheduledjobs` (2026-11-26)
+
+`jsn scheduledjobs health` and `jsn scheduledjobs why <job>` are subcommands of
+`scheduledjobs`, so they add no root command. The family's CRUD verbs stay on
+`sysauto_script`; these two read `sys_trigger`, the scheduler's queue, because
+a job that did not run is explained by its trigger (state, next action, pinned
+node, error count), not by its definition. Both only read: running or recovering
+a job is left to the platform. The dead-node rule flags a parent trigger pinned
+to a node that `sys_cluster_state` does not show online, never a startup
+trigger. The scheduled jobs dashboard's Stuck Jobs counts only missing nodes;
+an offline node is flagged here too, since only that node would run the job. On
+dev485581 (Brazil) 36 of 183 Ready or Queued triggers more than an
+hour past their next action were ALL NODES, ACTIVE NODES or PRIMARY NODES
+template rows, which keep a stale next action by design, so overdue leaves them
+out; the rest were Disabled or startup triggers. See
+[Scheduler health](domain-model.md#scheduler-health).
+
 ### One directory per owner at the repository root
 
 The repository root holds `cli/`, `docs/`, `site/`, and GitHub metadata under
