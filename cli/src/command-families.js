@@ -181,6 +181,7 @@ const deferredFamilies = {
       summary: "Query any table when no specialized command fits",
     },
     capabilities: {
+      queryTable: argv => argv._?.[1] === "deleted" ? "sys_audit_delete" : argv.table,
       mutationContext: "table",
       filteredMutationSubcommands: ["delete-many", "bulk"],
       mutationSubcommands: ["create", "update", "delete", "delete-many", "bulk", "undelete", "import"],
