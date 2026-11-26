@@ -427,40 +427,59 @@ export async function interactiveList({ app, table, singular, columns, limit = 5
   const pickerFields = pickerColumns.join(',');
   const baseQuery = query ? query + '^' : '';
 
-  // Get total count. A FAILED count is unknown — never zero. Mapping the
+  // Measure the total count and load the first page concurrently. A delayed
+  // count must not hold the picker back: once the first page is ready the
+  // picker opens with an unknown total and reads the live total on its next
+  // render. A FAILED count is still unknown — never zero. Mapping the
   // failure to 0 used to make callers report an invented "empty table"
   // success (or silently return) when the real cause was a 403/network
   // error. Only a measured 0 means empty; otherwise confirm emptiness with
-  // one bounded list request before showing the picker.
-  let totalCount = null;
-  let countError = null;
-  try {
-    totalCount = await app.sdk.aggregateCount(table, query || '');
-  } catch (err) {
-    if (isTerminalAuthError(err)) throw err;
-    countError = err;
-  }
-  if (totalCount === 0) return null; // measured empty
-
-  if (countError) {
+  // one bounded list request.
+  const countState = { total: null };
+  const countOutcome = (async () => {
+    let measured;
     try {
-      const probeParams = new URLSearchParams();
-      probeParams.set('sysparm_limit', '1');
-      probeParams.set('sysparm_display_value', 'all');
-      probeParams.set('sysparm_fields', 'sys_id');
-      if (query) probeParams.set('sysparm_query', query);
-      const probe = await app.sdk.list(table, probeParams);
-      if (!Array.isArray(probe)) throw new Error('list returned a non-array result');
-      if (probe.length === 0) return null; // the list itself confirms empty
+      measured = await app.sdk.aggregateCount(table, query || '');
     } catch (err) {
-      if (isTerminalAuthError(err)) throw err;
-      // Both the count and the list failed — surface the failure instead of
-      // reporting an empty result nobody measured.
-      throw new Error(
-        `Could not list ${table}: ${err.message || err} (aggregate count also failed: ${countError.message || countError})`,
-        { cause: err }
-      );
+      if (isTerminalAuthError(err)) return { error: err };
+      const countError = err;
+      try {
+        const probeParams = new URLSearchParams();
+        probeParams.set('sysparm_limit', '1');
+        probeParams.set('sysparm_display_value', 'all');
+        probeParams.set('sysparm_fields', 'sys_id');
+        if (query) probeParams.set('sysparm_query', query);
+        const probe = await app.sdk.list(table, probeParams);
+        if (!Array.isArray(probe)) throw new Error('list returned a non-array result', { cause: err });
+        if (probe.length === 0) return { empty: true }; // the list itself confirms empty
+        return { unknown: true };
+      } catch (probeError) {
+        if (isTerminalAuthError(probeError)) return { error: probeError };
+        // Both the count and the list failed — surface the failure instead
+        // of reporting an empty result nobody measured.
+        return { error: new Error(
+          `Could not list ${table}: ${probeError.message || probeError} (aggregate count also failed: ${countError.message || countError})`,
+          { cause: probeError }
+        ) };
+      }
     }
+    if (measured === 0) return { empty: true };
+    return { total: measured };
+  })();
+
+  // Let a count that is already settled (a fixture, or a very fast response)
+  // win one macrotask. A real instance count is a network round-trip and
+  // misses this window, so its first page starts without waiting for it.
+  const COUNT_PENDING = Symbol('count-pending');
+  const MEASURED_EMPTY = Symbol('measured-empty');
+  const firstOutcome = await Promise.race([
+    countOutcome,
+    new Promise(resolve => setImmediate(() => resolve(COUNT_PENDING))),
+  ]);
+  if (firstOutcome !== COUNT_PENDING) {
+    if (firstOutcome.empty) return null; // measured empty
+    if (firstOutcome.error) throw firstOutcome.error;
+    if (firstOutcome.total != null) countState.total = firstOutcome.total;
   }
 
   // Paginated source adapter: (term, offset, { signal }) => choices[]
@@ -485,12 +504,50 @@ export async function interactiveList({ app, table, singular, columns, limit = 5
     }));
   }
 
-  const selected = await prompt({
+  // The picker is already open when a delayed count settles. Re-check the
+  // outcome then: a late measured 0 (or a probe that confirms emptiness)
+  // closes the picker, and a late terminal/dual failure surfaces instead of
+  // returning an invented empty result.
+  const pickerAbort = new AbortController();
+  let empty = false;
+  let pickerHandle = null;
+  if (firstOutcome === COUNT_PENDING) {
+    void countOutcome.then(outcome => {
+      if (outcome.empty) {
+        empty = true;
+        pickerAbort.abort(MEASURED_EMPTY);
+        return;
+      }
+      if (outcome.error) {
+        pickerAbort.abort(outcome.error);
+        return;
+      }
+      if (outcome.total != null && outcome.total !== countState.total) {
+        countState.total = outcome.total;
+        pickerHandle?.redraw();
+      }
+    });
+  }
+
+  const picker = {
     message: message || `Select ${singular === 'flow' ? 'a flow' : `a ${singular}`}`,
     pageSize: 10,
-    totalCount,
+    // Live getter: paginatedSearch re-reads this on every render, so the
+    // header gains "(n of N loaded)" the moment the count is measured.
+    get totalCount() { return countState.total; },
     source: serverSource,
-  });
+    onReady(handle) {
+      pickerHandle = handle;
+    },
+  };
+
+  let selected;
+  try {
+    selected = await prompt(picker, { signal: pickerAbort.signal });
+  } catch (error) {
+    if (empty) return null;
+    throw error;
+  }
 
   return selected?.value; // unwrap {name, value}, undefined on cancel
 }
