@@ -30,7 +30,7 @@ Discover commands with `jsn --help`, `jsn discover "search words"`, and
 | A decision table's outcome | `jsn decisiontables evaluate <name> --input k=v` |
 | Delete by filter | `jsn records delete-many` (needs the previewed `--expect-count`) |
 | Stop auditing a field or deletes | `jsn tables audit exclude <table> <field>`, `audit deletes <table> off` |
-| Undo a delete | `jsn records undelete --table <t> --sys-id <id>` |
+| Undo a delete | `jsn records deleted`, then `records undelete` |
 | Undo a background script | `jsn eval rollback <execution>` |
 | An earlier version of a record | `jsn records versions <table> <sys_id> [--diff N]` |
 | Watch a record or a query | `jsn records watch --table <t> --sys-id <id>` or `--query` |
