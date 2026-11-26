@@ -257,11 +257,11 @@ const choices = list => `<?xml version="1.0" encoding="UTF-8"?><record_update ta
 const listVersion = (n, state, source_table, list, extra = {}) => version(n, state, source_table, '', { name: LIST_KEY, payload: choices(list), ...extra });
 const choiceRow = (n, label) => ({ sys_id: id(n), label });
 // Base: 21 Small, 22 Medium. Current: 21 renamed, 22 deleted, 23 added.
-function listFixture(afterOthers) {
+function listFixture(afterOthers, before = [choiceRow(21, 'Tiny'), choiceRow(23, 'Huge')]) {
   return fixture({
     updateName: LIST_KEY, recordId: SET_ID, recordClass: 'sys_choice_set',
     versions: [listVersion(13, 'current', 'sys_update_set', [[21, 'Tiny'], [23, 'Huge']]), listVersion(11, 'history', 'sys_upgrade_history', [[21, 'Small'], [22, 'Medium']])],
-    others: { sys_choice: [choiceRow(21, 'Tiny'), choiceRow(23, 'Huge')] },
+    others: { sys_choice: before },
     after: (rows, live) => ({ rows: [listVersion(14, 'current', 'sys_update_set', [[21, 'Small'], [22, 'Medium']], { reverted_from: id(11) }), ...rows.filter(row => row.state !== 'current')], live, others: { sys_choice: afterOthers } }),
   });
 }
@@ -272,11 +272,11 @@ test('revert refuses a single choice before any request and points to its choice
   assert.deepEqual([f.reads, f.scripts], [[], []]);
 });
 
-test('a choice list revert checks every choice it touches in one bounded read', async () => {
+test('a choice list revert reads the choice it removes before the script and every choice it touches after', async () => {
   const f = listFixture([choiceRow(21, 'Small'), choiceRow(22, 'Medium')]);
   await f.run({ table: 'sys_choice_set', identifier: SET_ID });
   const choiceRead = f.reads.filter(r => r.table === 'sys_choice');
-  assert.deepEqual(choiceRead.map(r => [r.sysparm_query, r.sysparm_fields, r.sysparm_limit]), [[`sys_idIN${id(21)},${id(22)},${id(23)}`, 'sys_id,label', '3']]);
+  assert.deepEqual(choiceRead.map(r => [r.sysparm_query, r.sysparm_fields, r.sysparm_limit, r.sysparm_display_value]), [[`sys_idIN${id(23)}`, 'sys_id', '1', 'false'], [`sys_idIN${id(21)},${id(22)},${id(23)}`, 'sys_id,label', '3', 'false']]);
   assert.deepEqual(f.data.changes.map(change => [change.sys_id, change.status]), [[id(21), 'changed'], [id(22), 'added'], [id(23), 'removed']]);
   assert.equal(f.data.reverted, true);
 });
@@ -291,6 +291,24 @@ test('a choice list revert never reports success while a choice is not back as t
     await assert.rejects(f.run({ table: 'sys_choice_set', identifier: SET_ID }), message);
     assert.equal(f.data, undefined);
   }
+});
+
+test('a choice list revert refuses before the script when a choice it would remove is hidden from jsn', async () => {
+  const f = listFixture([], [choiceRow(21, 'Tiny')]);
+  await assert.rejects(f.run({ table: 'sys_choice_set', identifier: SET_ID }), new RegExp(`cannot read sys_choice ${id(23)}, which the revert would remove`));
+  assert.deepEqual([f.scripts, f.data], [[], undefined]);
+});
+
+test('a choice list revert reads at most 100 choices a call', async () => {
+  const ids = Array.from({ length: 101 }, (_, i) => 100 + i);
+  const f = fixture({ updateName: LIST_KEY, recordId: SET_ID, recordClass: 'sys_choice_set',
+    versions: [listVersion(13, 'current', 'sys_update_set', ids.map(n => [n, 'Custom'])), listVersion(11, 'history', 'sys_upgrade_history', ids.map(n => [n, 'Base']))],
+    after: (rows, live) => ({ rows: [listVersion(14, 'current', 'sys_update_set', ids.map(n => [n, 'Base']), { reverted_from: id(11) }), ...rows.filter(row => row.state !== 'current')], live, others: { sys_choice: ids.map(n => choiceRow(n, 'Base')) } }) });
+  await f.run({ table: 'sys_choice_set', identifier: SET_ID });
+  const choiceRead = f.reads.filter(r => r.table === 'sys_choice');
+  assert.deepEqual(choiceRead.map(r => r.sysparm_limit), ['100', '1']);
+  assert.deepEqual(choiceRead.flatMap(r => r.sysparm_query.slice(8).split(',')), ids.map(id));
+  assert.equal(f.data.reverted, true);
 });
 
 test('revert refuses before the script when the version holds a row jsn cannot read back', async () => {

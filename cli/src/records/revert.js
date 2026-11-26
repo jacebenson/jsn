@@ -19,6 +19,15 @@ async function currentVersion(sdk, name) {
 
 const mainRecord = (records, sysId) => records.find(record => raw(record.fields.sys_id) === sysId);
 
+async function readRows(sdk, table, ids, fields) {
+  const byId = new Map();
+  for (let i = 0; i < ids.length; i += 100) {
+    const chunk = ids.slice(i, i + 100);
+    for (const row of await read(sdk, table, `sys_idIN${chunk.join(',')}`, ['sys_id', ...fields].join(','), chunk.length, 'false')) byId.set(raw(row.sys_id), row);
+  }
+  return byId;
+}
+
 export async function planRevert(sdk, { table, identifier, identifierField, version } = {}) {
   if (version !== undefined && !ID.test(String(version))) throw errUsage('--version must be the 32-character sys_id of a sys_update_version row; list them with jsn records versions.');
   if (table === 'sys_choice') throw errUsage('A choice is saved as part of its field\'s choice list, so revert the list instead: jsn records revert sys_choice_set <sys_id>, where the list\'s name and element match the choice\'s.');
@@ -56,6 +65,12 @@ export async function planRevert(sdk, { table, identifier, identifierField, vers
     return { table: change.table, sys_id: change.sys_id, fields: Object.fromEntries(fieldsOf(change).filter(field => !field.startsWith('sys_')).map(field => [field, raw(row.fields[field])])) };
   });
   checks.unshift({ table: recordTable, sys_id: sysId, fields: Object.fromEntries(changed.filter(field => !field.startsWith('sys_')).map(field => [field, raw(main.fields[field])])) });
+  // A row hidden from the caller would read back as removed, so each row the revert removes must be readable now.
+  for (const [rowTable, group] of Map.groupBy(checks.filter(check => check.gone), check => check.table)) {
+    const live = await readRows(sdk, rowTable, group.map(check => check.sys_id), []);
+    const hidden = group.filter(check => !live.has(check.sys_id)).map(check => check.sys_id);
+    if (hidden.length) throw errUsage(`jsn cannot read ${rowTable} ${hidden.slice(0, 10).join(', ')}${hidden.length > 10 ? ` and ${hidden.length - 10} more` : ''}, which the revert would remove, so it could not check the removal; nothing was reverted.`);
+  }
   return {
     table: recordTable, sys_id: sysId, update_name: name, base, from_version: raw(current.sys_id), to_version: raw(target.sys_id),
     to_source: { source_table: raw(target.source_table), source: raw(target.source), created_on: raw(target.sys_created_on) },
@@ -95,20 +110,15 @@ export async function applyRevert(sdk, plan) {
   // Rows the target holds exist with its values in the changed fields; rows only the current version held are gone.
   const problems = [];
   for (const [rowTable, group] of Map.groupBy(plan.checks || [], check => check.table)) {
-    for (let i = 0; i < group.length; i += 100) {
-      const chunk = group.slice(i, i + 100);
-      const fields = [...new Set(chunk.flatMap(check => Object.keys(check.fields || {})))];
-      const rows = await read(sdk, rowTable, `sys_idIN${chunk.map(check => check.sys_id).join(',')}`, ['sys_id', ...fields].join(','), chunk.length, 'false');
-      const byId = new Map(rows.map(row => [raw(row.sys_id), row]));
-      for (const check of chunk) {
-        const live = byId.get(check.sys_id);
-        if (check.gone) { if (live) problems.push(`${rowTable} ${check.sys_id} is still there`); continue; }
-        if (!live) { problems.push(`${rowTable} ${check.sys_id} could not be read`); continue; }
-        const unread = Object.keys(check.fields).filter(field => !Object.hasOwn(live, field));
-        if (unread.length) problems.push(`jsn could not read ${unread.join(', ')} on ${rowTable} ${check.sys_id}`);
-        const differs = Object.keys(check.fields).filter(field => Object.hasOwn(live, field) && raw(live[field]) !== check.fields[field]);
-        if (differs.length) problems.push(`${rowTable} ${check.sys_id} still differs in: ${differs.join(', ')}`);
-      }
+    const byId = await readRows(sdk, rowTable, group.map(check => check.sys_id), [...new Set(group.flatMap(check => Object.keys(check.fields || {})))]);
+    for (const check of group) {
+      const live = byId.get(check.sys_id);
+      if (check.gone) { if (live) problems.push(`${rowTable} ${check.sys_id} is still there`); continue; }
+      if (!live) { problems.push(`${rowTable} ${check.sys_id} could not be read`); continue; }
+      const unread = Object.keys(check.fields).filter(field => !Object.hasOwn(live, field));
+      if (unread.length) problems.push(`jsn could not read ${unread.join(', ')} on ${rowTable} ${check.sys_id}`);
+      const differs = Object.keys(check.fields).filter(field => Object.hasOwn(live, field) && raw(live[field]) !== check.fields[field]);
+      if (differs.length) problems.push(`${rowTable} ${check.sys_id} still differs in: ${differs.join(', ')}`);
     }
   }
   if (problems.length) throw new Error(`Version ${raw(now.sys_id)} reverts ${name} to ${to}, but the live records do not match version ${to}: ${problems.slice(0, 10).join('; ')}${problems.length > 10 ? `; and ${problems.length - 10} more` : ''}. Inspect them before retrying.`);
