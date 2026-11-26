@@ -1,4 +1,4 @@
-import { formatCommandList, formatRecordForDisplay, findOmittedColumns, buildQuerySuffix, buildRecordPayload, getStringField, interactiveList, resolveFieldsParam, checkDerivedFields, confirmDelete, verifyWriteBack, quoteShellArg, buildRerunCommand } from '../helpers.js';
+import { formatCommandList, formatRecordForDisplay, findOmittedColumns, buildQuerySuffix, buildRecordPayload, getStringField, interactiveList, resolveFieldsParam, checkDerivedFields, confirmAction, confirmDelete, verifyWriteBack, quoteShellArg, buildRerunCommand } from '../helpers.js';
 import { deferredFamilyDefinition } from '../command-families.js';
 import { listRecords, recordListParams, getRecord, createRecord, updateRecord, deleteRecord } from '../records-engine.js';
 import { resolveRecord, unwrapSysId } from '../resolve-record.js';
@@ -871,6 +871,34 @@ export function recordsCmd(wrap) {
             const data = await recordVersions(app.sdk, { table: argv.table, identifier: argv.identifier, identifierField: argv.identifierField, limit: argv.limit, diff: argv.diff });
             Object.defineProperty(data, '_formatted', { value: formatVersions(data), enumerable: false });
             app.ok(data, { summary: `${data.count} version(s) of ${data.record.update_name}${data.diff ? `; version ${data.diff.version} vs current: ${data.diff.status}` : ''}` });
+          }),
+        })
+        .command({
+          command: 'revert <table> <identifier>',
+          describe: 'Revert a record to its base system version, or to an earlier version of it',
+          builder: (y) => y
+            .positional('table', { describe: 'Table name (e.g. sys_script_include)', type: 'string' })
+            .positional('identifier', { describe: 'Record sys_id, or the value of --identifier-field', type: 'string' })
+            .option('identifier-field', { type: 'string', describe: 'Exact identifier field (default sys_id), e.g. name' })
+            .option('version', { type: 'string', describe: 'sys_update_version sys_id to revert to (default: the newest base system version)' })
+            .option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' })
+            .epilogue('Runs the platform\'s Revert to this version (GlideappUpdateVersion.revert) in a background script; it adds a new current version and writes the record. Only the newest base system version can be reverted to, and records created on the instance have none. Needs admin and background script access.\nExample: jsn records revert sys_script_include MyUtil --identifier-field name'),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const { planRevert, revertQuestion, applyRevert, formatRevert } = await import('../records/revert.js');
+            const plan = await planRevert(app.sdk, { table: argv.table, identifier: argv.identifier, identifierField: argv.identifierField, version: argv.version });
+            await assertMutationRecordScope(app, plan.table, plan.sys_id);
+            await confirmAction(app, argv, revertQuestion(plan), { destructive: false, rerun: ['records', 'revert', plan.table, plan.sys_id, '--version', plan.to_version] });
+            const data = await applyRevert(app.sdk, plan);
+            invalidateAfterMutation(app, plan.table);
+            Object.defineProperty(data, '_formatted', { value: formatRevert(data), enumerable: false });
+            app.ok(data, {
+              summary: `Reverted ${data.update_name} to ${data.base ? 'its base system version' : `version ${data.to_version}`}`,
+              breadcrumbs: [
+                { action: 'versions', cmd: `jsn records versions ${quoteShellArg(plan.table)} ${plan.sys_id}`, description: 'List the record\'s versions' },
+                { action: 'undo', cmd: `jsn records revert ${quoteShellArg(plan.table)} ${plan.sys_id} --version ${data.from_version}`, description: 'Revert to the version before this revert' },
+              ],
+            });
           }),
         })
         .command({

@@ -13,11 +13,11 @@ export const IGNORED_FIELDS = ['sys_created_by', 'sys_created_on', 'sys_mod_coun
 const MAX_LINE_CELLS = 4_000_000;
 
 // Display labels are presentation only. Joins and comparisons use raw values.
-const raw = value => value && typeof value === 'object' ? String(value.value ?? '') : String(value ?? '');
+export const raw = value => value && typeof value === 'object' ? String(value.value ?? '') : String(value ?? '');
 const text = value => value && typeof value === 'object' ? String(value.display_value ?? value.value ?? '') : String(value ?? '');
-const malformed = message => Object.assign(new Error(message), { code: 'malformed_response' });
+export const malformed = message => Object.assign(new Error(message), { code: 'malformed_response' });
 
-async function read(sdk, table, query, fields, limit, displayValue = 'all') {
+export async function read(sdk, table, query, fields, limit, displayValue = 'all') {
   const rows = await sdk.listStrict(table, new URLSearchParams({ sysparm_query: query, sysparm_fields: fields, sysparm_limit: String(limit), sysparm_display_value: displayValue }));
   if (!Array.isArray(rows) || rows.some(row => !row || typeof row !== 'object' || Array.isArray(row))) throw malformed(`Malformed table response for ${table}`);
   return rows;
@@ -181,6 +181,20 @@ function valueText(value) {
   return value === undefined ? '(none)' : JSON.stringify(text(value));
 }
 
+export function formatChanges(records) {
+  const lines = [];
+  for (const record of records) {
+    lines.push(`  ${record.status.toUpperCase()} ${record.table} ${record.sys_id || '(no sys_id)'}${record.label ? ` ${record.label}` : ''}`);
+    for (const field of record.fields || []) {
+      if (!field.lines) { lines.push(`    ${field.status.toUpperCase()} ${field.field}: ${valueText(field.a)} -> ${valueText(field.b)}`); continue; }
+      lines.push(`    CHANGED ${field.field}:`);
+      if (field.lines.truncated) lines.push(`      too large to diff by line: ${field.lines.removed} line(s) replaced by ${field.lines.added} from line ${field.lines.first_line}`);
+      else lines.push(...field.lines.changes.map(change => `      ${change.op}${change.line}: ${change.text}`));
+    }
+  }
+  return lines;
+}
+
 export function formatVersions(data) {
   const lines = [`Versions of ${data.record.table} ${data.record.sys_id} (${data.record.update_name}), newest first (read-only)`];
   const update = data.latest_update;
@@ -191,15 +205,7 @@ export function formatVersions(data) {
   if (data.diff) {
     const { diff } = data;
     lines.push('', `Version ${diff.version} [${diff.version_sys_id}] -> current [${diff.current_sys_id}]: ${diff.status === 'equal' ? 'no differences' : `${diff.records.length} record(s) differ`} (ignoring ${diff.ignored_fields.join(', ')})`);
-    for (const record of diff.records) {
-      lines.push(`  ${record.status.toUpperCase()} ${record.table} ${record.sys_id || '(no sys_id)'}${record.label ? ` ${record.label}` : ''}`);
-      for (const field of record.fields || []) {
-        if (!field.lines) { lines.push(`    ${field.status.toUpperCase()} ${field.field}: ${valueText(field.a)} -> ${valueText(field.b)}`); continue; }
-        lines.push(`    CHANGED ${field.field}:`);
-        if (field.lines.truncated) lines.push(`      too large to diff by line: ${field.lines.removed} line(s) replaced by ${field.lines.added} from line ${field.lines.first_line}`);
-        else lines.push(...field.lines.changes.map(change => `      ${change.op}${change.line}: ${change.text}`));
-      }
-    }
+    lines.push(...formatChanges(diff.records));
   }
   lines.push(...data.notes);
   return lines.join('\n');

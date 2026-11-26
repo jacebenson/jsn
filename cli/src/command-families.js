@@ -184,7 +184,7 @@ const deferredFamilies = {
       queryTable: argv => argv._?.[1] === "deleted" ? "sys_audit_delete" : argv.table,
       mutationContext: "table",
       filteredMutationSubcommands: ["delete-many", "bulk"],
-      mutationSubcommands: ["create", "update", "delete", "delete-many", "bulk", "undelete", "import"],
+      mutationSubcommands: ["create", "update", "delete", "delete-many", "bulk", "undelete", "revert", "import"],
       mutationContextExemptSubcommands: ["import"],
       localPreviewSubcommands: ["import"],
       noImpersonateSubcommands: ["watch"],

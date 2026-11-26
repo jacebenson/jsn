@@ -60,6 +60,17 @@ means the version in state current, as the platform's Compare to Current uses; t
 live record is not read. Read-only. No versions does not mean unchanged: only
 records tracked by update sets have them.
 
+```sh
+jsn records revert sys_script_include MyUtil --identifier-field name
+jsn records revert sys_script_include <sys_id> --version <sys_update_version sys_id>
+```
+
+`records revert` puts a record back to its base system version (the newest
+upgrade or Store app version), or with `--version` to any earlier version. It
+runs the platform's Revert to this version in a background script after a
+confirmation that names the fields it changes, then reads back the new current
+version and the live record. Records created on the instance have no base.
+
 ## Saved Access Analyzer evidence
 
 ```sh

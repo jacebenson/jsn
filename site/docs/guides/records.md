@@ -257,6 +257,33 @@ jsn records versions sys_script_include MyUtil --identifier-field name --diff 2 
 It does not read the live record, compare across instances, or show a record
 that has been deleted (the record must resolve first).
 
+### Reverting a record
+
+`jsn records revert` is the CLI form of Revert to this version on a version
+record, aimed by default at the record's base system version.
+
+```bash
+jsn records revert sys_script_include MyUtil --identifier-field name
+jsn records revert sys_script_include <sys_id> --version <sys_update_version sys_id>
+```
+
+- The target is the newest version from `sys_upgrade_history` or
+  `sys_store_app`, or the version `--version` names, which must belong to the
+  same `sys_update_name`. Only the newest base system version can be reverted
+  to; the platform refuses older ones.
+- It refuses with no script run when the record has no base version (it was
+  created on the instance), has no single current version, is already at the
+  target, already matches it, or the target holds no row for the record or
+  deletes it. A verified capture context must match the record's scope.
+- The confirmation names the target and the fields that change; without a
+  terminal it fails with the exact rerun command, pinned to the target version.
+- A global background script checks admin, the target's name, and that the
+  current version is still the one previewed, then calls
+  `GlideappUpdateVersion.revert`. Success is reported only when the new current
+  version is `reverted_from` the target and the live record's changed fields
+  read back with the target's values. The output names the version before the
+  revert, so the revert can itself be reverted.
+
 ## Records engine compatibility contract
 
 Audit for #313, prerequisite to #314–#321. Baseline: origin/main at a3b0e6f.
@@ -273,6 +300,7 @@ This contract precedes implementation and does not declare those issues complete
 | Simple specialized commands | `src/commands/_simple.js` delegates to `_generic.js`; other modules also use factory | Preserve every name/alias/default column/readOnly flag, optional resolver, showFields, onShow, summaries, breadcrumbs, extraQuery and scopeValidation hooks |
 | Specialized rich commands | flows/actions/catalog/CMDB/users and others have custom implementations | Do not replace specialized operations wholesale; shared resolver changes require existing regression suite |
 | Form views | `src/commands/forms.js` independently reads views, sections, elements | No automatic form/related-list retrieval in current generic get or ticket show. Preserve generic presentation; form-aware presentation belongs to specialized views |
+| `records revert` | `src/records/revert.js`; SDK list, listStrict, executeScript (global) | Reverts one record to its newest base system version or a named earlier version through `GlideappUpdateVersion().revert`, the Revert to this version action's own call, which has no REST API. Refuses with no script run on a malformed `--version`, a version of another record, no base or no single current version, a target equal to or matching the current version, or a capture-context scope mismatch; confirms like a non-delete mutation; the script rechecks admin, the target and the current version; the new version's `reverted_from` and the live record's changed fields are read back |
 | `records undelete` | `src/record-undelete.js`; SDK listStrict, executeScript (global); with `--with-related`, aggregate and the AJAXRollbackWorker processor through `src/eval-rollback.js` | Restores the newest `sys_audit_delete` copy of one record, found by table and original sys_id, through `GlideAuditDelete().undelete`, the Undelete Record action's own call, which has no REST API. Refuses with no script run when no copy is recorded, the copy does not match, the record exists, or a verified capture context's scope differs from the copy's; confirms like `delete`; the script checks admin, the copy and the absence again and prints a marker; the record is read back. Attachments and cascade-deleted records are not restored, and references other records held to it may stay cleared. `--with-related` is the Undelete With Related action: it reads the entry's delete recovery and rollback context (recorded only when a script deletes the record) and previews, by table and operation, the recorded operations it reverts; it refuses with nothing written when there is no recovery, it cannot be read or nothing is left to restore. With `--yes` it checks admin, starts the worker for that entry, follows its execution tracker, reads the record back and counts again to show nothing recorded is left unrecovered; a failed, unreadable or timed-out run, a record still missing or operations left unrecovered is an error naming what to check |
 | `records deleted` | `src/record-deleted.js`; SDK listStrict | Read only. Lists `sys_audit_delete` newest first, filtered by `--table` (tablename), `--by` (sys_created_by), `--since` (sys_created_on, UTC) and `--query`, bounded by `--limit` with one row of lookahead. For each row reads its own table by the raw documentkey to say whether the record is back, leaving the answer unknown when that table cannot be read; joins `delete_recovery` to `sys_delete_recovery` and its `sys_rollback_context` by raw sys_id and marks a recovery usable while the recovery is not recovered and the context is recorded. A denied or malformed `sys_audit_delete` read is an error, and an empty page says it proves nothing (the table is admin-read and keyed by the record's own table). The payload is not read |
 
