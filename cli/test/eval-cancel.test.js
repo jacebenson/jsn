@@ -119,6 +119,22 @@ describe('eval cancels its background script when it stops waiting', () => {
     assertOneCancelInSession(calls);
   });
 
+  it('keeps the process alive while it waits for the platform\'s answer, and lets go once it has it', async () => {
+    // A script request left pending after its own abort holds nothing open (a 50s-timeout background script on a PDI
+    // exited 0 after 68s with no output, 26 Nov 2026), so a wait Node does not count lets the stop go unreported.
+    const timers = () => process.getActiveResourcesInfo().filter(resource => resource === 'Timeout').length;
+    let end;
+    const { client, calls } = scriptClient({ run: () => new Promise(resolve => { end = resolve; }), cancel: async () => CANCELING });
+    const before = timers();
+    const stopped = client.executeScript('while (true) {}', '', { timeout: 20 }).catch(error => error);
+    while (!calls.cancels.length) await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.strictEqual(timers(), before + 1);
+    end(CANCELLED);
+    assert.strictEqual((await stopped).cancel.status, 'cancelled');
+    assert.strictEqual(timers(), before);
+  });
+
   it('Ctrl-C before the script is sent posts nothing and cancels nothing', async () => {
     const controller = new AbortController();
     controller.abort();

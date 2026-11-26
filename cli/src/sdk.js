@@ -1564,9 +1564,11 @@ export class SDKClient {
     } catch (error) {
       return { status: 'failed', message: error.message };
     }
-    // The wait for the platform's answer is bounded on its own, whatever --timeout is.
-    const answer = new Promise(resolve => setTimeout(resolve, SCRIPT_CANCEL_WAIT, '').unref());
-    const output = this._extractScriptOutput(await Promise.race([run.catch(() => ''), answer]));
+    // The wait for the platform's answer is bounded on its own, whatever --timeout is. It holds the process open
+    // itself: if the script's request is left pending with nothing open, Node would exit 0 with no output.
+    let timer;
+    const answer = new Promise(resolve => { timer = setTimeout(resolve, SCRIPT_CANCEL_WAIT, ''); });
+    const output = this._extractScriptOutput(await Promise.race([run.catch(() => ''), answer]).finally(() => clearTimeout(timer)));
     return { status: cancelledByPlatform(output) ? 'cancelled' : 'not_confirmed', message, output };
   }
 
