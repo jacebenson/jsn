@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { customizationsCmd } from '../src/commands/customizations.js';
 import { isMutationCommand } from '../src/mutations.js';
+import { needsMutationContext } from '../src/mutation-context.js';
 
 const id = n => n.toString(16).padStart(32, '0');
 const APP = id(900);
@@ -169,7 +170,13 @@ test('customizations revert reports a failed file, carries on with the rest and 
   assert.match(f.outputs.at(-1).opts.summary, /1 reverted; 1 failed/);
 });
 
-test('customizations revert runs under a verified Global selection, which captures its global scripts', async () => {
+test('customizations revert needs the shared capture guard and a verified Global selection, which captures its global scripts', async () => {
+  assert.equal(needsMutationContext({ _: ['customizations', 'revert'] }), true);
+  const scoped = fixture();
+  scoped.app.mutationContext = { verified: true, application_id: APP };
+  await assert.rejects(scoped.run(), /needs Global selected; nothing was read or reverted/);
+  await assert.rejects(scoped.run({ confirm: 'a'.repeat(64) }), /needs Global selected/);
+  assert.deepEqual([scoped.reads.length, scoped.scripts.length], [0, 0]);
   const f = fixture();
   f.app.mutationContext = { verified: true, application_id: 'global' };
   await f.run();

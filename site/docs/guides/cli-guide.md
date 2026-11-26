@@ -258,9 +258,9 @@ readback per file.
   one default-No confirmation instead. `--force` does not waive either.
 - It is a mutation: read-only profiles refuse it, and noninteractive runs,
   previews included, need `--expect-scope` and `--expect-update-set` naming the
-  current selection. Each revert runs as a global background script, so the
-  platform captures it in that update set; the application itself need not be
-  the selected scope.
+  current selection. That selection must be Global: each revert runs as a
+  global background script, which the platform captures in the selected update
+  set, so the application itself is not selected.
 - A file that fails is reported with its error and the rest carry on; any
   failure exits nonzero, never with a success summary.
 

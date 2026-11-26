@@ -7,6 +7,7 @@ import { paginatedSearch } from '../paginated-search.js';
 import { captureReport, listReports, getReport, compareReports, formatReport, formatReportList, formatReportComparison } from '../customizations.js';
 import { buildActionableReport, writeCustomizationHtml } from '../customizations-report.js';
 import { customizationGuidance, formatCustomizationGuidance } from '../customization-guidance.js';
+import { contextFailure } from '../intended-context.js';
 
 // Only capture and revert need an instance. Saved reports never need network access.
 
@@ -89,9 +90,11 @@ export function customizationsCmd(wrap, ui = {}) {
         builder: b => b.option('scope', { type: 'string', demandOption: true, describe: 'Application scope, e.g. sn_hr_core' })
           .option('after', { type: 'string', describe: 'Start after this update name, as a preview with more files prints' })
           .option('confirm', { type: 'string', describe: 'Confirmation token from the preview; without it, and without a terminal, only the preview runs' })
-          .epilogue(`Previews by default. Reverts up to 100 customised files a run, each through jsn records revert: newest base system version, readback per file. Files added on the instance are listed and never deleted; applications built on this instance are refused. Without a terminal every run, the preview too, needs --expect-scope and --expect-update-set naming the current selection: the reverts are captured in that update set, and the application need not be selected.\nExample: jsn customizations revert --scope sn_hr_core --expect-scope global --expect-update-set "<set>", then the same with --confirm <token>`),
+          .epilogue(`Previews by default. Reverts up to 100 customised files a run, each through jsn records revert: newest base system version, readback per file. Files added on the instance are listed and never deleted; applications built on this instance are refused. Without a terminal every run, the preview too, needs Global selected and --expect-scope global --expect-update-set naming the selected set: each revert is a global background script, captured in that update set, and the application itself is not selected.\nExample: jsn customizations revert --scope sn_hr_core --expect-scope global --expect-update-set "<set>", then the same with --confirm <token>`),
         handler: wrap(async (argv, app) => {
           app.requireInstance();
+          // Each revert is a global background script; the platform captured those in the selected Global update set, and no other selection was proven.
+          if (app.mutationContext?.verified && app.mutationContext.application_id !== 'global') throw contextFailure('customizations revert runs each revert as a global background script, captured in the selected update set, so it needs Global selected; nothing was read or reverted.', 'Select Global and the update set to hold the reverts (jsn scopes set global, jsn updatesets set "<set>"), then rerun with --expect-scope global --expect-update-set "<set>".');
           const { previewAppRevert, applyAppRevert, formatAppRevertPreview, formatAppRevert } = await import('../customizations-revert.js');
           const preview = await previewAppRevert(app.sdk, { scope: argv.scope, after: argv.after, instance: app.getEffectiveInstance() });
           const shown = { ...preview, _formatted: formatAppRevertPreview(preview) };
