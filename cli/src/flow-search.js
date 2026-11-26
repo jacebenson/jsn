@@ -143,6 +143,16 @@ export async function searchFlows({ sdk, term, context = {}, refresh = false, ca
     } catch (error) { return { failure: { ...row, stage: 'decode', message: error.message } }; }
   };
   const rowList = [...rows.values()];
+  // A caller needs to tell slow work from a hang. Emit progress by count, not
+  // by wall clock, so output is deterministic and testable: roughly twenty
+  // lines for any inventory size. Callers keep stdout clean by deciding where
+  // these messages go.
+  const total = rowList.length;
+  const step = Math.max(1, Math.ceil(total / 20));
+  let finished = 0;
+  let failed = 0;
+  const startedAt = Date.now();
+  if (total > 0) progress(`Reading ${total} visible flow definition(s), ${Math.max(1, Math.min(concurrency, total))} at a time; progress prints every ${step} definition(s). No instance records are changed.`);
   // Results are collected by inventory position, not completion order, so a
   // faster flow can never reorder matches or failures between runs.
   const results = new Array(rowList.length);
@@ -151,7 +161,14 @@ export async function searchFlows({ sdk, term, context = {}, refresh = false, ca
     while (true) {
       const index = nextIndex++;
       if (index >= rowList.length) return;
-      results[index] = await fetchDefinition(rowList[index]);
+      const result = await fetchDefinition(rowList[index]);
+      results[index] = result;
+      finished++;
+      if (result?.failure) failed++;
+      if (finished === total || finished % step === 0) {
+        const seconds = Math.round((Date.now() - startedAt) / 1000);
+        progress(`Decoded ${finished - failed}/${total} flow definition(s): ${reused} reused from cache, ${failed} failed, ${seconds}s elapsed.`);
+      }
     }
   };
   const poolSize = Math.max(1, Math.min(concurrency, rowList.length));
