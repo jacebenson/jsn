@@ -304,6 +304,21 @@ automation). It sends no email, and it reports `sys_email`, `sysevent` and
 Its answer contains no recipient rows and does not explain inclusion or
 exclusion; use `why` for that.
 
+## HTTP connections and their credentials
+
+```sh
+jsn connections list --limit 50
+jsn connections show "<connection name>" --format styled
+jsn connections show <sys_id> --get data.credential.table
+```
+
+`list` reads `http_connection` with its connection alias, URL or host, active
+flag, and its credential's name and type. `show` adds the credential's table
+and, for an OAuth 2.0 credential, its OAuth profile, grant type and Application
+Registry entry. Every read names its fields, so passwords, keys, client secrets
+and tokens are never requested; `oauth_entity` and `oauth_credential` are never
+read. A credential the profile cannot read keeps its name with type `null`.
+
 ## Find a REST API
 
 ```sh
