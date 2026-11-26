@@ -72,8 +72,12 @@ export const docsCmd = wrap => ({ ...docsCmdDefinition, load: () => require('./c
 export const perfCmdDefinition = {
   command: 'perf [subcommand]',
   aliases: ['performance'],
-  describe: 'Capture and compare performance summaries and rank slow pattern logs (read-only)',
+  describe: 'Capture and compare performance summaries, rank slow pattern logs, and explain a slow query',
 };
+// Capture, list, show, transactions and slow only read. explain and suggest-index
+// run the platform's own UI-action APIs, which write plan rows and a suggestion
+// record: operational data, not customization, so no update-set selection applies.
+declareCapabilities('perf', { mutationContext: 'operational', mutationSubcommands: ['explain', 'suggest-index'] });
 
 export const perfCmd = wrap => ({ ...perfCmdDefinition, load: () => require('./commands/perf.js').perfCmd(wrap) });
 

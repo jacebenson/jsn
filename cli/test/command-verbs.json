@@ -219,11 +219,17 @@
     },
     "revert": {
       "why": "records revert puts a record back to a saved sys_update_version through the platform's Revert to this version; update writes a payload the caller supplies, rollback undoes one eval run's own changes, and undelete restores a deleted copy."
+    },
+    "explain": {
+      "why": "perf explain runs the platform's Explain Plan action and writes plan rows; show only prints the slow pattern's stored SQL and stack trace, so explain is a write with its own guard rather than a mode of show."
+    },
+    "suggest-index": {
+      "why": "perf suggest-index asks the platform's IndexSuggestionAPI for a suggestion and reads that record back; create writes a record the caller describes, while here the table and columns are the instance's answer, not caller input."
     }
   },
   "budgets": {
     "$comment": "Subcommand count per family. A budget is a ratchet, not a ban: when a new command earns its place, raise the number in the same diff and say why in the PR. Adding a family means adding its budget entry.",
-    "total": 431,
+    "total": 433,
     "families": {
       "access-analyzer": 3,
       "acls": 5,
@@ -272,7 +278,7 @@
       "logs": 3,
       "midservers": 12,
       "notifications": 2,
-      "perf": 8,
+      "perf": 10,
       "platform": 2,
       "plugins": 1,
       "privileges": 5,
