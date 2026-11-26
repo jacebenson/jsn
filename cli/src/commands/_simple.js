@@ -3,6 +3,7 @@ import { getStringField } from '../helpers.js';
 import { withTableBehavior } from './table-behavior.js';
 import { describeNotification, deliverySummary } from '../notifications.js';
 import { withTableAudit } from './table-audit.js';
+import { withPrivilegeRequests } from './privilege-requests.js';
 // Simple table-based commands — singular names passed for grammar
 // Default columns and aliases match the Go version exactly
 
@@ -113,7 +114,9 @@ export const relationshipsCmd = (wrap) => buildProfileCommand('relationships', w
 export const appmodulesCmd = (wrap) => buildProfileCommand('appmodules', wrap);
 export const listcontrolsCmd = (wrap) => buildProfileCommand('listcontrols', wrap);
 export const viewsCmd = (wrap) => buildProfileCommand('views', wrap);
-export const privilegesCmd = (wrap) => buildProfileCommand('privileges', wrap);
+export const privilegesCmd = (wrap) => withPrivilegeRequests(buildProfileCommand('privileges', wrap, {
+  extraSubcommands: [{ name: 'requests', description: 'Restricted Caller Access requests: requested, denied, invalidated or allowed, and where each came from' }],
+}), wrap);
 export const uxscriptsCmd = (wrap) => buildProfileCommand('uxscripts', wrap);
 export { aliasesCmd } from './aliases.js';
 export const catalogscriptsCmd = (wrap) => buildProfileCommand('catalogscripts', wrap);

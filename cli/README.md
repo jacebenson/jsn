@@ -83,6 +83,22 @@ through a group or a containing role stays, and `--yes` needs the
 `locked_out` to false and `failed_attempts` to 0, reads the user back, and exits
 nonzero unless both changed. It leaves `password_needs_reset` alone, since an
 admin may have forced it, and then says what still blocks.
+## Blocked cross-scope calls
+
+```sh
+jsn privileges requests                                  # requested, denied, invalidated
+jsn privileges requests --target-scope x_acme_core --status all
+jsn privileges requests --source-scope "Payroll Sync" --json
+```
+
+A call that Restricted Caller Access blocks files a `sys_restricted_caller_access`
+row, which stays at Requested until the target application's admin allows it.
+`privileges requests` lists those rows newest first, with the calling scope and
+script, the target and the status (`--limit` 1–1000, default 20, with
+`pagination.has_more`). They are separate from the `sys_scope_privilege` rows
+that `privileges list` reads, so allowing a privilege leaves the request
+blocked. Scopes match by scope, name or sys_id and filter on raw sys_ids.
+ACLs can hide rows, so an empty list means no readable rows, not none.
 
 ## Record version history
 
