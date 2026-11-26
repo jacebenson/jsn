@@ -372,11 +372,12 @@ jsn atf results <result_sys_id> --logs
 `sys_atf_test_result` or `sys_atf_test_suite_result` sys_id. A test result
 lists every step from `sys_atf_test_result_step` in order with its status and,
 under each failed step, the assertion and error lines from its output. A suite
-result lists its failed and errored tests with only their failed steps.
+result lists its failed and errored tests with only their failed steps, and
+the sys_ids of failed child suites to pass to `atf results` in turn.
 `--logs` adds the run's log lines (`sys_atf_test_result_item`). A failed
 step's output is kept whole in JSON; other text is cut at 16 KB with
-`output_length` and `truncated`. Reads stop at 200 steps, 50 failed tests and
-200 log lines, and say when more exist. All reads are read-only and joined on
+`output_length` and `truncated`. Reads stop at 200 steps, 50 failed tests, 50 failed child suites
+and 200 log lines, and say when more exist. All reads are read-only and joined on
 raw sys_ids.
 
 ## Work safely

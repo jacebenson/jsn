@@ -21,7 +21,11 @@ const tables = {
     { sys_id: field(id(3)), test: field(id(5), 'Synthetic pass'), status: field('success', 'Success'), parent: field(id(10), 'TES0001'), start_time: field('2026-11-26 08:43:20') },
     { sys_id: field(id(4)), test: field(id(6), 'Synthetic error'), status: field('error', 'Error'), parent: field(id(10), 'TES0001'), start_time: field('2026-11-26 08:43:30') },
   ],
-  sys_atf_test_suite_result: [{ sys_id: field(id(10)), number: field('TES0001'), test_suite: field(id(11), 'Synthetic suite'), status: field('failure', 'Failure'), start_time: field('2026-11-26 08:43:10') }],
+  sys_atf_test_suite_result: [
+    { sys_id: field(id(10)), number: field('TES0001'), test_suite: field(id(11), 'Synthetic suite'), status: field('failure', 'Failure'), start_time: field('2026-11-26 08:43:10') },
+    { sys_id: field(id(12)), number: field('TES0002'), test_suite: field(id(13), 'Synthetic child suite'), status: field('failure', 'Failure'), parent: field(id(10), 'TES0001'), start_time: field('2026-11-26 08:43:40') },
+    { sys_id: field(id(14)), number: field('TES0003'), test_suite: field(id(15), 'Synthetic passing child'), status: field('success', 'Success'), parent: field(id(10), 'TES0001'), start_time: field('2026-11-26 08:43:50') },
+  ],
   sys_atf_test_result_step: [
     step(20, id(1), 1, 'success', 'Successfully created user', 'Create a User'),
     step(21, id(1), 2, 'failure', assertion),
@@ -69,27 +73,33 @@ test('a test result lists every step in order, joined on the raw result sys_id, 
   assert.doesNotMatch(human, /<a href|Loading script|Log lines/);
 });
 
-test('a suite result shows its failed and errored tests with only their failed steps', async () => {
+test('a suite result shows its failed and errored tests with only their failed steps, and lists failed child suites', async () => {
   const sdk = fixtureSdk();
   const data = await readAtfResultDetail(sdk, id(10));
   assert.deepEqual(queries(sdk), [
     ['sys_atf_test_result', `sys_id=${id(10)}`, '1'],
     ['sys_atf_test_suite_result', `sys_id=${id(10)}`, '1'],
     ['sys_atf_test_result', `parent=${id(10)}^statusINfailure,error^ORDERBYstart_time`, '51'],
+    ['sys_atf_test_suite_result', `parent=${id(10)}^statusINfailure,error^ORDERBYstart_time`, '51'],
     ['sys_atf_test_result_step', `test_resultIN${id(1)},${id(4)}^statusINfailure,error^ORDERBYorder`, '201'],
   ]);
-  assert.deepEqual(data.result_record, { table: 'sys_atf_test_suite_result', sys_id: id(10), number: 'TES0001', test_suite: id(11), test_suite_name: 'Synthetic suite', status: 'failure', status_label: 'Failure', started: '2026-11-26 08:43:10' });
+  assert.deepEqual(data.result_record, { table: 'sys_atf_test_suite_result', sys_id: id(10), number: 'TES0001', test_suite: id(11), test_suite_name: 'Synthetic suite', status: 'failure', status_label: 'Failure', started: '2026-11-26 08:43:10', parent_suite_result: null });
+  assert.deepEqual(data.failed_suites, { count: 1, has_more: false, records: [{ sys_id: id(12), number: 'TES0002', test_suite: id(13), test_suite_name: 'Synthetic child suite', status: 'failure', status_label: 'Failure', started: '2026-11-26 08:43:40' }] });
   assert.deepEqual(data.failed_tests.records.map(t => [t.sys_id, t.test_name, t.status]), [[id(1), 'Synthetic login', 'failure'], [id(4), 'Synthetic error', 'error']]);
   assert.deepEqual(data.steps.records.map(s => [s.test_result, s.order, s.status]), [[id(1), '2', 'failure'], [id(4), '1', 'error']]);
   const human = formatAtfResult(data);
   assert.match(human, /^Synthetic suite: Failure\nsys_atf_test_suite_result 0+a \(TES0001\), started 2026-11-26 08:43:10 UTC/);
   assert.match(human, /Failed tests \(2\):\n {2}Synthetic login: Failure \(sys_atf_test_result 0+1\)\n {6}2 {2}failure {2}Run Server Side Script\n {11}00:43:13\.697 App:Synthetic x_synthetic: Assertion failed/);
   assert.match(human, / {2}Synthetic error: Error \(sys_atf_test_result 0+4\)\n {6}1 {2}error {4}Run Server Side Script\n {11}Error: script threw TypeError: x is undefined/);
-  assert.doesNotMatch(human, /Synthetic pass|Create a User/);
-  const clean = await readAtfResultDetail(fixtureSdk({ sys_atf_test_result: [tables.sys_atf_test_result[1]] }), id(10));
-  assert.equal(clean.failed_tests.count, 0);
-  assert.equal(clean.steps.count, 0);
-  assert.match(formatAtfResult(clean), /No failed or errored test results were readable for this suite result/);
+  assert.match(human, /x is undefined\n\nFailed child suites \(1\), each shown by jsn atf results <id>:\n {2}Synthetic child suite: Failure \(sys_atf_test_suite_result 0+c\)$/);
+  assert.doesNotMatch(human, /Synthetic pass|Create a User|passing child/);
+  const parentOnly = fixtureSdk({ sys_atf_test_result: [tables.sys_atf_test_result[1]] });
+  const onlySuites = await readAtfResultDetail(parentOnly, id(10));
+  assert.deepEqual([onlySuites.failed_tests.count, onlySuites.failed_suites.count, queries(parentOnly).length], [0, 1, 4]);
+  assert.match(formatAtfResult(onlySuites), /UTC\n\nFailed child suites \(1\)/);
+  const clean = await readAtfResultDetail(fixtureSdk({ sys_atf_test_result: [tables.sys_atf_test_result[1]], sys_atf_test_suite_result: tables.sys_atf_test_suite_result.slice(0, 1) }), id(10));
+  assert.deepEqual([clean.failed_tests.count, clean.failed_suites.count, clean.steps.count], [0, 0, 0]);
+  assert.match(formatAtfResult(clean), /No failed or errored test or child suite results were readable for this suite result\.$/);
 });
 
 test('--logs reads the base-class result items in recorded order for the tests shown', async () => {
@@ -122,6 +132,10 @@ test('a passing step is cut at 16 KB, a failed step keeps its whole output, and 
   const suite = await readAtfResultDetail(fixtureSdk({ sys_atf_test_result: failures }), id(10));
   assert.deepEqual([suite.failed_tests.count, suite.failed_tests.has_more], [50, true]);
   assert.match(formatAtfResult(suite), /More failed tests exist than the 50 read\./);
+  const children = Array.from({ length: 52 }, (_, i) => ({ ...tables.sys_atf_test_suite_result[1], sys_id: field(id(3000 + i)) }));
+  const nested = await readAtfResultDetail(fixtureSdk({ sys_atf_test_suite_result: [tables.sys_atf_test_suite_result[0], ...children] }), id(10));
+  assert.deepEqual([nested.failed_suites.count, nested.failed_suites.records.length, nested.failed_suites.has_more], [50, 50, true]);
+  assert.match(formatAtfResult(nested), /More failed child suites exist than the 50 read\.$/);
 });
 
 test('invalid result IDs reject before any request', async () => {
@@ -146,10 +160,13 @@ test('an unknown id is no detail, and mismatched, denied or malformed reads are 
   const strayParent = fixtureSdk({ sys_atf_test_result: [] });
   const base = strayParent.listStrict;
   strayParent.listStrict = async (name, params) => params.get('sysparm_query').startsWith('parent=') ? [{ ...tables.sys_atf_test_result[0], parent: field(id(98), 'TES0001') }] : base(name, params);
-  await assert.rejects(readAtfResultDetail(strayParent, id(10)), /another suite result/);
+  await assert.rejects(readAtfResultDetail(strayParent, id(10)), /^Error: sys_atf_test_result returned rows from another suite result/);
+  const strayChild = fixtureSdk();
+  strayChild.listStrict = async (name, params) => name === 'sys_atf_test_suite_result' && params.get('sysparm_query').startsWith('parent=') ? [{ ...tables.sys_atf_test_suite_result[1], parent: field(id(98), 'TES0001') }] : fixtureSdk().listStrict(name, params);
+  await assert.rejects(readAtfResultDetail(strayChild, id(10)), /^Error: sys_atf_test_suite_result returned rows from another suite result/);
   for (const status of [403, 404]) {
     const error = Object.assign(new Error('Synthetic read denied'), { status });
-    await assert.rejects(readAtfResultDetail({ listStrict: async () => { throw error; } }, id(1)), e => e === error);
+    await assert.rejects(readAtfResultDetail({ listStrict: async () => { throw error; } }, id(1)), e => e === error && e.table === 'sys_atf_test_result');
   }
   await assert.rejects(readAtfResultDetail({ listStrict: async () => [null] }, id(1)), /Malformed/);
   await assert.rejects(readAtfResultDetail(answering('sys_atf_test_result_step', [[]]), id(1)), /Malformed/);
@@ -162,6 +179,8 @@ test('real CLI shows a result with its steps on a read-only profile, and rejects
     const parts = url.pathname.split('/');
     calls.push({ method: req.method, pathname: url.pathname });
     res.setHeader('Content-Type', 'application/json');
+    if (url.pathname === '/api/now/table/sys_atf_test_result_step' && url.searchParams.get('sysparm_query').startsWith(`test_result=${id(4)}`)) { res.statusCode = 403; return res.end(JSON.stringify({ error: { message: 'Synthetic ACL' } })); }
+    if (url.pathname === '/api/now/table/sys_atf_test_result_step' && url.searchParams.get('sysparm_query').startsWith(`test_result=${id(3)}`)) return res.end(JSON.stringify({ result: {} }));
     if (url.pathname === `/api/sn_cicd/progress/${id(50)}`) return res.end(JSON.stringify({ result: { status: '1', percent_complete: 10, status_message: 'Running', links: {} } }));
     if (!url.pathname.startsWith('/api/now/table/')) { res.statusCode = 404; return res.end(JSON.stringify({ error: { message: 'Requested URI does not represent any resource' } })); }
     if (parts.length === 6) {
@@ -194,7 +213,16 @@ test('real CLI shows a result with its steps on a read-only profile, and rejects
     assert.equal(get.stdout.trim(), '2');
     const pending = JSON.parse((await run(['atf', 'results', id(50), '--json'])).stdout);
     assert.deepEqual([pending.data.status, pending.data.steps], ['running', undefined]);
-    assert.match(pending.data.warnings[0], /^No step detail: 0+32 is not a sys_atf_test_result or sys_atf_test_suite_result sys_id\. A run still in progress has no result yet\.$/);
+    assert.match(pending.data.warnings[0], /^No step detail: no readable sys_atf_test_result or sys_atf_test_suite_result has sys_id 0+32\. A run still in progress has no result yet, or ACLs hide it\.$/);
+    const denied = await run(['atf', 'results', id(4), '--json']);
+    const deniedEnvelope = JSON.parse(denied.stdout);
+    assert.deepEqual([deniedEnvelope.ok, deniedEnvelope.data.status, deniedEnvelope.data.steps], [true, 'error', undefined]);
+    assert.deepEqual(deniedEnvelope.data.warnings, ['No step detail: the profile may not read sys_atf_test_result_step (HTTP 403).']);
+    const malformed = await run(['atf', 'results', id(3), '--json']).catch(error => error);
+    assert.deepEqual([malformed.code, malformed.stdout], [1, '']);
+    assert.match(malformed.stderr, /Malformed table response for sys_atf_test_result_step/);
+    const deniedHuman = await run(['atf', 'results', id(4)]);
+    assert.match(deniedHuman.stdout + deniedHuman.stderr, /may not read sys_atf_test_result_step \(HTTP 403\)/);
     const none = await run(['atf', 'results', id(99), '--json']).catch(error => error);
     assert.equal(none.code, 1);
     assert.match(none.stderr, /not_found/);

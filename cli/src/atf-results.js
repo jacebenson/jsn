@@ -5,7 +5,7 @@ const STEP = 'sys_atf_test_result_step';
 const ITEM = 'sys_atf_test_result_item';
 const fields = {
   sys_atf_test_result: 'sys_id,test,status,parent,start_time',
-  sys_atf_test_suite_result: 'sys_id,number,test_suite,status,start_time',
+  sys_atf_test_suite_result: 'sys_id,number,test_suite,status,parent,start_time',
   [STEP]: 'sys_id,test_result,order,step,status,summary,output,start_time,end_time',
   [ITEM]: 'sys_id,test_result,type,output,start_time',
 };
@@ -20,7 +20,8 @@ const raw = value => value && typeof value === 'object' ? String(value.value ?? 
 const text = value => value && typeof value === 'object' ? String(value.display_value ?? value.value ?? '') : String(value ?? '');
 
 async function read(sdk, table, query, limit) {
-  const rows = await sdk.listStrict(table, new URLSearchParams({ sysparm_query: query, sysparm_fields: fields[table], sysparm_limit: String(limit), sysparm_display_value: 'all' }));
+  const rows = await sdk.listStrict(table, new URLSearchParams({ sysparm_query: query, sysparm_fields: fields[table], sysparm_limit: String(limit), sysparm_display_value: 'all' }))
+    .catch(err => { throw Object.assign(err, { table: err.table ?? table }); });
   if (!Array.isArray(rows) || rows.some(row => !row || typeof row !== 'object' || Array.isArray(row))) throw Object.assign(new Error(`Malformed table response for ${table}`), { code: 'malformed_response' });
   return rows;
 }
@@ -46,6 +47,7 @@ function logRecord(row) {
   return { sys_id: raw(row.sys_id), test_result: raw(row.test_result), type: raw(row.type), time: raw(row.start_time), message: message.slice(0, TEXT_LIMIT), message_length: message.length, truncated: message.length > TEXT_LIMIT };
 }
 const testRecord = row => ({ sys_id: raw(row.sys_id), test: raw(row.test), test_name: text(row.test), status: raw(row.status), status_label: text(row.status), started: raw(row.start_time) });
+const suiteRecord = row => ({ sys_id: raw(row.sys_id), number: raw(row.number), test_suite: raw(row.test_suite), test_suite_name: text(row.test_suite), status: raw(row.status), status_label: text(row.status), started: raw(row.start_time) });
 
 export function assertResultId(id) {
   if (typeof id !== 'string' || !SYS_ID.test(id)) throw errUsage('Provide the ATF result as a 32-character hexadecimal sys_id from jsn atf run.');
@@ -61,13 +63,16 @@ export async function readAtfResultDetail(sdk, id, { logs = false } = {}) {
   const test = await one(sdk, 'sys_atf_test_result', id);
   const suite = test ? null : await one(sdk, 'sys_atf_test_suite_result', id);
   if (!test && !suite) return null;
-  let tests, failedTests = null;
+  let tests, failedTests = null, failedSuites = null;
   if (test) tests = [test];
   else {
-    const rows = await read(sdk, 'sys_atf_test_result', `parent=${id}^statusIN${FAILED.join(',')}^ORDERBYstart_time`, TEST_LIMIT + 1);
-    if (rows.some(row => raw(row.parent) !== id)) throw new Error('sys_atf_test_result returned rows from another suite result.');
+    // A suite of suites: child suite results are listed, not followed.
+    const failed = `parent=${id}^statusIN${FAILED.join(',')}^ORDERBYstart_time`;
+    const [rows, suiteRows] = await Promise.all([read(sdk, 'sys_atf_test_result', failed, TEST_LIMIT + 1), read(sdk, 'sys_atf_test_suite_result', failed, TEST_LIMIT + 1)]);
+    for (const [table, list] of [['sys_atf_test_result', rows], ['sys_atf_test_suite_result', suiteRows]]) if (list.some(row => raw(row.parent) !== id)) throw new Error(`${table} returned rows from another suite result.`);
     tests = rows.slice(0, TEST_LIMIT);
     failedTests = { count: tests.length, has_more: rows.length > TEST_LIMIT, records: tests.map(testRecord) };
+    failedSuites = { count: Math.min(suiteRows.length, TEST_LIMIT), has_more: suiteRows.length > TEST_LIMIT, records: suiteRows.slice(0, TEST_LIMIT).map(suiteRecord) };
   }
   const ids = tests.map(row => raw(row.sys_id));
   const stepQuery = test ? `test_result=${id}^ORDERBYorder` : `test_resultIN${ids.join(',')}^statusIN${FAILED.join(',')}^ORDERBYorder`;
@@ -80,8 +85,8 @@ export async function readAtfResultDetail(sdk, id, { logs = false } = {}) {
   return {
     result_record: test
       ? { table: 'sys_atf_test_result', ...testRecord(test), suite_result: raw(test.parent) || null }
-      : { table: 'sys_atf_test_suite_result', sys_id: id, number: raw(suite.number), test_suite: raw(suite.test_suite), test_suite_name: text(suite.test_suite), status: raw(suite.status), status_label: text(suite.status), started: raw(suite.start_time) },
-    ...(failedTests ? { failed_tests: failedTests } : {}),
+      : { table: 'sys_atf_test_suite_result', ...suiteRecord(suite), parent_suite_result: raw(suite.parent) || null },
+    ...(failedTests ? { failed_tests: failedTests, failed_suites: failedSuites } : {}),
     steps: { table: STEP, count: steps.count, has_more: steps.has_more, records: steps.rows.map(stepRecord) },
     ...(logs ? { logs: { table: ITEM, count: lines.count, has_more: lines.has_more, records: lines.rows.map(logRecord) } } : {}),
   };
@@ -119,9 +124,12 @@ export function formatAtfResult(data) {
     lines.push(data.steps.count ? `Steps (${data.steps.count}):` : 'No step results were readable: the test stopped before its first step, is still running, or ACLs hide them.', ...testBlock(data, record.sys_id, '  '));
   } else {
     lines.push(`${record.test_suite_name || record.test_suite}: ${record.status_label || record.status}`, `${record.table} ${record.sys_id}${record.number ? ` (${record.number})` : ''}${record.started ? `, started ${record.started} UTC` : ''}`, '');
-    if (!data.failed_tests.count) lines.push('No failed or errored test results were readable for this suite result.');
-    else lines.push(`Failed tests (${data.failed_tests.count}):`, ...data.failed_tests.records.flatMap(test => [`  ${test.test_name || test.test}: ${test.status_label || test.status} (sys_atf_test_result ${test.sys_id})`, ...testBlock(data, test.sys_id, '    ')]));
-    if (data.failed_tests.has_more) lines.push('', `More failed tests exist than the ${data.failed_tests.count} read.`);
+    const { failed_tests: tests, failed_suites: suites } = data;
+    if (!tests.count && !suites.count) lines.push('No failed or errored test or child suite results were readable for this suite result.');
+    if (tests.count) lines.push(`Failed tests (${tests.count}):`, ...tests.records.flatMap(test => [`  ${test.test_name || test.test}: ${test.status_label || test.status} (sys_atf_test_result ${test.sys_id})`, ...testBlock(data, test.sys_id, '    ')]));
+    if (tests.has_more) lines.push('', `More failed tests exist than the ${tests.count} read.`);
+    if (suites.count) lines.push(...(tests.count ? [''] : []), `Failed child suites (${suites.count}), each shown by jsn atf results <id>:`, ...suites.records.map(child => `  ${child.test_suite_name || child.test_suite}: ${child.status_label || child.status} (sys_atf_test_suite_result ${child.sys_id})`));
+    if (suites.has_more) lines.push('', `More failed child suites exist than the ${suites.count} read.`);
   }
   if (data.steps.has_more) lines.push('', `More step results exist than the ${data.steps.count} read.`);
   if (data.logs?.has_more) lines.push('', `More log lines exist than the ${data.logs.count} read.`);

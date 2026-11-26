@@ -616,14 +616,19 @@ export function atfCmd(wrap) {
             const result = await fetchAnyResult(app, argv.id);
             if (!result) throw errNotFound('ATF execution', argv.id);
             const resultId = result.result_id || result.execution_id || argv.id;
-            const detail = /^[0-9a-f]{32}$/i.test(resultId) ? await readAtfResultDetail(app.sdk, resultId, { logs: argv.logs }) : null;
-            if (!detail) {
-              return app.ok({ ...result, warnings: [`No step detail: ${resultId} is not a sys_atf_test_result or sys_atf_test_suite_result sys_id. A run still in progress has no result yet.`] }, { summary: `ATF result ${argv.id}: ${result.status}` });
+            let detail = null, warning = `No step detail: no readable sys_atf_test_result or sys_atf_test_suite_result has sys_id ${resultId}. A run still in progress has no result yet, or ACLs hide it.`;
+            try {
+              if (/^[0-9a-f]{32}$/i.test(resultId)) detail = await readAtfResultDetail(app.sdk, resultId, { logs: argv.logs });
+            } catch (err) {
+              // The result itself was read; a denied detail table leaves it as it was before steps were added.
+              if (err.status !== 403) throw err;
+              warning = `No step detail: the profile may not read ${err.table} (HTTP 403).`;
             }
+            if (!detail) return app.ok({ ...result, warnings: [warning] }, { summary: `ATF result ${argv.id}: ${result.status}` });
             const data = { ...result, ...detail };
             Object.defineProperty(data, '_formatted', { value: formatAtfResult(data), enumerable: false });
             const failed = detail.steps.records.filter(step => ['failure', 'error'].includes(step.status)).length;
-            app.ok(data, { summary: `ATF result ${argv.id}: ${result.status}; ${detail.failed_tests ? `${detail.failed_tests.count} failed test(s), ` : ''}${detail.steps.count} step(s) read, ${failed} failed` });
+            app.ok(data, { summary: `ATF result ${argv.id}: ${result.status}; ${detail.failed_tests ? `${detail.failed_tests.count} failed test(s), ${detail.failed_suites.count} failed child suite(s), ` : ''}${detail.steps.count} step(s) read, ${failed} failed` });
           }),
         });
     },
