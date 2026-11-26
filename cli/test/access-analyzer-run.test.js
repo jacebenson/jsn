@@ -183,7 +183,7 @@ test('--save persists through the provider and reads back only the request this 
   assert.match(formatAccessRun(data), new RegExp(`\\(saved ${id(51)}\\)`));
 
   const none = fixture({ before: [old], after: [old] });
-  await assert.rejects(runAccessAnalysis(none.sdk, input({ save: true, operations: 'read' })), /saved no analysis request/);
+  await assert.rejects(runAccessAnalysis(none.sdk, input({ save: true, operations: 'read' })), /no new analysis request is visible.*Do not assume nothing was saved/);
   const two = fixture({ before: [], after: [{ ...created, sys_id: id(52) }, created] });
   await assert.rejects(runAccessAnalysis(two.sdk, input({ save: true, operations: 'read' })), /refuse to guess/);
 });

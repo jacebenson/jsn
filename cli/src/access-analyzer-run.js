@@ -198,7 +198,9 @@ export async function runAccessAnalysis(sdk, input) {
     const known = new Set(before.map(row => rawAccessValue(row.sys_id)));
     const created = after.filter(row => !known.has(rawAccessValue(row.sys_id)));
     if (!created.length) {
-      throw new AppError(CodeAPI, 'Access Analyzer evaluated access but saved no analysis request. This Access Analyzer build does not persist through its public evaluation API, or the save was refused; no analysis id exists to report.');
+      // Not "saved nothing": the row may be keyed by user name or hidden by an ACL,
+      // so the honest outcome is unverified, and a blind retry could save twice.
+      throw new AppError(CodeAPI, `Access Analyzer evaluated access, but no new analysis request is visible for user ${filter.user}. Either this build does not persist through its public evaluation API, or the request row is keyed differently or hidden from this identity. Do not assume nothing was saved: check jsn access-analyzer list before retrying.`);
     }
     if (created.length > 1) {
       throw new AppError(CodeAPI, `${created.length} new analysis requests appeared during this run; refuse to guess which is this one. Inspect them with: jsn access-analyzer list --limit 5`);
