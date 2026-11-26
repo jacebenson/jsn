@@ -855,14 +855,14 @@ export function recordsCmd(wrap) {
           command: 'versions <table> <identifier>',
           describe: 'List a record\'s update versions and compare one to the current version (read-only)',
           discoveryTasks: [{
-            phrases: ['version history', 'record versions', 'compare to current', 'which update set captured a record', 'show latest update'],
-            args: ['--json'], description: 'List sys_update_version history and the latest captured update for one record',
+            phrases: ['version history', 'record versions', 'compare to current', 'which update set captured a record', 'every update set a record is in', 'show latest update'],
+            args: ['--json'], description: 'List sys_update_version history and every update set capture for one record',
           }],
           builder: (y) => y
             .positional('table', { describe: 'Table name (e.g. sys_script_include)', type: 'string' })
             .positional('identifier', { describe: 'Record sys_id, or the value of --identifier-field', type: 'string' })
             .option('identifier-field', { type: 'string', describe: 'Exact identifier field (default sys_id), e.g. name' })
-            .option('limit', { type: 'number', default: 20, describe: 'Max versions, newest first (1-200)' })
+            .option('limit', { type: 'number', default: 20, describe: 'Max versions, and max captured updates, newest first (1-200)' })
             .option('diff', { type: 'number', describe: 'Compare version N (1 = newest) to the current version' })
             .epilogue('Versions come from sys_update_version by the record\'s sys_update_name; current means the version in state current, not the live record.\nExample: jsn records versions sys_script_include MyUtil --identifier-field name --diff 2'),
           handler: wrap(async (argv, app) => {
