@@ -127,6 +127,17 @@ describe('roles holders', () => {
     assert.deepEqual(classifyHolder({ inherited: 'true', granted_by: 'not-applicable', included_in_role: '' }), { via: 'inherited' });
   });
 
+  it('reports a role nobody holds as zero rather than an unavailable Stats API', async () => {
+    // An empty grouped reply comes back from the SDK as {}, which used to be
+    // read as a broken Stats reply.
+    const app = makeApp({ sdk: sdk({ counts: {} }) });
+    await handler('holders')({ app, role: 'itil', limit: 10 });
+    const data = app.lastOk.data;
+    assert.equal(data.counts.distinct_users, 0);
+    assert.equal(data.counts.total_rows, 0);
+    assert.equal(data.counts.error, undefined);
+  });
+
   it('keeps the role answer when the Stats API is unavailable', async () => {
     const app = makeApp({ sdk: sdk({ counts: Object.assign(new Error('HTTP 403'), { status: 403 }) }) });
     await handler('holders')({ app, role: 'itil', limit: 10 });

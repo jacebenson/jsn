@@ -474,7 +474,7 @@ function buildWhy(wrap) {
         },
         gaps,
       };
-      data._formatted = renderWhy(data);
+      Object.defineProperty(data, '_formatted', { value: renderWhy(data), enumerable: false });
       app.ok(data, { summary: `${rendered.length} notification(s) on ${table}; ${covered} covered, ${flowNotifications.length} flow-triggered not covered` });
     }),
   };
@@ -610,16 +610,18 @@ function buildPreview(wrap) {
         record: { table, sys_id: recordId, label: pickRecordLabel(record) },
         simulation,
         recipients: {
-          status: 'unavailable',
+          // Derived, never assumed: an answer that carries buckets is evidence,
+          // and one that does not is reported as unavailable.
+          status: buckets && [buckets.included_users, buckets.excluded_users, buckets.included_emails].some(list => Array.isArray(list)) ? 'reported' : 'unavailable',
           buckets,
-          reason: 'The NotificationSimulator answer has no recipient rows for this call and does not explain the platform\'s inclusion or exclusion decision. Use jsn notifications why <table> <number|sys_id> <user> for recipient evidence.',
+          reason: 'The NotificationSimulator answer does not explain the platform\'s inclusion or exclusion decision. Use jsn notifications why <table> <number|sys_id> <user> for recipient evidence.',
         },
         write_check: {
           note: `sys_email and sysevent counts are scoped to ${table} ${recordId}; the syslog_email count is instance-wide because that table has no record reference.`,
           ...checks,
         },
       };
-      data._formatted = renderPreview(data);
+      Object.defineProperty(data, '_formatted', { value: renderPreview(data), enumerable: false });
       app.ok(data, { summary: `Notification simulated: ${shown(notification.name) || notificationId}` });
     }),
   };

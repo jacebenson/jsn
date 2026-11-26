@@ -234,7 +234,7 @@ function columnFixture() {
 test('columns why separates dictionary, policy and script evidence without writing', async () => {
   const sdk = columnFixture();
   const { app, envelope } = jsonApp(sdk);
-  const why = captureCommands(columnsCmd(fn => fn)).find(command => command.command === 'why <column>');
+  const why = captureCommands(columnsCmd(fn => fn)).find(command => command.command.startsWith('why'));
   await why.handler({ column: 'incident.caller_id', record: ID }, app);
   const { data } = envelope();
   assert.equal(data.dictionary.base.read_only, true);
@@ -251,6 +251,6 @@ test('columns why separates dictionary, policy and script evidence without writi
 
 test('columns why requires --record before touching the instance', async () => {
   const { app } = jsonApp(fakeSdk());
-  const why = captureCommands(columnsCmd(fn => fn)).find(command => command.command === 'why <column>');
+  const why = captureCommands(columnsCmd(fn => fn)).find(command => command.command.startsWith('why'));
   await assert.rejects(why.handler({ column: 'incident.caller_id' }, app), error => error.code === 'usage_error');
 });

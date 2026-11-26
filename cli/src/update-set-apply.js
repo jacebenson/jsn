@@ -288,7 +288,9 @@ export async function commitUpdateSets(sdk, sysIDs, options = {}) {
   const params = new URLSearchParams({ remote_update_set_ids: sysIDs.join(',') });
   const endpoint = `${sdk.baseURL}/api/sn_cicd/update_set/commitMultiple?${params.toString()}`;
   return dispatchCicdOperation(sdk, 'commit', endpoint, {
-    body: JSON.stringify({ force_commit: 'false' }),
+    // A real boolean: some providers coerce any non-empty string truthily, which
+    // would turn this safety pin into force_commit=true.
+    body: JSON.stringify({ force_commit: false }),
     what: 'committed',
     ...options,
   });

@@ -59,10 +59,12 @@ async function addChoices(record, app, argv) {
 
 function whyCommand(wrap) {
   return {
-    command: 'why <column>',
+    // Optional so the --table/--field form the parser supports is reachable, and so
+    // the <table>.<field> form advertised in this family's help really exists.
+    command: 'why [column]',
     describe: 'Explain what makes a field read-only, mandatory or hidden on one record (read-only)',
     builder: (y) => y
-      .positional('column', { type: 'string', describe: 'Column as <table>.<field> (e.g. incident.caller_id)' })
+      .positional('column', { type: 'string', describe: 'Column as <table>.<field> (e.g. incident.caller_id), or pass --table with --field' })
       .option('record', { type: 'string', describe: 'Record number or sys_id to test conditions against' })
       .option('table', { type: 'string', describe: 'Table name when not using table.field' })
       .option('field', { type: 'string', describe: 'Dictionary element when not using table.field' })

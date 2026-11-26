@@ -70,14 +70,20 @@ const groupCount = group => {
 async function readCounts(sdk, query) {
   try {
     const grouped = await sdk.aggregate(TABLE, { query, groupBy: ['user'], count: true });
-    if (!Array.isArray(grouped?.groups)) throw new Error('grouped Stats reply has no groups array');
-    const groups = grouped.groups;
+    // An empty role answers `{ result: [] }`, which the SDK hands back as `{}`.
+    // That is zero rows, not an unavailable API; the `{ result: { stats: [...] } }`
+    // shape some releases return is accepted too.
+    const groups = Array.isArray(grouped?.groups) ? grouped.groups
+      : Array.isArray(grouped?.stats) ? grouped.stats
+        : grouped && typeof grouped === 'object' ? []
+          : null;
+    if (groups === null) throw new Error('grouped Stats reply has no groups array');
     // Some releases return a top-level total; others only the per-group counts.
     const reported = grouped?.stats?.count;
     const reportedRows = typeof reported === 'number' ? reported : /^\d+$/.test(String(reported ?? '')) ? Number(reported) : null;
     const counts = groups.map(groupCount);
     const summed = counts.every(count => count !== null) ? counts.reduce((total, count) => total + count, 0) : null;
-    const totalRows = reportedRows ?? summed;
+    const totalRows = reportedRows ?? summed ?? (groups.length ? null : 0);
     if (totalRows === null) throw new Error('grouped Stats reply has no usable record count');
     return { total_rows: totalRows, distinct_users: groups.length, source: 'stats_api_grouped_by_user' };
   } catch (error) {

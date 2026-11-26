@@ -14,7 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { SDKClient } from '../src/sdk.js';
 import { yargs } from '../src/cli-adapter.js';
-import { updateSetsCmd } from '../src/commands/updatesets.js';
+import { updateSetsCmd, redactSourceUrl } from '../src/commands/updatesets.js';
 
 const SOURCE_ID = '1'.repeat(32);
 const SET_ID = '2'.repeat(32);
@@ -95,8 +95,7 @@ const sourcesRecord = {
   url: 'https://deploy:secret@prod.service-now.com',
   type: 'instance',
   active: 'true',
-  instance_id: 'prod_instance',
-  instance_name: 'production',
+  short_description: 'Production instance',
 };
 
 test('sources lists only non-credential fields and redacts userinfo from the URL', async (t) => {
@@ -119,11 +118,13 @@ test('sources lists only non-credential fields and redacts userinfo from the URL
     url: 'https://prod.service-now.com',
     type: 'instance',
     active: true,
-    instance_id: 'prod_instance',
-    instance_name: 'production',
-    short_description: '',
+    host: 'prod.service-now.com',
+    short_description: 'Production instance',
   });
   assert.equal(JSON.stringify(results[0].data).includes('secret'), false);
+  // A password that itself contains '@' used to leave its tail in the printed URL.
+  assert.equal(redactSourceUrl('https://user:p@ss@prod.service-now.com/now'), 'https://prod.service-now.com/now');
+  assert.equal(redactSourceUrl('https://prod.service-now.com'), 'https://prod.service-now.com');
 });
 
 test('retrieve posts update_set_id/update_source_id, keeps cleanup false, polls to terminal, and verifies the loaded copy', async (t) => {
@@ -270,7 +271,7 @@ async function orderedFixture(t, { states = [ 'previewed', 'previewed' ], proble
     if (entry.pathname === '/api/sn_cicd/update_set/commitMultiple') {
       assert.equal(entry.method, 'POST');
       assert.equal(entry.query.remote_update_set_ids, `${REMOTE_A},${REMOTE_B}`);
-      assert.equal(entry.body, JSON.stringify({ force_commit: 'false' }));
+      assert.equal(entry.body, JSON.stringify({ force_commit: false }));
       committedStates.set(REMOTE_A, 'committed');
       committedStates.set(REMOTE_B, 'committed');
       return { body: { result: { status: '0', status_label: 'Pending', links: { progress: { id: 'commit-1' } } } } };
