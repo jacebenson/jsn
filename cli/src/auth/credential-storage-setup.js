@@ -91,11 +91,15 @@ export async function ensureCredentialStorage(app, argv = {}, deps = {}) {
     out = process.stdout,
     env = process.env,
     profilePath = shellProfile(),
+    interactive = null,
   } = deps;
 
   let status = check();
   if (status.available) return status;
-  if (!canUsePicker(app, argv)) throw storageFailure(status);
+  // A prompt needs a terminal on both ends. Suites and CI mock interactivity
+  // but have no TTY, and would otherwise sit on a storage question forever.
+  const canPrompt = interactive ?? (canUsePicker(app, argv) && Boolean(process.stdin.isTTY) && Boolean(process.stdout.isTTY));
+  if (!canPrompt) throw storageFailure(status);
   // Prompts load lazily, like loginWizard: suites that replace prompts.js must
   // not break this module's import graph.
   const prompts = deps.ask && deps.askConfirm ? null : await import('../prompts.js');

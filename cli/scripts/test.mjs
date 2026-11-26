@@ -18,7 +18,11 @@ try {
   const result = spawnSync(process.execPath, [
     '--experimental-test-module-mocks', '--test', '--test-concurrency=4',
     ...process.argv.slice(2), ...collect(path.join(root, 'test')).sort(),
-  ], { cwd: root, stdio: 'inherit', env: { ...process.env, JSN_DATA_HOME: path.join(dataHome, '.jsn') } });
+    // Login now preflights credential storage. The suite runs on machines with
+    // no unlocked keyring and in CI with none at all, so it declares the
+    // documented plaintext opt-in once here; storage-specific suites override
+    // this with their own injected stores and isolated environments.
+  ], { cwd: root, stdio: 'inherit', env: { ...process.env, JSN_DATA_HOME: path.join(dataHome, '.jsn'), JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE: '1' } });
   if (result.error) throw result.error;
   process.exitCode = result.status ?? 1;
 } finally {

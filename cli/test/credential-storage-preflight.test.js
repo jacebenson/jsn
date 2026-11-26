@@ -106,7 +106,7 @@ describe('ensureCredentialStorage', () => {
 
   it('cancelling stores nothing', async () => {
     await assert.rejects(
-      (await ensure())({ interactive: true }, {}, { status: unavailable, ask: async () => 'cancel' }),
+      (await ensure())({ interactive: true }, {}, { interactive: true, status: unavailable, ask: async () => 'cancel' }),
       { name: 'PromptCancelled' },
     );
   });
@@ -114,7 +114,7 @@ describe('ensureCredentialStorage', () => {
   it('repairs the store and re-checks before continuing', async () => {
     let checks = 0;
     const ran = [];
-    const result = await (await ensure())({ interactive: true }, {}, {
+    const result = await (await ensure())({ interactive: true }, {}, { interactive: true,
       status: () => (++checks === 1 ? unavailable() : { available: true, platform: 'linux', plaintext_allowed: false }),
       run: (command, args) => { ran.push([command, ...args].join(' ')); return { status: 0 }; },
       ask: async () => 'install',
@@ -132,19 +132,19 @@ describe('ensureCredentialStorage', () => {
     const printed = [];
     const base = { status: unavailable, ask: async () => 'plaintext', out: { write: text => printed.push(text) }, env, profilePath };
 
-    const declined = await (await ensure())({ interactive: true }, {}, { ...base, askConfirm: async () => false });
+    const declined = await (await ensure())({ interactive: true }, {}, { interactive: true, ...base, askConfirm: async () => false });
     assert.equal(env.JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE, '1');
     assert.equal(declined.plaintext_allowed, true);
     assert.equal(fs.existsSync(profilePath), false, 'declining must not touch the shell profile');
     assert.ok(printed.join('').includes('export JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE=1'));
 
-    const accepted = await (await ensure())({ interactive: true }, {}, { ...base, askConfirm: async () => true });
+    const accepted = await (await ensure())({ interactive: true }, {}, { interactive: true, ...base, askConfirm: async () => true });
     assert.equal(accepted.plaintext_allowed, true);
     const written = fs.readFileSync(profilePath, 'utf8');
     assert.match(written, /# jsn: plaintext credential storage for this account/);
     assert.match(written, /export JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE=1/);
     // Idempotent: a second run must not append a duplicate block.
-    await (await ensure())({ interactive: true }, {}, { ...base, askConfirm: async () => true });
+    await (await ensure())({ interactive: true }, {}, { interactive: true, ...base, askConfirm: async () => true });
     assert.equal(fs.readFileSync(profilePath, 'utf8').match(/jsn: plaintext/g).length, 1);
     fs.rmSync(dir, { recursive: true, force: true });
   });
