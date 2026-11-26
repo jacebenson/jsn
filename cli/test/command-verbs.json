@@ -244,11 +244,17 @@
     "queue": {
       "why": "list reads one table's newest page and show reads one record; neither aggregates a backlog over a window, so queue names the read that answers how much is stuck and for how long."
     },
+    "retrieve": {
+      "why": "retrieve pulls a completed set from a configured remote instance through the CICD API; import loads XML already on disk and cannot reach the source, while create makes a local capture set."
+    },
     "revert": {
       "why": "records revert puts a record back to a saved sys_update_version through the platform's Revert to this version; update writes a payload the caller supplies, rollback undoes one eval run's own changes, and undelete restores a deleted copy."
     },
     "runs": {
       "why": "import runs lists sys_import_set_run records (TH numbers) with their counts; list already lists import sets, and history reads one record's trail in approvals history rather than a table of transform runs."
+    },
+    "sources": {
+      "why": "sources lists configured Remote Instances (sys_update_set_source); list reads update sets on the target, and those rows cannot identify where a set should be retrieved from."
     },
     "suggest-index": {
       "why": "perf suggest-index asks the platform's IndexSuggestionAPI for a suggestion and reads that record back; create writes a record the caller describes, while here the table and columns are the instance's answer, not caller input."
@@ -262,7 +268,7 @@
   },
   "budgets": {
     "$comment": "Subcommand count per family. A budget is a ratchet, not a ban: when a new command earns its place, raise the number in the same diff and say why in the PR. Adding a family means adding its budget entry.",
-    "total": 463,
+    "total": 465,
     "families": {
       "access-analyzer": 4,
       "acls": 5,
@@ -348,7 +354,7 @@
       "uimacros": 5,
       "uipages": 5,
       "uipolicies": 5,
-      "updatesets": 15,
+      "updatesets": 17,
       "upgrade": 1,
       "userroles": 3,
       "users": 9,

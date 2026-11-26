@@ -436,6 +436,11 @@ jsn --profile target updatesets import transfer.xml --yes
 jsn --profile target updatesets preview "Digital Helpdesk 0.1.77" --yes
 jsn --profile target updatesets problems "Digital Helpdesk 0.1.77"
 jsn --profile target updatesets commit "Digital Helpdesk 0.1.77" --yes
+
+# Or, when a Remote Instance record already exists, retrieve directly:
+jsn --profile target updatesets sources
+jsn --profile target updatesets retrieve <source-set-sys-id> --source prod --yes
+jsn --profile target updatesets commit --ordered <set> <set> --yes
 ```
 
 Export never changes the set's state and keeps raw XML when piped. Import loads a

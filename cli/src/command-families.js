@@ -508,9 +508,10 @@ const deferredFamilies = {
       describe: "Manage update sets. Global + Default mutations require approval (--force only after user approval); create/set remain available to select a dedicated capture set. Scope mismatches warn; completed capture sets block writes.",
     },
     capabilities: {
-      queryTable: argv => argv._?.[1] === "move" ? "sys_update_xml" : "sys_update_set",
-      mutationSubcommands: ["create", "set", "complete", "ignore", "parent", "import", "reopen", "preview", "commit", "move"],
-      mutationContextExemptSubcommands: ["create", "set", "import", "reopen", "preview", "commit", "move"],
+      queryTable: argv => argv._?.[1] === "move" ? "sys_update_xml"
+        : argv._?.[1] === "retrieve" ? "sys_remote_update_set" : "sys_update_set",
+      mutationSubcommands: ["create", "set", "complete", "ignore", "parent", "import", "reopen", "preview", "commit", "move", "retrieve"],
+      mutationContextExemptSubcommands: ["create", "set", "import", "reopen", "preview", "commit", "move", "retrieve"],
       skipContextHeaderSubcommands: ["diff"],
       noImpersonateSubcommands: ["diff"],
       localPreviewSubcommands: ["import"],
