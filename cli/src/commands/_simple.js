@@ -6,6 +6,7 @@ import { withTableAudit } from './table-audit.js';
 import { withPrivilegeRequests } from './privilege-requests.js';
 import { withFixScriptRun } from './fixscript-run.js';
 import { withScheduledJobHealth } from './scheduled-job-health.js';
+import { withEmailExtras } from './email-extra.js';
 // Simple table-based commands — singular names passed for grammar
 // Default columns and aliases match the Go version exactly
 
@@ -140,7 +141,12 @@ export const triggersCmd = (wrap) => buildProfileCommand('triggers', wrap);
 export const assignmentsCmd = (wrap) => buildProfileCommand('assignments', wrap);
 
 // ── Automation: Inbound ──
-export const emailCmd = (wrap) => buildProfileCommand('email', wrap);
+export const emailCmd = (wrap) => withEmailExtras(buildProfileCommand('email', wrap, {
+  extraSubcommands: [
+    { name: 'queue', description: 'Read-only email queue health (sys_email counts, oldest send-ready, switches, accounts)' },
+    { name: 'why', description: 'Read-only explanation of one sys_email (watermark, inbound actions, log evidence)' },
+  ],
+}), wrap);
 
 // ── Automation: Outbound ──
 export const notificationsCmd = (wrap) => buildProfileCommand('notifications', wrap, {

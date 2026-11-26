@@ -243,11 +243,14 @@
     },
     "basic-auth": {
       "why": "users basic-auth gives one enforcement verdict per account the platform recorded using Basic Auth. list returns generic user records, show reads one user, and users roles lists role names, but none of them reports the Basic Auth decision or whether enforcement blocks the account."
+    },
+    "queue": {
+      "why": "list reads one table's newest page and show reads one record; neither aggregates a backlog over a window, so queue names the read that answers how much is stuck and for how long."
     }
   },
   "budgets": {
     "$comment": "Subcommand count per family. A budget is a ratchet, not a ban: when a new command earns its place, raise the number in the same diff and say why in the PR. Adding a family means adding its budget entry.",
-    "total": 451,
+    "total": 453,
     "families": {
       "access-analyzer": 3,
       "acls": 5,
@@ -279,7 +282,7 @@
       "docs": 6,
       "document": 1,
       "domains": 8,
-      "email": 5,
+      "email": 7,
       "eval": 1,
       "flows": 17,
       "forms": 2,
