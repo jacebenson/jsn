@@ -219,11 +219,14 @@
     },
     "revert": {
       "why": "records revert puts a record back to a saved sys_update_version through the platform's Revert to this version; update writes a payload the caller supplies, rollback undoes one eval run's own changes, and undelete restores a deleted copy."
+    },
+    "runs": {
+      "why": "import runs lists sys_import_set_run records (TH numbers) with their counts; list already lists import sets, and history reads one record's trail in approvals history rather than a table of transform runs."
     }
   },
   "budgets": {
     "$comment": "Subcommand count per family. A budget is a ratchet, not a ban: when a new command earns its place, raise the number in the same diff and say why in the PR. Adding a family means adding its budget entry.",
-    "total": 431,
+    "total": 432,
     "families": {
       "access-analyzer": 3,
       "acls": 5,
@@ -263,7 +266,7 @@
       "groupmembers": 3,
       "grouproles": 3,
       "groups": 5,
-      "import": 4,
+      "import": 5,
       "incidents": 5,
       "includes": 5,
       "knowledge": 2,
