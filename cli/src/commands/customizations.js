@@ -1,5 +1,5 @@
 import { customizationsCmdDefinition } from '../command-families.js';
-import { AppError, errUsageHint, errUsage } from '../errors.js';
+import { errUsageHint, errUsage } from '../errors.js';
 import { canUsePicker } from '../helpers.js';
 import { confirm } from '../prompts.js';
 import { assertMutationScope } from '../intended-context.js';
@@ -86,21 +86,21 @@ export function customizationsCmd(wrap, ui = {}) {
         app.ok({ ...result, _formatted: formatReportComparison(result) }, { summary: `Customization comparison: ${result.status}`, breadcrumbs: [listHint, showHint(baseline.run_id), showHint(newer.run_id)] });
       }) })
       .command({ command: 'revert', describe: 'Revert a Store or repository application\'s customised files to their base system versions',
-        builder: b => b.option('app', { type: 'string', demandOption: true, describe: 'Application scope, e.g. sn_hr_core' })
+        // Not --app: cli.js sets argv.app to the App context on every command.
+        builder: b => b.option('scope', { type: 'string', demandOption: true, describe: 'Application scope, e.g. sn_hr_core' })
+          .option('after', { type: 'string', describe: 'Start after this update name, as a preview with more files prints' })
           .option('confirm', { type: 'string', describe: 'Confirmation token from the preview; without it, and without a terminal, only the preview runs' })
-          .epilogue(`Previews by default. Reverts up to 100 customised files a run, each through jsn records revert: newest base system version, readback per file. Files added on the instance are listed and never deleted; applications built on this instance are refused.\nExample: jsn customizations revert --app sn_hr_core, then the same with --confirm <token>`),
+          .epilogue(`Previews by default. Reverts up to 100 customised files a run, each through jsn records revert: newest base system version, readback per file. Files added on the instance are listed and never deleted; applications built on this instance are refused. Without a terminal every run, the preview too, needs --expect-scope (the application's scope) and --expect-update-set.\nExample: jsn customizations revert --scope sn_hr_core --expect-scope sn_hr_core --expect-update-set "<set>", then the same with --confirm <token>`),
         handler: wrap(async (argv, app) => {
           app.requireInstance();
-          // customizations is a no-instance family, so the shared read-only guard skips it.
-          if (app.session?.readOnly === true) throw new AppError('read_only', `Profile "${app.session.profileName}" is read-only. Mutations are blocked.`);
           const { previewAppRevert, applyAppRevert, formatAppRevertPreview, formatAppRevert } = await import('../customizations-revert.js');
-          const preview = await previewAppRevert(app.sdk, { scope: argv.app, instance: app.getEffectiveInstance() });
+          const preview = await previewAppRevert(app.sdk, { scope: argv.scope, after: argv.after, instance: app.getEffectiveInstance() });
           assertMutationScope(app.mutationContext, preview.application.sys_id, 'Application');
           const shown = { ...preview, _formatted: formatAppRevertPreview(preview) };
           if (argv.confirm !== undefined) {
-            if (argv.confirm !== preview.confirmation_token) throw errUsageHint('The customised files changed since the preview, or the token does not match; nothing was reverted.', `Review a new preview: jsn customizations revert --app ${argv.app}`);
+            if (argv.confirm !== preview.confirmation_token) throw errUsageHint('The customised files changed since the preview, or the token does not match; nothing was reverted.', `Review a new preview: jsn customizations revert --scope ${argv.scope}${argv.after === undefined ? '' : ` --after ${argv.after}`}`);
           } else if (!preview.plans.length || !prompts.canUsePicker(app, argv)) {
-            app.ok(shown, { summary: preview.plans.length ? `Preview: ${preview.plans.length} file(s) to revert; nothing reverted. Rerun with --confirm ${preview.confirmation_token}` : 'Nothing to revert' });
+            app.ok(shown, { summary: preview.plans.length ? `Preview: ${preview.plans.length} file(s) to revert; nothing reverted. Rerun with --confirm ${preview.confirmation_token}` : preview.more ? `Nothing to revert in this batch; more customised files remain: rerun with --after ${preview.next_after}` : 'Nothing to revert' });
             return;
           } else {
             app.ok(shown, { summary: 'Review the files before confirming' });
@@ -112,7 +112,7 @@ export function customizationsCmd(wrap, ui = {}) {
           let result;
           try { result = await applyAppRevert(app.sdk, preview); } finally { for (const table of new Set(preview.plans.map(plan => plan.table))) invalidateAfterMutation(app, table); }
           Object.defineProperty(result, '_formatted', { value: formatAppRevert(result), enumerable: false });
-          app.ok(result, { summary: `${result.success_count} reverted; ${result.failure_count} failed${result.more ? '; more customised files remain' : ''}` });
+          app.ok(result, { summary: `${result.success_count} reverted; ${result.failure_count} failed${result.more ? `; more customised files remain: rerun with --after ${result.next_after}` : ''}` });
           if (result.failure_count) process.exitCode = 1;
         }),
       })

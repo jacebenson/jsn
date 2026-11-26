@@ -231,8 +231,8 @@ trusted baseline from that history alone.
 ### Reverting an application's customised files
 
 ```sh
-jsn customizations revert --app sn_hr_core --expect-scope sn_hr_core --expect-update-set "<set>"
-jsn customizations revert --app sn_hr_core --expect-scope sn_hr_core --expect-update-set "<set>" --confirm <token>
+jsn customizations revert --scope sn_hr_core --expect-scope sn_hr_core --expect-update-set "<set>"
+jsn customizations revert --scope sn_hr_core --expect-scope sn_hr_core --expect-update-set "<set>" --confirm <token>
 ```
 
 `revert` is the one customizations subcommand that writes. It puts the
@@ -245,8 +245,10 @@ readback per file.
   the platform's mark for a file an upgrade skips. Each update name is resolved
   through `sys_metadata` and must name exactly one record, still in the
   application's scope.
-- A run takes the first 100 files by update name; the preview says when more
-  remain, and a second run after the first takes the rest.
+- A run takes the first 100 files by update name. When more remain, the preview
+  prints the last name of the batch; `--after <update name>` starts the next run
+  there. Files a run leaves alone keep their mark, so a run without `--after`
+  starts at the top again.
 - Files added on the instance have no base version. They are listed and never
   deleted. Files already at their base are listed too.
 - Applications built on the instance (`sys_app`) and `global` are refused.

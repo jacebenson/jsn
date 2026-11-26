@@ -72,8 +72,8 @@ confirmation that names the fields it changes, then reads back the new current
 version and the live record. Records created on the instance have no base.
 
 ```sh
-jsn customizations revert --app sn_hr_core
-jsn customizations revert --app sn_hr_core --confirm <token>
+jsn customizations revert --scope sn_hr_core
+jsn customizations revert --scope sn_hr_core --confirm <token>
 ```
 
 `customizations revert` does the same for every customised file of a Store or

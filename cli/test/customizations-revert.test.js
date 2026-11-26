@@ -1,6 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { customizationsCmd } from '../src/commands/customizations.js';
 import { isMutationCommand } from '../src/mutations.js';
 
@@ -31,7 +35,7 @@ function filter(rows, query) {
 }
 
 function fixture({ apps = [{ sys_id: APP, scope: 'sn_demo', name: 'Demo', sys_class_name: 'sys_store_app' }], updates = [si(1), si(1), si(2), si(3), si(4), si(5), si(6)].map(update),
-  metadata = [meta(1), meta(2), meta(3), meta(4), meta(6)], fail = [], readOnly = false, ui = {} } = {}) {
+  metadata = [meta(1), meta(2), meta(3), meta(4), meta(6)], fail = [], ui = {} } = {}) {
   const commands = [];
   const builder = { command(c) { commands.push(c); return this; }, epilogue() { return this; } };
   customizationsCmd(fn => fn, { canUsePicker: () => false, confirm: async () => { throw new Error('unexpected prompt'); }, ...ui }).builder(builder);
@@ -45,14 +49,14 @@ function fixture({ apps = [{ sys_id: APP, scope: 'sn_demo', name: 'Demo', sys_cl
     const query = params.get('sysparm_query');
     reads.push({ table, query, fields: params.get('sysparm_fields'), limit: params.get('sysparm_limit') });
     if (table === 'sys_scope') return apps;
-    if (table === 'sys_update_xml') return updates.slice(0, Number(params.get('sysparm_limit')));
+    if (table === 'sys_update_xml') { const after = query.match(/\^name>([^^]+)/)?.[1]; return updates.filter(row => after === undefined || row.name > after).slice(0, Number(params.get('sysparm_limit'))); }
     if (table === 'sys_metadata') return metadata.filter(row => query.slice(17).split(',').includes(row.sys_update_name));
     if (table === 'sys_update_version') return filter(versions, query).slice(0, Number(params.get('sysparm_limit')));
     const ids = query.replace(/^sys_id(IN|=)/, '').split(',');
     return ids.filter(sysId => live[sysId]).map(sysId => ({ ...live[sysId], sys_update_name: `sys_script_include_${sysId}`, sys_class_name: 'sys_script_include' }));
   };
   const app = {
-    config: {}, session: { readOnly, profileName: 'p' }, requireInstance() {}, getEffectiveInstance: () => 'https://example.service-now.com',
+    config: {}, session: { profileName: 'p' }, requireInstance() {}, getEffectiveInstance: () => 'https://example.service-now.com',
     sdk: {
       list: read, listStrict: read,
       executeScript: async script => {
@@ -70,18 +74,20 @@ function fixture({ apps = [{ sys_id: APP, scope: 'sn_demo', name: 'Demo', sys_cl
     ok(value, opts) { outputs.push({ value, opts }); },
   };
   return { app, reads, scripts, outputs, get data() { return outputs.at(-1)?.value; },
-    run: (args = {}) => handler({ _: ['customizations', 'revert'], app: 'sn_demo', ...args }, app) };
+    run: (args = {}) => handler({ _: ['customizations', 'revert'], scope: 'sn_demo', ...args }, app) };
 }
 
-test('customizations revert refuses a malformed scope or a read-only profile before any request', async () => {
-  for (const app of ['', 'global', 'x y', "sn'); gs.print('x", 'Sn_Demo']) {
+test('customizations revert refuses a malformed scope or cursor before any request', async () => {
+  for (const scope of ['', 'global', 'x y', "sn'); gs.print('x", 'Sn_Demo']) {
     const f = fixture();
-    await assert.rejects(f.run({ app }), /--app must be/);
+    await assert.rejects(f.run({ scope }), /--scope must be/);
     assert.deepEqual([f.reads, f.scripts], [[], []]);
   }
-  const f = fixture({ readOnly: true });
-  await assert.rejects(f.run(), /read-only/);
-  assert.deepEqual([f.reads, f.scripts], [[], []]);
+  for (const after of ['', 'a b', 'x^ORname!=y']) {
+    const f = fixture();
+    await assert.rejects(f.run({ after }), /--after must be an update name/);
+    assert.deepEqual([f.reads, f.scripts], [[], []]);
+  }
 });
 
 test('customizations revert refuses an application built on the instance, or a scope no single application has', async () => {
@@ -192,8 +198,14 @@ test('customizations revert takes 100 files a run and says more remain', async (
   assert.deepEqual(metadata.map(r => r.limit), ['50', '50', '50', '50']);
   assert.deepEqual(metadata.flatMap(r => r.query.slice(17).split(',')), names.slice(0, 100));
   assert.equal(f.data.refused.length, 100);
-  assert.equal(f.data.more, true);
-  assert.match(f.data._formatted, /More than 100 customised files/);
+  assert.deepEqual([f.data.more, f.data.next_after], [true, names[99]]);
+  assert.match(f.data._formatted, new RegExp(`run again with --after ${names[99]} for the rest\\.\\nNothing to revert in this batch\\.`));
+  assert.equal(f.outputs.at(-1).opts.summary, `Nothing to revert in this batch; more customised files remain: rerun with --after ${names[99]}`);
+  // Files a run leaves unreverted keep their mark, so only the cursor moves the next run on.
+  const next = fixture({ updates: names.map(update), metadata: [] });
+  await next.run({ after: names[99] });
+  assert.equal(next.reads.find(r => r.table === 'sys_update_xml').query, `application=${APP}^replace_on_upgrade=false^name>${names[99]}^ORDERBYname`);
+  assert.deepEqual([next.data.refused.map(row => row.update_name), next.data.more, next.data.next_after], [[names[100]], false, null]);
 });
 
 test('customizations revert is registered as a mutation and its help lists its flags', () => {
@@ -204,6 +216,41 @@ test('customizations revert is registered as a mutation and its help lists its f
     env: { ...process.env, JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1' },
   });
   assert.equal(result.status, 0, result.stderr);
-  for (const flag of ['--app', '--confirm']) assert.ok(result.stdout.includes(flag));
+  for (const flag of ['--scope', '--after', '--confirm', '--expect-scope', '--expect-update-set']) assert.ok(result.stdout.includes(flag), flag);
   assert.match(result.stdout, /never deleted/);
+});
+
+// Through bin/jsn.js, so the shared middleware runs: it sets argv.app to the App context, and it holds the read-only guard.
+test('customizations revert through the CLI takes --scope and refuses a read-only profile before any request', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'jsn-customizations-revert-'));
+  const src = file => JSON.stringify(new URL(`../src/${file}`, import.meta.url).href);
+  writeFileSync(path.join(dir, 'fixture.mjs'), `
+import { mock } from 'node:test';
+import * as config from ${src('config.js')};
+import * as sdk from ${src('sdk.js')};
+import * as context from ${src('mutation-context.js')};
+mock.module(${src('config.js')}, { namedExports: { ...config, loadConfig: () => ({ profiles: { fixture: { instance_url: 'https://fixture.invalid', username: 'test', auth_method: 'basic', read_only: process.env.FIXTURE_READONLY === '1' } }, activeProfile: 'fixture', defaultProfile: 'fixture' }) } });
+class SDKClient {
+  async listStrict(table) {
+    if (process.env.FIXTURE_READONLY === '1') throw new Error('a read-only run made a request');
+    if (table === 'sys_scope') return [];
+    throw new Error('unexpected read of ' + table);
+  }
+  async list(table, params) { return this.listStrict(table, params); }
+  async request() { throw new Error('unexpected request'); }
+}
+mock.module(${src('sdk.js')}, { namedExports: { ...sdk, SDKClient } });
+// The capture guard has its own suites; this test is about what reaches the handler.
+mock.module(${src('mutation-context.js')}, { namedExports: { ...context, guardMutationContext: async () => null } });
+`);
+  const run = env => spawnSync(process.execPath, ['--experimental-test-module-mocks', '--import', pathToFileURL(path.join(dir, 'fixture.mjs')).href, fileURLToPath(new URL('../bin/jsn.js', import.meta.url)), 'customizations', 'revert', '--scope', 'sn_demo', '--json'], {
+    cwd: dir, encoding: 'utf8', env: { ...process.env, XDG_CONFIG_HOME: dir, JSN_NO_HEADER: '1', JSN_NO_PROMPTS: '1', JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', ...env },
+  });
+  try {
+    const reached = run({});
+    assert.equal(JSON.parse(reached.stdout).error, 'No application has the scope sn_demo.', reached.stdout + reached.stderr);
+    const readOnly = run({ FIXTURE_READONLY: '1' });
+    assert.equal(readOnly.status, 1, readOnly.stdout + readOnly.stderr);
+    assert.equal(JSON.parse(readOnly.stdout).code, 'read_only');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
