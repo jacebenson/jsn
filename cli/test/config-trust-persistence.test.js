@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { loadConfig, saveConfig, saveLocalConfig, setActiveProfile } from '../src/config.js';
 import { loginProfile } from '../src/commands/auth.js';
 import { configureGlobalDefaults } from '../src/setup-preferences.js';
-import { credentialFixtureArgs, fakeKeyringEnv } from './helpers/fake-keyring.js';
+import { credentialFixtureArgs } from './helpers/fake-keyring.js';
 
 const exec = promisify(execFile);
 const entry = fileURLToPath(new URL('../bin/jsn.js', import.meta.url));
@@ -137,12 +137,11 @@ test('trusted switch, modification, deletion and local-only saves remain availab
 
 test('explicit login approves only the authored profile, never unrelated project data', async () => {
   await isolated({ default_profile: 'injected', profiles: { primary: { instance_url: 'https://approved.invalid', domain: 'project-domain' }, injected: { instance_url: 'https://unrelated.invalid' } } }, async f => {
-    // loginProfile preflights credential storage before authenticating, so this
-    // in-process case runs against the task-owned keyring like the subprocess
-    // cases do. isolated() owns the environment, so set PATH inside it.
-    const keyring = fakeKeyringEnv(fs.mkdtempSync(path.join(temporaryBase, 'jsn-trust-keyring-')));
-    const savedPath = process.env.PATH;
-    process.env.PATH = keyring.PATH;
+    // loginProfile preflights credential storage before authenticating. This
+    // in-process case has no task-owned keyring on either platform, so it
+    // declares the documented plaintext opt-in instead of probing for one.
+    const savedPlaintext = process.env.JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE;
+    process.env.JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE = '1';
     try {
     const cfg = loadConfig();
     const sdk = { getCurrentUser: async () => ({ user_name: 'synthetic-user' }), get: async () => ({ result: [] }) };
@@ -161,6 +160,9 @@ test('explicit login approves only the authored profile, never unrelated project
     assert.deepEqual(saved.profiles.other, f.global.profiles.other);
     assert.equal(saved.default_profile, 'primary');
     assert.equal(saved.instance_url, 'https://approved.invalid');
-    } finally { process.env.PATH = savedPath; }
+    } finally {
+      if (savedPlaintext === undefined) delete process.env.JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE;
+      else process.env.JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE = savedPlaintext;
+    }
   });
 });
