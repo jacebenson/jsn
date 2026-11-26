@@ -100,6 +100,7 @@ const ACCESS_COMMANDS = [
   { name: 'b4rules', alias: 'b4r', desc: 'Before-query business rules (see also Automation)' },
   { name: 'roles', alias: 'role', desc: 'Roles' },
   { name: 'privileges', alias: 'priv', desc: 'Scope privileges' },
+  { name: 'usercriteria', alias: 'uc', desc: 'User criteria (who can see catalog items)' },
   { name: 'aliases', alias: 'als', desc: 'Connection & credential aliases' },
   { name: 'groups', alias: 'group', desc: 'Manage groups' },
   { name: 'groupmembers', alias: 'gm', desc: 'Group memberships' },

@@ -1,22 +1,22 @@
 {
-  "commit": "combined re-record after #681/#673 on top of main",
-  "note": "Regenerated from the combined CLI after landing this batch; one recording covers what each PR recorded on its own. json entry left from the previous combined recording - only help is asserted.",
+  "commit": "16b1fac5 + usercriteria registration",
+  "note": "Help, quiet, csv, markdown and get regenerated from actual CLI after usercriteria registration in the ACCESS group; the help byte cap rose by the 13 bytes this needed (1976 + 949). The json entry is left from the previous combined recording - only help is asserted.",
   "command": "piped (non-TTY) invocation from cli/, JSN_NO_VERSION_CHECK=1 JSN_NO_SKILL_CHECK=1, throwaway XDG_CONFIG_HOME",
   "bytes": {
-    "help": 2912,
+    "help": 2925,
     "json": 80647,
-    "quiet": 2912,
-    "csv": 2912,
-    "markdown": 2912,
-    "get": 2912
+    "quiet": 2925,
+    "csv": 2925,
+    "markdown": 2925,
+    "get": 2925
   },
   "sha256": {
-    "help": "957167d471fff56896a38d4420787b2fe7165499c56ac399798fb067c1e9d091",
+    "help": "9b37abc48f9363233849cb44176b095a3d39ef0b280f0dcbf79f02b1a6a1808f",
     "json": "3f25ecd8bb10c9bebb0e80e9a9456bdabe66e15495ae8e9d1e3d10a2c38f5c92",
-    "quiet": "957167d471fff56896a38d4420787b2fe7165499c56ac399798fb067c1e9d091",
-    "csv": "957167d471fff56896a38d4420787b2fe7165499c56ac399798fb067c1e9d091",
-    "markdown": "957167d471fff56896a38d4420787b2fe7165499c56ac399798fb067c1e9d091",
-    "get": "957167d471fff56896a38d4420787b2fe7165499c56ac399798fb067c1e9d091"
+    "quiet": "9b37abc48f9363233849cb44176b095a3d39ef0b280f0dcbf79f02b1a6a1808f",
+    "csv": "9b37abc48f9363233849cb44176b095a3d39ef0b280f0dcbf79f02b1a6a1808f",
+    "markdown": "9b37abc48f9363233849cb44176b095a3d39ef0b280f0dcbf79f02b1a6a1808f",
+    "get": "9b37abc48f9363233849cb44176b095a3d39ef0b280f0dcbf79f02b1a6a1808f"
   },
   "json_command_count": 92
 }

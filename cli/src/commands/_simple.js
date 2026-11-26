@@ -109,6 +109,7 @@ export const appMenuCmd = (wrap) => buildProfileCommand('appmenu', wrap);
 // Commands with full CRUD
 export const aclsCmd = (wrap) => buildProfileCommand('acls', wrap);
 export const rolesCmd = (wrap) => buildProfileCommand('roles', wrap);
+export const usercriteriaCmd = (wrap) => buildProfileCommand('usercriteria', wrap);
 export const propertiesCmd = (wrap) => buildProfileCommand('properties', wrap);
 
 // New commands for scoped-app tables

@@ -271,13 +271,16 @@
     "userroles": {
       "why": "userroles writes direct sys_user_has_role rows for chosen users; users roles only reads them, and grouproles grants through a group, which reaches every member rather than one user."
     },
+    "usercriteria": {
+      "why": "usercriteria names user_criteria the way roles names sys_user_role; acls and access-analyzer cover table, record and field access, never the criteria that decide who sees a catalog item."
+    },
     "why": {
       "why": "why explains the per-record cause for one artifact - why a scheduled job did not run, why an email was ignored, why a flow, field or column did not apply, why a notification was not sent. show prints the configuration record, status reports across records without testing one, and inspect reads history rather than explaining cause."
     }
   },
   "budgets": {
     "$comment": "Subcommand count per family. A budget is a ratchet, not a ban: when a new command earns its place, raise the number in the same diff and say why in the PR. Adding a family means adding its budget entry.",
-    "total": 471,
+    "total": 476,
     "families": {
       "access-analyzer": 4,
       "acls": 5,
@@ -366,6 +369,7 @@
       "uipolicies": 5,
       "updatesets": 17,
       "upgrade": 1,
+      "usercriteria": 5,
       "userroles": 3,
       "users": 9,
       "uxapplicability": 2,
