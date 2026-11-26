@@ -45,6 +45,23 @@ to each role: a direct grant, a chain of contained roles, or a group. Groups
 appear by the name the platform prints; the API returns no sys_ids. A missing,
 denied or malformed reply is an error, never an empty answer.
 
+## Blocked cross-scope calls
+
+```sh
+jsn privileges requests                                  # requested, denied, invalidated
+jsn privileges requests --target-scope x_acme_core --status all
+jsn privileges requests --source-scope "Payroll Sync" --json
+```
+
+A call that Restricted Caller Access blocks files a `sys_restricted_caller_access`
+row, which stays at Requested until the target application's admin allows it.
+`privileges requests` lists those rows newest first, with the calling scope and
+script, the target and the status (`--limit` 1–1000, default 20, with
+`pagination.has_more`). They are separate from the `sys_scope_privilege` rows
+that `privileges list` reads, so allowing a privilege leaves the request
+blocked. Scopes match by scope, name or sys_id and filter on raw sys_ids.
+ACLs can hide rows, so an empty list means no readable rows, not none.
+
 ## Record version history
 
 ```sh
