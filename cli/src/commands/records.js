@@ -855,14 +855,14 @@ export function recordsCmd(wrap) {
           command: 'versions <table> <identifier>',
           describe: 'List a record\'s update versions and compare one to the current version (read-only)',
           discoveryTasks: [{
-            phrases: ['version history', 'record versions', 'compare to current', 'which update set captured a record', 'show latest update'],
-            args: ['--json'], description: 'List sys_update_version history and the latest captured update for one record',
+            phrases: ['version history', 'record versions', 'compare to current', 'which update set captured a record', 'every update set a record is in', 'show latest update'],
+            args: ['--json'], description: 'List sys_update_version history and every update set capture for one record',
           }],
           builder: (y) => y
             .positional('table', { describe: 'Table name (e.g. sys_script_include)', type: 'string' })
             .positional('identifier', { describe: 'Record sys_id, or the value of --identifier-field', type: 'string' })
             .option('identifier-field', { type: 'string', describe: 'Exact identifier field (default sys_id), e.g. name' })
-            .option('limit', { type: 'number', default: 20, describe: 'Max versions, newest first (1-200)' })
+            .option('limit', { type: 'number', default: 20, describe: 'Max versions, and max captured updates, newest first (1-200)' })
             .option('diff', { type: 'number', describe: 'Compare version N (1 = newest) to the current version' })
             .epilogue('Versions come from sys_update_version by the record\'s sys_update_name; current means the version in state current, not the live record.\nExample: jsn records versions sys_script_include MyUtil --identifier-field name --diff 2'),
           handler: wrap(async (argv, app) => {
@@ -949,6 +949,33 @@ export function recordsCmd(wrap) {
             const data = await recordHistory(app.sdk, { table: argv.table, identifier: argv.identifier, identifierField: argv.identifierField, field: argv.field, since: argv.since, limit: argv.limit });
             Object.defineProperty(data, '_formatted', { value: formatHistory(data), enumerable: false });
             app.ok(data, { summary: data.count ? `${data.count} change(s) to ${data.record.table} ${data.record.sys_id}${data.pagination.has_more ? '; more exist' : ''}` : data.notes[0] });
+          }),
+        })
+        .command({
+          command: 'find <sys_id>',
+          describe: 'Say which table holds a bare sys_id',
+          discoveryTasks: [{
+            phrases: ['which table is this sys_id', 'find a sys_id', 'what record is this sys_id', 'look up a sys_id', 'sys_id lookup'],
+            args: ['--json'], description: 'Find the table and record a sys_id belongs to',
+          }],
+          builder: (y) => y
+            .positional('sys_id', { describe: 'The 32-character sys_id', type: 'string' })
+            .option('max-tables', { type: 'number', default: 10000, describe: 'Most base tables the background scripts query (1-20000)' })
+            .option('time-limit', { type: 'number', default: 120, describe: 'Seconds the background scripts may search, in slices of up to 20 (1-600)' })
+            .epilogue('Tries sys_metadata and task through the Table API, then background scripts of up to 20 seconds each query the base tables that have a sys_id field, in name order (children included), skipping remote and virtual tables. It writes no records of its own (the instance logs each script in its execution history), but the scripts run server-side code as jsn eval does, so read-only profiles refuse it as they refuse eval, and it needs a user who may run background scripts. A limit reached is reported as not found within the bound, and a miss exits 1.\nExample: jsn records find 0123456789abcdef0123456789abcdef --get data.table'),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const { findRecord, formatFind } = await import('../records/find.js');
+            const data = await findRecord(app.sdk, { sysId: argv.sys_id, maxTables: argv.maxTables, timeLimit: argv.timeLimit });
+            Object.defineProperty(data, '_formatted', { value: formatFind(data), enumerable: false });
+            app.ok(data, {
+              summary: data.found ? `${data.sys_id} is a ${data.table} record`
+                : data.search.complete ? `Not found in sys_metadata, task or the ${data.search.tables_tried} base tables searched`
+                  : data.search.stopped_by ? `Not found within the bound: ${data.search.tables_tried} of ${data.search.base_tables} base tables searched`
+                    : `Not found, but ${data.search.failed_tables} table(s) could not be queried`,
+              breadcrumbs: data.found ? [{ action: 'show', cmd: `jsn records get --table ${data.table} --sys-id ${data.sys_id}`, description: `Show the ${data.table} record` }] : [],
+            });
+            if (!data.found) process.exitCode = 1;
           }),
         })
 

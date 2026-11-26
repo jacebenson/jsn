@@ -228,6 +228,42 @@ explains that the `Skipped` disposition preserves customizations. Other skip
 reasons are not treated as equivalent evidence. This command cannot establish a
 trusted baseline from that history alone.
 
+### Reverting an application's customised files
+
+```sh
+jsn customizations revert --scope sn_hr_core --expect-scope global --expect-update-set "<set>"
+jsn customizations revert --scope sn_hr_core --expect-scope global --expect-update-set "<set>" --confirm <token>
+```
+
+`revert` is the one customizations subcommand that writes. It puts the
+customised files of an application installed from the Store or a repository
+back to their newest base system versions, one file at a time through
+[`jsn records revert`](records.md#reverting-a-record), with the same script and
+readback per file.
+
+- A customised file is one whose `sys_update_xml` has `replace_on_upgrade=false`,
+  the platform's mark for a file an upgrade skips. Each update name is resolved
+  through `sys_metadata` and must name exactly one record, still in the
+  application's scope.
+- A run takes the first 100 files by update name. When more remain, the preview
+  prints the last name of the batch; `--after <update name>` starts the next run
+  there. Files a run leaves alone keep their mark, so a run without `--after`
+  starts at the top again.
+- Files added on the instance have no base version. They are listed and never
+  deleted. Files already at their base are listed too.
+- Applications built on the instance (`sys_app`) and `global` are refused.
+- It previews by default and writes nothing. The SHA-256 token covers the
+  instance, the application and each file's current and target version, so a
+  file that changes after the preview rejects the old token. A terminal asks
+  one default-No confirmation instead. `--force` does not waive either.
+- It is a mutation: read-only profiles refuse it, and noninteractive runs,
+  previews included, need `--expect-scope` and `--expect-update-set` naming the
+  current selection. That selection must be Global: each revert runs as a
+  global background script, which the platform captures in the selected update
+  set, so the application itself is not selected.
+- A file that fails is reported with its error and the rest carry on; any
+  failure exits nonzero, never with a success summary.
+
 The verified provider join is `sys_upgrade_history_log.file_name` to
 `sys_metadata.sys_update_name`, not the log's nonexistent `name` field. Capture
 uses raw values from `sysparm_display_value=all`: disposition `4` or `104`
@@ -283,6 +319,9 @@ jsn workflows show "Incident approval"          # Versions, activities, transiti
 jsn rules list --query "collection=incident"
 jsn tables audit incident --field work_notes   # Audited or not, and why (read-only)
 jsn tables audit exclude x_case priority       # Preview; --yes writes no_audit and re-reads the status
+jsn restmessage logs "Payroll API" --status 5xx  # Recent outbound calls, newest first; credentials redacted
+jsn scheduledjobs health                       # Overdue, erroring and stuck triggers (read-only)
+jsn scheduledjobs why "Nightly sync"           # Why one job did not run (read-only)
 jsn updatesets set "My Feature"
 
 # Generic table access
@@ -302,6 +341,7 @@ jsn columns show incident.priority                                            # 
 jsn import load u_staging --file rows.csv                                   # preview: checks columns and transform maps, sends nothing
 jsn import load u_staging --file rows.csv --yes                             # one row per request; prints inserted/updated/ignored/skipped/error
 jsn import transform ISET0010001 --yes                                      # rerun the maps on a set; reports each row as read back
+jsn import runs ISET0010001                                                 # transform history, newest first, and the newest run's error rows (read-only)
 
 # Attachment transfers (standalone, also discoverable via jsn attachments --help)
 jsn attachments list --sys-id <record-id> --json
@@ -342,6 +382,10 @@ jsn eval --sandbox --script "new GlideRecord('incident').insert()"   # refused: 
 # then --yes (admin). Records changed by anything else since are left alone.
 jsn eval rollback <execution>
 jsn eval rollback <execution> --yes
+
+# Run a stored fix script now, in its own scope, through the same path: preview
+# first, then --yes. --timeout and Ctrl-C cancel it as they do for jsn eval.
+jsn fixscripts run "Lower incident impact" --expect-scope global --expect-update-set "Data fixes"
 
 # Now GraphQL (documents may contain mutations; read-only profiles are blocked)
 jsn graphql --query '{ GlideRecord_Query { incident(pagination: {limit: 2}) { _results { number { value } } } } }'
@@ -632,13 +676,14 @@ Run `jsn` for the full grouped list. Commands are organized by ServiceNow domain
 
 **Upgrade review** — [`skipped-updates`](safety.md#skipped-update-review) discovers existing unresolved skips, reviews current/base field changes and known dependencies, and processes only explicitly selected actions after an exact batch preview and one confirmation.
 
-**Access** — `acls`, `roles`, `scopes`, `properties`, `privileges`
+**Access** — `acls`, `roles`, `scopes`, `properties`, `privileges`, `userroles` (list/add/remove direct grants)
+**Access** — `acls`, `roles`, `scopes`, `properties`, `privileges` (and `privileges requests`)
 
 **User Experience** — `forms`, `lists`, `clientscripts`, `uipolicies`, `uiactions`
 
-**Data** — `records` (list/get/create/update/delete/count/bulk), `attachments` (list/download/upload), `diff record` (cross-profile read-only comparison), `tables`, `columns`, `includes`, `import`, `logs` (list/show/follow), `snippets` (save/run), `users` (list/show/roles), `groups`
+**Data** — `records` (list/get/create/update/delete/count/bulk), `attachments` (list/download/upload), `diff record` (cross-profile read-only comparison), `tables`, `columns`, `includes`, `import`, `logs` (list/show/follow), `snippets` (save/run), `users` (list/show/roles/access/unlock), `groups`
 **Data** — `records` (list/get/create/update/delete/count/bulk), `attachments` (list/download/upload), `diff record` (cross-profile read-only comparison), `tables`, `columns`, `includes`, `import` (list/show/load), `logs` (list/show/follow), `snippets` (save/run), `users`, `groups`
-**Data** — `records` (list/get/create/update/delete/count/bulk), `attachments` (list/download/upload), `diff record` (cross-profile read-only comparison), `tables`, `columns`, `includes`, `import` (list/show/load/transform), `logs` (list/show/follow), `snippets` (save/run), `users`, `groups`
+**Data** — `records` (list/get/create/update/delete/count/bulk), `attachments` (list/download/upload), `diff record` (cross-profile read-only comparison), `tables`, `columns`, `includes`, `import` (list/show/load/transform/runs), `logs` (list/show/follow), `snippets` (save/run), `users`, `groups`
 
 **Platform** — `platform health` (cluster records) and `platform stats` (bounded, read-only `/xmlstats.do` summary; allowlisted metrics only)
 

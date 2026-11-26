@@ -217,6 +217,49 @@ coverage lives in
 `cli/test/records-watch.test.js`; the opt-in live harness is
 `cli/test/amb-live.test.js`.
 
+## Finding which table holds a sys_id
+
+`jsn records find <sys_id>` says which table a bare sys_id belongs to, with the
+record's display value. It writes no records of its own.
+
+```bash
+jsn records find 0123456789abcdef0123456789abcdef
+jsn records find 0123456789abcdef0123456789abcdef --get data.table
+jsn records find 0123456789abcdef0123456789abcdef --time-limit 300 --json
+```
+
+- The argument must be 32 hexadecimal characters; anything else is refused
+  before any request.
+- `sys_metadata` and `task` are tried first through the Table API, and each
+  answers with the row's real `sys_class_name`, so a script include comes back
+  as `sys_script_include` and an incident as `incident`.
+- Otherwise background scripts query every base table (no `super_class`) whose
+  dictionary has a `sys_id` field, in name order. A query on a parent returns
+  its children's rows, so the child class is reported. Tables keyed on another
+  field (on a PDI, the `ts_*` text index tables and some Performance Analytics
+  internals) cannot hold a sys_id and are not counted. Remote (scripted)
+  tables, tables with a provider class and `v_` virtual tables are skipped and
+  counted. Only a row whose own sys_id matches counts.
+- Each script runs for at most 20 seconds and the next resumes after the last
+  table it read, because a whole scan in one script outlasts the transaction.
+  The search stops at `--max-tables` (default 10000) or `--time-limit` seconds
+  (default 120, at most 600). The client waits 30 seconds past a slice and
+  cancels its transaction if it is still running.
+- A limit reached is "not found within the bound", never "no such record". A
+  table whose query threw makes the search incomplete and is named. A miss
+  exits 1 with the search counts in `data.search`. A failed script, or output
+  the CLI cannot parse, is an error.
+- The scripts run through `jsn eval`'s path, so they need a user who may run
+  background scripts. They write no records of their own (the instance logs
+  each script in its execution history) and record no rollback, but they run
+  server-side code as `jsn eval` does, so a read-only profile refuses the
+  command before any request, as it refuses `eval`. Nothing it does lands in an
+  update set, so it needs no `--expect-scope` or `--expect-update-set`.
+
+It does not search database views, remote tables or virtual tables. The scripts
+use GlideRecord, which ignores ACLs, so it can name the table of a record the
+user could not read through the Table API.
+
 ## Version history
 
 `jsn records versions` lists the saved versions of one record and compares an
@@ -241,6 +284,10 @@ jsn records versions sys_script_include MyUtil --identifier-field name --diff 2 
   an update set (a retrieved update not yet committed is left out), with its
   update set as a raw sys_id and label. A version's `source` is the set at the
   time; the two differ after an update is moved.
+- `updates` lists every such capture, newest first, so a record captured in
+  several sets shows each set with its state (`update_set_state`). It reads up
+  to `--limit` rows with one-row lookahead for `updates_pagination.has_more`;
+  `latest_update` is its first row.
 - `--diff N` reads two payloads, version N and the version in state current,
   and compares them in the CLI. Every element with an `action` attribute is a
   record, keyed by table and sys_id, so composite payloads (a list layout's

@@ -50,9 +50,9 @@ export const subscriptionsCmd = wrap => ({ ...subscriptionsCmdDefinition, load: 
 
 export const customizationsCmdDefinition = {
   command: 'customizations [subcommand]',
-  describe: 'Capture and compare read-only customization evidence locally',
+  describe: 'Capture and compare customization evidence locally, or revert an application\'s customised files',
 };
-declareCapabilities('customizations', { noInstance: true, skipDailyChecks: true, mutationSubcommands: [] });
+declareCapabilities('customizations', { noInstance: true, skipDailyChecks: true, mutationSubcommands: ['revert'] });
 export const customizationsCmd = wrap => ({ ...customizationsCmdDefinition, load: () => require('./commands/customizations.js').customizationsCmd(wrap) });
 
 export const skippedUpdatesCmdDefinition = {
@@ -128,6 +128,7 @@ const deferredFamilies = {
   uipolicies: profileFamily("uipolicies", "./commands/_simple.js", "uipoliciesCmd"),
   scriptactions: profileFamily("scriptactions", "./commands/_simple.js", "scriptactionsCmd"),
   scheduledjobs: profileFamily("scheduledjobs", "./commands/_simple.js", "scheduledjobsCmd"),
+  fixscripts: profileFamily("fixscripts", "./commands/_simple.js", "fixscriptsCmd", { mutationSubcommands: ["run"] }),
   asyncrules: profileFamily("asyncrules", "./commands/_simple.js", "asyncrulesCmd"),
   triggers: profileFamily("triggers", "./commands/_simple.js", "triggersCmd"),
   assignments: profileFamily("assignments", "./commands/_simple.js", "assignmentsCmd"),
@@ -184,8 +185,8 @@ const deferredFamilies = {
       queryTable: argv => argv._?.[1] === "deleted" ? "sys_audit_delete" : argv.table,
       mutationContext: "table",
       filteredMutationSubcommands: ["delete-many", "bulk"],
-      mutationSubcommands: ["create", "update", "delete", "delete-many", "bulk", "undelete", "revert", "import"],
-      mutationContextExemptSubcommands: ["import"],
+      mutationSubcommands: ["create", "update", "delete", "delete-many", "bulk", "undelete", "revert", "import", "find"],
+      mutationContextExemptSubcommands: ["import", "find"],
       localPreviewSubcommands: ["import"],
       noImpersonateSubcommands: ["watch"],
     },
@@ -238,7 +239,7 @@ const deferredFamilies = {
     capabilities: {
       queryTable: "sys_user",
       mutationContext: "operational",
-      mutationSubcommands: ["create", "update", "delete"],
+      mutationSubcommands: ["create", "update", "delete", "unlock"],
     },
     module: "./commands/users.js", exportName: "usersCmd",
   },
@@ -280,6 +281,19 @@ const deferredFamilies = {
       mutationSubcommands: ["add", "remove"],
     },
     module: "./commands/grouproles.js", exportName: "groupRolesCmd",
+  },
+  "userroles": {
+    definition: {
+      command: "userroles [subcommand]",
+      aliases: ["userrole", "urole", "ur"],
+      describe: "List, grant or remove direct user roles",
+    },
+    capabilities: {
+      queryTable: "sys_user_has_role",
+      mutationContext: "operational",
+      mutationSubcommands: ["add", "remove"],
+    },
+    module: "./commands/userroles.js", exportName: "userRolesCmd",
   },
   "tickets": {
     definition: {
@@ -469,9 +483,9 @@ const deferredFamilies = {
       describe: "Manage update sets. Global + Default mutations require approval (--force only after user approval); create/set remain available to select a dedicated capture set. Scope mismatches warn; completed capture sets block writes.",
     },
     capabilities: {
-      queryTable: "sys_update_set",
-      mutationSubcommands: ["create", "set", "complete", "ignore", "parent", "import", "reopen", "preview", "commit"],
-      mutationContextExemptSubcommands: ["create", "set", "import", "reopen", "preview", "commit"],
+      queryTable: argv => argv._?.[1] === "move" ? "sys_update_xml" : "sys_update_set",
+      mutationSubcommands: ["create", "set", "complete", "ignore", "parent", "import", "reopen", "preview", "commit", "move"],
+      mutationContextExemptSubcommands: ["create", "set", "import", "reopen", "preview", "commit", "move"],
       skipContextHeaderSubcommands: ["diff"],
       noImpersonateSubcommands: ["diff"],
       localPreviewSubcommands: ["import"],

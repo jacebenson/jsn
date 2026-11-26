@@ -44,16 +44,16 @@ export async function planRevert(sdk, { table, identifier, identifierField, vers
   const [target] = await read(sdk, VERSION, query, FIELDS, 1, 'false');
   if (version && (raw(target?.sys_id) !== version || raw(target.name) !== name)) throw errUsage(`${version} is not a version of ${name}; list them with jsn records versions ${table} ${sysId}.`);
   if (target && (raw(target.name) !== name || (!version && !BASE_TABLES.includes(raw(target.source_table))))) throw malformed(`${VERSION} returned a row that is not a base system version of ${name}.`);
-  if (!target) throw errUsage(`${name} has no base system version: it was created on this instance, or its base version is not readable. Pass --version to revert to one of its own versions.`);
+  if (!target) throw Object.assign(errUsage(`${name} has no base system version: it was created on this instance, or its base version is not readable. Pass --version to revert to one of its own versions.`), { reason: 'no_base' });
   const base = BASE_TABLES.includes(raw(target.source_table));
-  if (raw(target.sys_id) === raw(current.sys_id)) throw errUsage(version ? `${version} is the current version of ${name}; there is nothing to revert.` : `${name} is already at its base system version.`);
+  if (raw(target.sys_id) === raw(current.sys_id)) throw Object.assign(errUsage(version ? `${version} is the current version of ${name}; there is nothing to revert.` : `${name} is already at its base system version.`), { reason: 'at_target' });
 
   const targetRecords = parsePayload(raw(target.payload));
   const main = mainRecord(targetRecords, sysId);
   if (!main) throw errUsage(`Version ${raw(target.sys_id)} holds no row for ${table} ${sysId}; it cannot be checked after a revert.`);
   if (main.action === 'DELETE') throw errUsage(`Version ${raw(target.sys_id)} deletes ${name}; jsn records revert does not delete records.`);
   const changes = diffPayloads(parsePayload(raw(current.payload)), targetRecords);
-  if (!changes.length) throw errUsage(`The current version of ${name} already matches version ${raw(target.sys_id)}; there is nothing to revert.`);
+  if (!changes.length) throw Object.assign(errUsage(`The current version of ${name} already matches version ${raw(target.sys_id)}; there is nothing to revert.`), { reason: 'at_target' });
   // A payload leaves fields it does not hold unchanged, so only fields both versions hold are changes.
   const fieldsOf = change => change.fields?.filter(field => field.status === 'changed' && !field.field.startsWith('(')).map(field => field.field) || [];
   const changed = fieldsOf(changes.find(change => change.sys_id === sysId) || {});

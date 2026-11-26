@@ -103,6 +103,7 @@ const ACCESS_COMMANDS = [
   { name: 'groups', alias: 'group', desc: 'Manage groups' },
   { name: 'groupmembers', alias: 'gm', desc: 'Group memberships' },
   { name: 'grouproles', alias: 'gr', desc: 'Group roles' },
+  { name: 'userroles', alias: 'ur', desc: 'Direct user roles' },
   { name: 'users', alias: 'user', desc: 'Manage users' },
 ];
 
@@ -169,6 +170,7 @@ const DEVELOPER_COMMANDS = [
   { name: 'scan', desc: 'Instance Scan checks, suites, explicit targets, progress and findings' },
   { name: 'atf', desc: 'Automated Test Framework (list, suites, run, results)' },
   { name: 'eval', desc: 'Run server-side JavaScript' },
+  { name: 'fixscripts', alias: 'fixscript', desc: 'Fix scripts (sys_script_fix)' },
   { name: 'rest', desc: 'Raw REST API calls' },
   { name: 'graphql', desc: 'GraphQL queries' },
   { name: 'codesearch', desc: 'Search code across ServiceNow artifacts' },

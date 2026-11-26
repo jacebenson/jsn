@@ -26,6 +26,8 @@ test('checkbox keeps hidden selections and confirms all selected values', async 
   assert.deepEqual(await pending, ['Alpha', 'Queue']);
 });
 const tick = () => new Promise(resolve => setImmediate(resolve));
+// The paginated record picker debounces search-as-you-type.
+const settle = () => new Promise(resolve => setTimeout(resolve, 260));
 
 test('clearing an empty filter restores headings, descriptions and disabled/separator navigation', async () => {
   const input = new PassThrough(), output = new PassThrough();
@@ -57,9 +59,9 @@ for (const [name, prompt] of [['search', search], ['records', paginatedSearch]])
       terms.push(term);
       return [{ name: term ? 'Queue' : 'Other', value: term ? 'queue' : 'other' }];
     } }, { input, output });
-    await tick();
+    await settle();
     input.write('q');
-    await tick();
+    await settle();
     input.write('\r');
     const answer = await pending;
     assert.equal(name === 'records' ? answer.value : answer, 'queue');

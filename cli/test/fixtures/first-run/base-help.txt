@@ -20,7 +20,7 @@ jsn --all-commands --help for details
                    rules decisiontables assignments scrapi email notifications
                    restmessage soapmessages
   ACCESS           access-analyzer acls b4rules roles privileges aliases groups
-                   groupmembers grouproles users
+                   groupmembers grouproles userroles users
   USER EXPERIENCE  forms lists clientscripts uipolicies uiactions views
                    catalogitems catalogscripts cataloguipolicies uipages
                    uimacros listcontrols sppages spwidgets uxscripts uxlists
@@ -28,8 +28,8 @@ jsn --all-commands --help for details
   DATA             tables columns relationships cmdb includes import logs
                    properties records transactions snippets
   CONFIGURATION    setup auth updatesets scopes midservers platform
-  DEVELOPER        scan atf eval rest graphql codesearch docs document diff perf
-                   skill version
+  DEVELOPER        scan atf eval fixscripts rest graphql codesearch docs
+                   document diff perf skill version
   OTHER            cases workflows attachments store plugins compare
                    subscriptions skipped-updates customizations upgrade discover
 

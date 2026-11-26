@@ -12,6 +12,7 @@ import { AppError, CodeConfirmationRequired, errAPI, errUsage, errConfirmationRe
 import { resolveScope } from './scopes.js';
 import { unwrapSysId } from '../resolve-record.js';
 import { assertNoUnresolvedProblems, DEFAULT_OPERATION_TIMEOUT_MS } from '../update-set-apply.js';
+import { boundedReads, createReadDeduper } from '../bounded-reads.js';
 
 /**
  * Scope-mismatch check for an update set vs the current app.
@@ -274,6 +275,62 @@ async function resolveCompletionTarget(app, name) {
   return current;
 }
 
+const rawState = record => String(record?.state?.value ?? record?.state ?? '').toLowerCase();
+
+async function moveCandidates(app, identifier) {
+  const field = /^[0-9a-f]{32}$/i.test(identifier) ? 'sys_id' : 'name';
+  const wanted = identifier.toLowerCase();
+  const records = (await app.sdk.listStrict('sys_update_set', new URLSearchParams({
+    sysparm_query: `${field}=${identifier}`, sysparm_limit: '20',
+    sysparm_display_value: 'all', sysparm_fields: 'sys_id,name,state,application,is_default',
+  }))).filter(record => (field === 'sys_id' ? rawReferenceId(record.sys_id) : getStringField(record, 'name')).toLowerCase() === wanted);
+  if (!records.length) throw errUsage(`Update set not found: ${identifier}`);
+  return records;
+}
+
+const ambiguousSets = (flag, name, records) => errUsage(`Multiple update sets named "${name}" (${records.length}); pass --${flag} as a sys_id:\n${records.map(r => `  ${rawReferenceId(r.sys_id)}  ${getStringField(r, 'application') || '?'}  [${rawState(r)}]`).join('\n')}`);
+
+/** Each scope has its own "Default", so a duplicate name is narrowed to the other set's application; still ambiguous refuses. */
+async function resolveMoveSets(app, from, to, toDefault) {
+  if ((to !== undefined) === Boolean(toDefault)) throw errUsage('Pass exactly one of --to or --to-default.');
+  for (const [flag, identifier] of [['from', from], ...(toDefault ? [] : [['to', to]])]) {
+    if (!String(identifier ?? '').trim()) throw errUsage(`--${flag} must name an update set`);
+    assertSafeExactMatch(identifier);
+  }
+  const appOf = record => rawReferenceId(record.application);
+  const found = { from: await moveCandidates(app, from) };
+  if (toDefault) {
+    if (found.from.length !== 1) throw ambiguousSets('from', from, found.from);
+    const appID = appOf(found.from[0]), appName = getStringField(found.from[0], 'application') || appID;
+    const defaults = (await app.sdk.listStrict('sys_update_set', new URLSearchParams({
+      sysparm_query: `application=${appID}^is_default=true`, sysparm_limit: '5',
+      sysparm_display_value: 'all', sysparm_fields: 'sys_id,name,state,application,is_default',
+    }))).filter(record => appOf(record) === appID && String(record.is_default?.value ?? record.is_default) === 'true');
+    if (defaults.length !== 1) throw errUsage(defaults.length ? `${defaults.length} Default update sets for ${appName}; pass --to as a sys_id.` : `No Default update set for ${appName}.`);
+    return { source: found.from[0], target: defaults[0] };
+  }
+  found.to = await moveCandidates(app, to);
+  for (const [flag, other] of [['from', 'to'], ['to', 'from']]) {
+    if (found[flag].length > 1 && found[other].length === 1) {
+      const narrowed = found[flag].filter(record => appOf(record) === appOf(found[other][0]));
+      if (narrowed.length === 1) found[flag] = narrowed;
+    }
+  }
+  for (const [flag, name] of [['from', from], ['to', to]]) if (found[flag].length !== 1) throw ambiguousSets(flag, name, found[flag]);
+  return { source: found.from[0], target: found.to[0] };
+}
+
+const UPDATE_SET_CHILD_FIELDS = 'sys_id,name,state,application,application.scope,parent,description,sys_created_on,sys_updated_on';
+
+function childQueryParams(parentID) {
+  const params = new URLSearchParams();
+  params.set('sysparm_query', `parent=${parentID}^ORDERBYname`);
+  params.set('sysparm_limit', '500');
+  params.set('sysparm_display_value', 'all');
+  params.set('sysparm_fields', UPDATE_SET_CHILD_FIELDS);
+  return params;
+}
+
 /** Build a safe, flat preorder hierarchy with ancestors before the selected set. */
 export async function buildUpdateSetHierarchy(app, selectedRecord) {
   const selectedID = getStringField(selectedRecord, 'sys_id');
@@ -283,6 +340,8 @@ export async function buildUpdateSetHierarchy(app, selectedRecord) {
   const ancestors = [];
   let parentRef = selectedRecord?.parent;
 
+  // Ancestor reads are a dependency chain: a parent's own parent is only known
+  // after that parent is read, so this walk stays serial by construction.
   while (rawReferenceId(parentRef)) {
     const parentID = rawReferenceId(parentRef);
     const parentDisplay = referenceName(parentRef);
@@ -302,22 +361,44 @@ export async function buildUpdateSetHierarchy(app, selectedRecord) {
     parentRef = parent.parent;
   }
 
-  const descendants = [];
-  async function walkChildren(parentID, depth) {
-    if (!parentID) return;
-    let children;
+  // Sibling children lists are independent reads, so each tree level is read
+  // through the shared bounded pool instead of one node at a time. Every parent
+  // is read at most once per invocation, and a failed children read stays a
+  // local, empty list for that parent only — it does not blank or reorder its
+  // siblings. Assembly below is still depth-first preorder, so rows keep the
+  // exact order and depth they had when this walk was serial.
+  const childrenOf = new Map();
+  const readOnce = createReadDeduper();
+  const fetchChildren = (parentID) => readOnce(parentID, async () => {
     try {
-      const params = new URLSearchParams();
-      params.set('sysparm_query', `parent=${parentID}^ORDERBYname`);
-      params.set('sysparm_limit', '500');
-      params.set('sysparm_display_value', 'all');
-      params.set('sysparm_fields', 'sys_id,name,state,application,application.scope,parent,description,sys_created_on,sys_updated_on');
-      children = await app.sdk.list('sys_update_set', params);
+      return await app.sdk.list('sys_update_set', childQueryParams(parentID));
     } catch {
-      children = [];
+      return [];
     }
-    if (!Array.isArray(children)) return;
-    for (const child of children) {
+  });
+
+  let frontier = selectedID ? [selectedID] : [];
+  while (frontier.length > 0) {
+    const level = frontier.filter(parentID => !childrenOf.has(parentID));
+    if (level.length === 0) break;
+    const lists = await boundedReads(level, (parentID) => fetchChildren(parentID));
+    level.forEach((parentID, index) => {
+      childrenOf.set(parentID, Array.isArray(lists[index]) ? lists[index] : []);
+    });
+    const next = [];
+    for (const parentID of level) {
+      for (const child of childrenOf.get(parentID)) {
+        const childID = getStringField(child, 'sys_id');
+        if (childID) next.push(childID);
+      }
+    }
+    frontier = next;
+  }
+
+  const descendants = [];
+  function walkChildren(parentID, depth) {
+    if (!parentID) return;
+    for (const child of childrenOf.get(parentID) || []) {
       const childID = getStringField(child, 'sys_id');
       if (!childID) continue;
       if (visited.has(childID)) {
@@ -326,7 +407,7 @@ export async function buildUpdateSetHierarchy(app, selectedRecord) {
       }
       visited.add(childID);
       descendants.push({ record: child, depth });
-      await walkChildren(childID, depth + 1);
+      walkChildren(childID, depth + 1);
     }
   }
 
@@ -334,7 +415,7 @@ export async function buildUpdateSetHierarchy(app, selectedRecord) {
     ...ancestors.reverse().map((record, index) => updateSetHierarchyRow(record, { depth: index, kind: 'ancestor', missing: record.missing })),
     updateSetHierarchyRow(selectedRecord, { depth: ancestors.length, kind: 'selected', selected: true }),
   ];
-  await walkChildren(selectedID, ancestors.length + 1);
+  walkChildren(selectedID, ancestors.length + 1);
   hierarchy.push(...descendants.map(({ record, depth }) => updateSetHierarchyRow(record, { depth, kind: 'descendant' })));
 
   return { hierarchy, cycleIds: [...cycleIds], missingParents };
@@ -416,33 +497,43 @@ export async function formatUpdateSetDetail(app, record) {
   let children = [];
   const byType = {};
   const risky = [];
-  try {
-    const params = new URLSearchParams();
-    params.set('sysparm_query', `update_set=${sysID}^ORDERBYDESCsys_updated_on`);
-    params.set('sysparm_limit', '500');
-    params.set('sysparm_fields', 'name,sys_updated_on,sys_class_name');
-    const updates = await app.sdk.list('sys_update_xml', params);
-    if (Array.isArray(updates)) {
-      for (const u of updates) {
-        const name = getStringField(u, 'name');
-        if (!name) continue;
-        // sys_class_name is often empty on dev; fall back to the element-type
-        // prefix baked into the update name (e.g. sys_security_acl_<sysid32>).
-        let type = getStringField(u, 'sys_class_name');
-        if (!type) {
-          const m = /^(sys_[a-z_]+?)_[0-9a-f]{32}$/i.exec(name);
-          type = m ? m[1] : '?';
-        }
-        children.push({ name, type });
-        if (type && type !== '?') byType[type] = (byType[type] || 0) + 1;
-        if (type && RISKY_TYPES.has(type)) risky.push(name);
-      }
-    }
-  } catch {
-    // children are best-effort — a broken query shouldn't kill the display
-  }
 
-  const hierarchyData = await buildUpdateSetHierarchy(app, full);
+  const readPayload = async () => {
+    try {
+      const params = new URLSearchParams();
+      params.set('sysparm_query', `update_set=${sysID}^ORDERBYDESCsys_updated_on`);
+      params.set('sysparm_limit', '500');
+      params.set('sysparm_fields', 'name,sys_updated_on,sys_class_name');
+      const updates = await app.sdk.list('sys_update_xml', params);
+      if (Array.isArray(updates)) {
+        for (const u of updates) {
+          const name = getStringField(u, 'name');
+          if (!name) continue;
+          // sys_class_name is often empty on dev; fall back to the element-type
+          // prefix baked into the update name (e.g. sys_security_acl_<sysid32>).
+          let type = getStringField(u, 'sys_class_name');
+          if (!type) {
+            const m = /^(sys_[a-z_]+?)_[0-9a-f]{32}$/i.exec(name);
+            type = m ? m[1] : '?';
+          }
+          children.push({ name, type });
+          if (type && type !== '?') byType[type] = (byType[type] || 0) + 1;
+          if (type && RISKY_TYPES.has(type)) risky.push(name);
+        }
+      }
+    } catch {
+      // children are best-effort — a broken query shouldn't kill the display
+    }
+  };
+
+  // The member payload and the set hierarchy are independent read-only reads of
+  // an already-resolved record; neither decides a write, so they share the
+  // bounded pool and each keeps its own failure behavior.
+  const [, hierarchyData] = await boundedReads([
+    readPayload,
+    () => buildUpdateSetHierarchy(app, full),
+  ], (task) => task());
+
   const lines = [];
   lines.push(`Update set: ${name}`);
   lines.push(`  State:     ${state}`);
@@ -827,6 +918,111 @@ export function updateSetsCmd(wrap) {
           }),
         })
         .command({
+          command: 'move',
+          describe: 'Move customer updates to another in-progress update set in the same application; preview by default',
+          builder: y => y
+            .option('from', { type: 'string', demandOption: true, describe: 'Source update set name or sys_id' })
+            .option('to', { type: 'string', describe: 'Target update set name or sys_id (in progress, same application)' })
+            .option('to-default', { type: 'boolean', default: false, describe: "Target the Default update set of the source set's application (instead of --to)" })
+            .option('query', { type: 'string', describe: 'Encoded sys_update_xml query to move only some updates (e.g. "target_nameINFooUtils,FooCheck"); default all' })
+            .option('expect-count', { type: 'number', describe: 'Required with --yes: exact number of updates to move' })
+            .option('yes', { type: 'boolean', default: false, describe: 'Move the updates (requires --expect-count)' })
+            .option('limit', { type: 'number', default: 200, describe: 'Safety cap: refuse if more updates match' })
+            .epilogue('Without --yes, reports the count and up to 10 matching updates without writes.\nRefuses when the source is not in progress or an object already has an update in the target.\nEach update moves with one Table API write; every moved row is then read back.'),
+          handler: wrap(async (argv, app) => {
+            if (!Number.isSafeInteger(argv.limit) || argv.limit < 1) throw errUsage('--limit must be a positive safe integer.');
+            if (argv.query !== undefined && !String(argv.query).trim()) throw errUsage('--query is empty; omit it to move every update in the source set.');
+            const filter = argv.query?.trim() || '';
+            if (/\^NQ/.test(filter)) throw errUsage('--query must not contain ^NQ: a new query would match updates outside the source set.');
+            const expected = argv.expectCount;
+            if (argv.yes && (!Number.isSafeInteger(expected) || expected < 0)) throw errUsage('Moving requires --expect-count as a nonnegative safe integer.');
+            const { source, target } = await resolveMoveSets(app, argv.from, argv.to, argv.toDefault);
+            const [sourceID, targetID, appID] = [rawReferenceId(source.sys_id), rawReferenceId(target.sys_id), rawReferenceId(target.application)];
+            const [sourceName, targetName] = [getStringField(source, 'name'), getStringField(target, 'name')];
+            if (sourceID === targetID) throw errUsage(argv.toDefault ? `"${sourceName}" is already its application's Default update set; nothing to move.` : '--from and --to are the same update set; nothing to move.');
+            if (rawState(source) !== 'in progress') throw errUsage(`Source update set "${sourceName}" is ${rawState(source) || 'in an unknown state'}; another instance may already have retrieved it. Reopen it first with jsn updatesets reopen.`);
+            if (rawState(target) !== 'in progress') throw errUsage(`Target update set "${targetName}" is ${rawState(target) || 'in an unknown state'}; updates can only move into an in-progress set.`);
+            if (!appID || rawReferenceId(source.application) !== appID) {
+              throw errUsage(`"${sourceName}" is in application ${getStringField(source, 'application') || '?'} and "${targetName}" is in ${getStringField(target, 'application') || '?'}; updates move only within one application.`);
+            }
+            const query = `update_set=${sourceID}${filter ? `^${filter}` : ''}`;
+            const count = await app.sdk.aggregateCount('sys_update_xml', query, { strict: true });
+            if (count > argv.limit) throw errUsage(`Matched ${count} updates, exceeding --limit ${argv.limit}. Raise --limit explicitly to proceed.`);
+            if (argv.yes && count !== expected) throw errUsage(`Count mismatch: --expect-count ${expected}, live count ${count}. Nothing was moved.`);
+            const rows = [];
+            while (rows.length < count) {
+              const page = await app.sdk.listStrict('sys_update_xml', new URLSearchParams({
+                sysparm_query: `${query}^ORDERBYsys_id`, sysparm_limit: String(Math.min(1000, count - rows.length)), sysparm_offset: String(rows.length),
+                sysparm_display_value: 'false', sysparm_fields: 'sys_id,name,target_name,type,update_set,application',
+              }));
+              if (!page.length) break;
+              rows.push(...page);
+            }
+            const ids = rows.map(row => rawReferenceId(row.sys_id));
+            if (rows.length !== count || ids.some(sysID => !/^[0-9a-f]{32}$/i.test(sysID)) || new Set(ids).size !== count
+              || rows.some(row => rawReferenceId(row.update_set) !== sourceID)) {
+              throw errUsage(`The updates read back differ from the ${count} counted in "${sourceName}" or are unreadable. Nothing was moved.`);
+            }
+            const foreign = rows.filter(row => rawReferenceId(row.application) !== appID);
+            if (foreign.length) {
+              throw errUsage(`${foreign.length} update(s) belong to another application than "${targetName}": ${foreign.slice(0, 5).map(row => row.name).join(', ')}. Nothing was moved.`);
+            }
+            // ServiceNow's docs warn against two updates for one object in a set; the fix they give is re-saving the record with the target set current.
+            const names = [...new Set(rows.map(row => String(row.name)))];
+            const clashes = new Set();
+            for (let i = 0; i < names.length; i += 50) {
+              const chunk = names.slice(i, i + 50);
+              const found = await app.sdk.listStrict('sys_update_xml', new URLSearchParams({
+                sysparm_query: `update_set=${targetID}^nameIN${chunk.join(',')}`, sysparm_limit: String(chunk.length + 1),
+                sysparm_display_value: 'false', sysparm_fields: 'name,update_set',
+              }));
+              for (const row of found) if (rawReferenceId(row.update_set) === targetID && chunk.includes(row.name)) clashes.add(row.name);
+            }
+            if (clashes.size) {
+              throw errUsage(`${clashes.size} object(s) already have an update in "${targetName}": ${[...clashes].slice(0, 5).join(', ')}. Moving would leave two updates for one object in that set; re-save the record with "${targetName}" current instead. Nothing was moved.`);
+            }
+            const ends = { from: { sys_id: sourceID, name: sourceName }, to: { sys_id: targetID, name: targetName } };
+            if (!argv.yes) {
+              const rerun = buildRerunCommand(argv, { rerun: ['updatesets', 'move', '--from', sourceID, '--to', targetID, ...(filter ? ['--query', filter] : []),
+                '--expect-count', String(count), '--limit', String(argv.limit), '--yes'] });
+              const sample = rows.slice(0, 10).map(({ sys_id, name, target_name, type }) => ({ sys_id, name, target_name, type }));
+              return app.ok({ ...ends, query, count, dry_run: true, sample, rerun }, {
+                summary: `Dry run: ${count} update(s) would move from "${sourceName}" to "${targetName}"`,
+                breadcrumbs: [{ action: 'move', cmd: rerun, description: 'Move with this exact expected count' }],
+              });
+            }
+            if (await app.sdk.aggregateCount('sys_update_xml', query, { strict: true }) !== count) throw errUsage('Matching count changed while reading the updates. Nothing was moved.');
+            const failed = [];
+            for (const sysID of ids) {
+              try { await app.sdk.update('sys_update_xml', sysID, { update_set: targetID }); }
+              catch (error) { failed.push({ sys_id: sysID, error: error.message || String(error) }); }
+            }
+            const landed = new Set();
+            let verificationError;
+            try {
+              for (let i = 0; i < ids.length; i += 100) {
+                const chunk = ids.slice(i, i + 100);
+                const readBack = await app.sdk.listStrict('sys_update_xml', new URLSearchParams({
+                  sysparm_query: `sys_idIN${chunk.join(',')}`, sysparm_limit: String(chunk.length + 1),
+                  sysparm_display_value: 'false', sysparm_fields: 'sys_id,update_set',
+                }));
+                for (const row of readBack) if (rawReferenceId(row.update_set) === targetID) landed.add(rawReferenceId(row.sys_id));
+              }
+            } catch (error) { verificationError = error.message || String(error); }
+            const failedIDs = new Set(failed.map(row => row.sys_id));
+            const notMoved = verificationError ? [] : ids.filter(sysID => !landed.has(sysID) && !failedIDs.has(sysID));
+            const verified = !verificationError && failed.length === 0 && landed.size === count;
+            app.ok({ ...ends, query, matched: count, moved: landed.size, failed, not_moved: notMoved, verified,
+              updates: rows.filter(row => landed.has(rawReferenceId(row.sys_id))).map(({ sys_id, name, target_name, type }) => ({ sys_id, name, target_name, type })),
+              ...(verificationError ? { verification_error: verificationError } : {}) }, {
+              summary: verified ? `Moved ${count} update(s) from "${sourceName}" to "${targetName}"; all ${count} read back in the target`
+                : `Move incomplete or unverified: ${landed.size} of ${count} read back in "${targetName}", ${failed.length} failed${verificationError ? `, read-back failed: ${verificationError}` : ''}`,
+              breadcrumbs: [{ action: 'list', cmd: `jsn records list --table sys_update_xml --query ${quoteShellArg(`update_set=${targetID}`)} --columns name,target_name,type`, description: 'Review the updates in the target set' }],
+            });
+            if (!verified) process.exitCode = 1;
+          }),
+        })
+        .command({
           command: 'set [name]',
           describe: 'Set the current update set (interactive picker with scope when run bare)',
           handler: wrap(async (argv, app) => {
@@ -1038,6 +1234,7 @@ export function updateSetsCmd(wrap) {
         console.log('  problems <set> List preview problems (read-only; never resolves them)');
         console.log('  commit <set>   Commit a previewed retrieved set after problems are resolved');
         console.log('  reopen <name>  Explicitly return a closed set to in progress');
+        console.log('  move           Move customer updates to another set (--from, --to or --to-default)');
         console.log('  set  [name]    Set the current update set (picker when run bare)');
         console.log('  create         Create a new update set (auto-sets as current)');
         console.log('  complete [name] Complete a named or current set with --notes (editor when omitted)');

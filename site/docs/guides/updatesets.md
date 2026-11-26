@@ -65,7 +65,7 @@ Raw mutation APIs and eval conservatively require customization context. Operati
 metadata exemptions cover identity/membership administration, approvals, ATF runs,
 attachments, MID runtime operations, catalog ordering, Store installation, domain
 selection, and flow test/lock release. Explicit scope selection and update-set
-creation/selection/import/preview/commit/reopen keep their own safety gates. Scope
+creation/selection/import/preview/commit/reopen/move keep their own safety gates. Scope
 creation is customization and is not exempt.
 
 Successful JSON write envelopes include `context.mutation`, reusable with `--get`.
@@ -160,6 +160,31 @@ jsn --profile source updatesets reopen "Digital Helpdesk 0.1.77"
 
 This verifies `in progress` after the write and leaves selection unchanged. It
 does not accept committed sets. Export and import never reopen or complete sets.
+
+## Move updates between sets
+
+Move customer updates captured in the wrong set into another local set:
+
+```sh
+jsn updatesets move --from "Sprint 12" --to "Feature X" --query "target_nameINFooUtils,FooCheck"
+jsn updatesets move --from <sprint sys_id> --to <feature sys_id> --query "target_nameINFooUtils,FooCheck" --expect-count 2 --yes
+```
+
+`--to-default` in place of `--to` targets the Default set of the source set's
+application, for updates that should not ship with any named set yet.
+
+Without `--yes` it previews the matching `sys_update_xml` rows and prints the
+rerun command with their count and both sets' sys_ids. `--query` narrows the
+source set's updates; without it every update moves. Both sets must be in
+progress and in the same application as every moved update; a duplicate name
+such as `Default` is narrowed to the other set's application, and refused if
+still ambiguous. An object that already has an update in the target is refused:
+ServiceNow advises against editing a customer update's Update Set field because
+it can leave two updates for one object in a set, and for that case its fix is
+to re-save the record with the target set current. `--expect-count` and
+`--limit` refuse before the first write. Each update moves with one Table API
+write and is then read back; a failed or unconfirmed row is reported and the
+command exits nonzero.
 
 ## Cross-instance update-set diff
 

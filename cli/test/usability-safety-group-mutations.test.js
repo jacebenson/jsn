@@ -1,6 +1,7 @@
 // Audit #1 + #8: group membership/role writes must be DECLARED mutations
 // (instance + read-only guard), must reject unsafe exact-match identifiers,
-// must confirm removals with a complete rerun hint, and the confirmation
+// must confirm grouproles removals with a complete rerun hint (groupmembers
+// remove previews and needs --expect-count instead), and the confirmation
 // hint factory must never recommend a permanent bypass.
 //
 // Reproduction first (pre-fix evidence): a read-only profile could reach
@@ -133,25 +134,27 @@ describe('read-only profiles cannot reach group writes', () => {
   }
 });
 
-describe('removal confirmation hints carry the exact target', () => {
-  it('groupmembers remove emits a re-runnable command with target and pinned profile', () => {
+describe('groupmembers remove needs the previewed count', () => {
+  // Its preview's rerun line is tested in groupmembers.test.js.
+  it('groupmembers remove --yes without --expect-count is refused before any lookup', () => {
     const home = withConfig({ ro: RO, rw: RW });
     try {
       const { status, stdout, stderr } = runCli(
-        ['groupmembers', 'remove', '--group', 'Group With Spaces', '--user', "o'brien", '--profile', 'rw'],
+        ['groupmembers', 'remove', '--group', 'Group With Spaces', '--user', "o'brien", '--yes', '--profile', 'rw'],
         home,
       );
-      const out = confirmationText({ stdout, stderr });
+      const out = stdout + stderr;
       assert.notEqual(status, 0);
-      assert.match(out, /confirmation required/);
-      assert.match(out, /jsn groupmembers remove --group 'Group With Spaces' --user 'o'\\''brien' --profile rw --force/);
-      assert.doesNotMatch(out, /Group not found|User not found/, 'confirmation must precede lookups');
+      assert.match(out, /needs --expect-count/);
+      assert.doesNotMatch(out, /Group not found|User not found/, 'refusal must precede lookups');
       assert.doesNotMatch(out, /skip_confirmations/, 'must not recommend a permanent confirmation bypass');
     } finally {
       fs.rmSync(home, { recursive: true, force: true });
     }
   });
+});
 
+describe('removal confirmation hints carry the exact target', () => {
   it('grouproles remove emits a re-runnable command with target and pinned instance', () => {
     const home = withConfig({ ro: RO, rw: RW });
     try {

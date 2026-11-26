@@ -13,6 +13,8 @@ import { FormatAuto } from '../output.js';
 import { resolveRecord, unwrapSysId } from '../resolve-record.js';
 import { detectDocker, defaultRun, installDockerMidServer, midInstallDirectory, normalizeMidName, validateMidCredentials } from '../midserver-install.js';
 import { detectDirectPlatform, followDirectLog, installDirectMidServer, readDirectInstallation, removeDirectInstallation, resolveDirectLogFile, runDirectInstallation } from '../midserver-direct.js';
+import { buildInputErrorQuery, buildWaitingQuery, formatQueueReport, midNameFromAgent, parseOlderThan, parseQueueGroups, routingAgentForName, sortQueueRows, summarizeAgents, totalCounts, validateLimit, DEFAULT_LIMIT, OLDEST_FIELDS, DEFAULT_OLDER_THAN } from '../midserver-queue.js';
+import { errUsage } from '../errors.js';
 
 import { diagnoseMidAccount, validateMidInstallDirectory } from '../midserver-setup.js';
 import { assertMidInstallationLocationAvailable, registerMidInstallationDirectory, resolveMidInstallationDirectory, forgetMidInstallationDirectory } from '../midserver-locations.js';
@@ -426,12 +428,211 @@ async function showMidServerLogs(app, identifier, argv) {
   }
 }
 
+const QUEUE_AGENT_FIELDS = ['sys_id', 'name', 'status', 'validated', 'host_name'];
+
+// Encoded-query values built from provider data still must not change query
+// semantics. A value we cannot prove safe is reported as unknown, not queried.
+function safeQueryValue(value) {
+  return typeof value === 'string' && value.length > 0 && !/[,^=<>~!*]/.test(value);
+}
+
+async function readWaitingGroups(app, query) {
+  try {
+    return { groups: parseQueueGroups(await app.sdk.aggregate(QUEUE_TABLE, { query, groupBy: ['agent', 'topic'], count: true })), topics: true };
+  } catch (error) {
+    // Older or narrowed providers may not expose `topic`; the direction and
+    // state fields are the contract, so retry by agent only and mark topics
+    // unavailable rather than failing the whole view.
+    try {
+      return { groups: parseQueueGroups(await app.sdk.aggregate(QUEUE_TABLE, { query, groupBy: ['agent'], count: true }), ['agent']), topics: false };
+    } catch {
+      throw error;
+    }
+  }
+}
+
+async function oldestWaitingRow(app, agent, older, includeTopic) {
+  const fields = includeTopic ? OLDEST_FIELDS : OLDEST_FIELDS.filter(field => field !== 'topic');
+  const records = await app.sdk.listStrict(QUEUE_TABLE, new URLSearchParams({
+    sysparm_query: `${buildWaitingQuery(older, agent)}^ORDERBYASCsys_created_on`,
+    sysparm_fields: fields.join(','),
+    sysparm_display_value: 'all',
+    sysparm_limit: '1',
+  }));
+  const record = records[0];
+  if (!record) return null;
+  return {
+    sys_id: unwrapSysId(record),
+    topic: getStringField(record, 'topic'),
+    name: getStringField(record, 'name'),
+    state: getStringField(record, 'state'),
+    priority: getStringField(record, 'priority'),
+    sys_created_on: getStringField(record, 'sys_created_on'),
+  };
+}
+
+// Read-only snapshot of ECC output work waiting per MID Server. Nothing here
+// writes, and aggregate counts are reported as observed rather than converted
+// into a health verdict.
+async function showQueue(app, argv) {
+  const older = parseOlderThan(argv.olderThan);
+  const limit = validateLimit(argv.limit);
+  const identifier = String(argv.identifier || '').trim();
+  if (identifier) {
+    try { assertSafeExactMatch(identifier); } catch (error) { throw errUsage(error.message); }
+  }
+  app.requireInstance();
+
+  let midRecord = null;
+  let agentFilter = '';
+  if (identifier) {
+    try {
+      midRecord = await resolveMidServer(app.sdk, identifier);
+    } catch (error) {
+      // A sys_id that resolves to nothing is a bad identifier. A name without
+      // an ecc_agent row is exactly the stale-routing case this view exists
+      // for, so keep it as an agent filter.
+      if (error.code !== 'not_found' || /^[0-9a-f]{32}$/i.test(identifier)) throw error;
+    }
+    agentFilter = routingAgentForName(getStringField(midRecord, 'name') || identifier);
+    try { assertSafeExactMatch(agentFilter); } catch (error) { throw errUsage(error.message); }
+  }
+
+  const waitingQuery = buildWaitingQuery(older, agentFilter);
+  const errorQuery = buildInputErrorQuery(older, agentFilter);
+  const { groups, topics } = await readWaitingGroups(app, waitingQuery);
+  const [inputAggregate, waitingCount, inputCount] = await Promise.allSettled([
+    app.sdk.aggregate(QUEUE_TABLE, { query: errorQuery, groupBy: ['agent'], count: true }),
+    app.sdk.aggregateCount(QUEUE_TABLE, waitingQuery),
+    app.sdk.aggregateCount(QUEUE_TABLE, errorQuery),
+  ]);
+
+  const inputGroups = inputAggregate.status === 'fulfilled' ? parseQueueGroups(inputAggregate.value, ['agent']) : null;
+  const waitingProviderCount = waitingCount.status === 'fulfilled' ? waitingCount.value : null;
+  const inputProviderCount = inputCount.status === 'fulfilled' ? inputCount.value : null;
+  const groupedWaiting = totalCounts(groups);
+  const groupedInput = inputGroups ? totalCounts(inputGroups) : null;
+  const inputByAgent = new Map();
+  for (const group of inputGroups || []) {
+    inputByAgent.set(group.agent, (inputByAgent.get(group.agent) || 0) + group.count);
+  }
+
+  const allRows = summarizeAgents(groups).map(entry => ({
+    agent: entry.agent,
+    mid_server: midNameFromAgent(entry.agent),
+    sys_id: null,
+    status: '',
+    validated: '',
+    host_name: '',
+    waiting: entry.waiting,
+    topics: topics ? entry.topics : [],
+    oldest: null,
+    input_errors: inputGroups ? (inputByAgent.get(entry.agent) || 0) : null,
+  }));
+
+  const lookupNames = [...new Set(allRows.filter(row => row.mid_server && safeQueryValue(row.mid_server)).map(row => row.mid_server))];
+  const midRecords = new Map();
+  let midLookupError = '';
+  if (lookupNames.length) {
+    try {
+      const records = await app.sdk.list(AGENT_TABLE, new URLSearchParams({
+        sysparm_query: `nameIN${lookupNames.join(',')}`,
+        sysparm_fields: QUEUE_AGENT_FIELDS.join(','),
+        sysparm_display_value: 'all',
+        sysparm_limit: String(Math.min(lookupNames.length, 1000)),
+      }));
+      for (const record of records) midRecords.set(getStringField(record, 'name'), record);
+    } catch {
+      midLookupError = 'ecc_agent lookup failed';
+    }
+  }
+  for (const row of allRows) {
+    if (!row.mid_server) {
+      row.mid_error = row.agent === 'mid.server.*'
+        ? 'broadcast routing value (mid.server.*)'
+        : 'not a mid.server.<name> routing value';
+      continue;
+    }
+    if (!safeQueryValue(row.mid_server)) {
+      row.mid_error = 'routing value could not be used for an exact lookup';
+      continue;
+    }
+    const record = midRecords.get(row.mid_server);
+    if (!record) {
+      row.mid_error = midLookupError || 'no ecc_agent row for this routing value';
+      continue;
+    }
+    row.sys_id = unwrapSysId(record);
+    row.status = getStringField(record, 'status');
+    row.validated = getStringField(record, 'validated');
+    row.host_name = getStringField(record, 'host_name');
+  }
+
+  const candidates = [...allRows].sort((a, b) => b.waiting - a.waiting || a.agent.localeCompare(b.agent));
+  const shown = candidates.slice(0, limit);
+  await Promise.all(shown.map(async row => {
+    try {
+      row.oldest = await oldestWaitingRow(app, row.agent, older, topics);
+    } catch {
+      row.oldest = null;
+      row.oldest_error = 'oldest row read failed';
+    }
+  }));
+  const agents = sortQueueRows(shown);
+
+  const instanceURL = app.getEffectiveInstance();
+  const url = new URL('/ecc_queue_list.do', instanceURL);
+  url.searchParams.set('sysparm_query', waitingQuery);
+  const inputComplete = inputGroups && inputProviderCount !== null ? inputProviderCount === groupedInput : null;
+  const data = {
+    table: QUEUE_TABLE,
+    older_than: older.text,
+    cutoff: `gs.minutesAgoStart(${older.minutes})`,
+    agent_filter: agentFilter || null,
+    count: agents.length,
+    agents,
+    totals: {
+      agents_total: allRows.length,
+      agents_shown: agents.length,
+      waiting_total: waitingProviderCount === null ? groupedWaiting : waitingProviderCount,
+      waiting_shown: agents.reduce((total, row) => total + row.waiting, 0),
+      waiting_grouped: groupedWaiting,
+      input_errors: inputGroups ? (inputProviderCount === null ? groupedInput : inputProviderCount) : null,
+      input_errors_grouped: groupedInput,
+    },
+    complete: {
+      waiting: waitingProviderCount === null ? null : waitingProviderCount === groupedWaiting,
+      input_errors: inputComplete,
+      topics,
+      mid_lookup: midLookupError ? 'failed' : 'ok',
+    },
+    pagination: { limit, shown: agents.length, total: allRows.length },
+    url: url.href,
+    context: { instance_url: instanceURL },
+  };
+  const summary = agents.length
+    ? `${agents.length} agent(s), ${data.totals.waiting_shown} waiting output row(s) older than ${older.text}`
+    : `No ECC output rows waiting older than ${older.text}${agentFilter ? ` for ${agentFilter}` : ''}`;
+  Object.defineProperty(data, '_formatted', { value: formatQueueReport(data), enumerable: false });
+  app.ok(data, { summary });
+}
+
 export function midserversCmd(wrap) {
   return {
     ...midserversCmdDefinition,
     builder: (y) => y
       .command(midDiagnosticsCommand('issues', wrap))
       .command(midDiagnosticsCommand('events', wrap))
+      .command({
+        command: 'queue [identifier]',
+        describe: 'Show ECC output work waiting for each MID Server (read-only)',
+        builder: (b) => b
+          .option('older-than', { type: 'string', default: DEFAULT_OLDER_THAN, describe: 'Only rows older than this window: 15m, 2h or 1d' })
+          .option('limit', { alias: 'l', type: 'number', default: DEFAULT_LIMIT, describe: `Max agents to show (1-200)` }),
+        handler: wrap(async (argv, app) => {
+          await showQueue(app, argv);
+        }),
+      })
       .command({
         command: 'list',
         aliases: ['ls'],
@@ -834,6 +1035,7 @@ export function midserversCmd(wrap) {
       console.log('  list                         List MID Servers');
       console.log('  issues [name_or_sys_id]       Show unresolved issues (--all includes resolved)');
       console.log('  events [name_or_sys_id]       Show lifecycle history');
+      console.log('  queue [name_or_sys_id]        Show ECC output work waiting per MID Server');
       console.log('  show <name_or_sys_id>        Show a MID Server');
       console.log('  add --name <name>             Install a MID Server (Docker or direct ZIP)');
       console.log('  remove <name_or_sys_id>       Remove a MID Server record');
