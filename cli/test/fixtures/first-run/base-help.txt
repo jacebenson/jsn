@@ -28,8 +28,8 @@ jsn --all-commands --help for details
   DATA             tables columns relationships cmdb includes import logs
                    properties records transactions snippets
   CONFIGURATION    setup auth updatesets scopes midservers platform
-  DEVELOPER        scan atf eval rest graphql codesearch docs document diff perf
-                   skill version
+  DEVELOPER        scan atf eval fixscripts rest graphql codesearch docs
+                   document diff perf skill version
   OTHER            cases workflows attachments store plugins compare
                    subscriptions skipped-updates customizations upgrade discover
 

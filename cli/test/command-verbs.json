@@ -199,6 +199,9 @@
     "workflows"
   ],
   "approved": {
+    "fixscripts": {
+      "why": "fixscripts names sys_script_fix the way scheduledjobs names sysauto_script; eval runs code that is never saved, so it cannot say a fix script is a record that travels in an update set."
+    },
     "enable": {
       "why": "audit enable is the state-changing counterpart of the audit read; list/show only read saved evidence, and update would hide which table attribute changes."
     },
@@ -223,7 +226,7 @@
   },
   "budgets": {
     "$comment": "Subcommand count per family. A budget is a ratchet, not a ban: when a new command earns its place, raise the number in the same diff and say why in the PR. Adding a family means adding its budget entry.",
-    "total": 431,
+    "total": 436,
     "families": {
       "access-analyzer": 3,
       "acls": 5,
@@ -257,6 +260,7 @@
       "domains": 8,
       "email": 5,
       "eval": 1,
+      "fixscripts": 5,
       "flows": 17,
       "forms": 2,
       "graphql": 0,

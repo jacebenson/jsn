@@ -169,6 +169,7 @@ const DEVELOPER_COMMANDS = [
   { name: 'scan', desc: 'Instance Scan checks, suites, explicit targets, progress and findings' },
   { name: 'atf', desc: 'Automated Test Framework (list, suites, run, results)' },
   { name: 'eval', desc: 'Run server-side JavaScript' },
+  { name: 'fixscripts', alias: 'fixscript', desc: 'Fix scripts (sys_script_fix)' },
   { name: 'rest', desc: 'Raw REST API calls' },
   { name: 'graphql', desc: 'GraphQL queries' },
   { name: 'codesearch', desc: 'Search code across ServiceNow artifacts' },
