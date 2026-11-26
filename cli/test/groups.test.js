@@ -48,11 +48,10 @@ describe('Groups handlers', () => {
 });
 
 describe('GroupRoles bare help', () => {
-  it('names sys_group_has_role, the table every subcommand reads and writes', () => {
+  it('names sys_group_has_role, the table every subcommand reads and writes', (t) => {
     const lines = [];
-    const log = console.log;
-    console.log = (...a) => lines.push(a.join(' '));
-    try { groupRolesCmd(wrapHandler).handler(); } finally { console.log = log; }
+    t.mock.method(console, 'log', (...args) => lines.push(args.join(' ')));
+    groupRolesCmd(wrapHandler).handler();
     assert.strictEqual(lines[0], 'Manage group roles in sys_group_has_role.');
   });
 });
