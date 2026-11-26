@@ -889,8 +889,8 @@ export function recordsCmd(wrap) {
             const plan = await planRevert(app.sdk, { table: argv.table, identifier: argv.identifier, identifierField: argv.identifierField, version: argv.version });
             await assertMutationRecordScope(app, plan.table, plan.sys_id);
             await confirmAction(app, argv, revertQuestion(plan), { destructive: false, rerun: ['records', 'revert', plan.table, plan.sys_id, '--version', plan.to_version] });
-            const data = await applyRevert(app.sdk, plan);
-            invalidateAfterMutation(app, plan.table);
+            let data;
+            try { data = await applyRevert(app.sdk, plan); } finally { invalidateAfterMutation(app, plan.table); }
             Object.defineProperty(data, '_formatted', { value: formatRevert(data), enumerable: false });
             app.ok(data, {
               summary: `Reverted ${data.update_name} to ${data.base ? 'its base system version' : `version ${data.to_version}`}`,

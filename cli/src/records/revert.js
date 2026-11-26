@@ -24,13 +24,16 @@ export async function planRevert(sdk, { table, identifier, identifierField, vers
   const record = await resolveRecord(sdk, { table, identifier, identifierField, fields: ['sys_update_name', 'sys_class_name'], resource: 'Record' });
   const sysId = unwrapSysId(record);
   if (!ID.test(sysId)) throw malformed('The matched record has no readable sys_id; check field ACLs before retrying.');
-  const name = raw(record.sys_update_name) || `${raw(record.sys_class_name) || table}_${sysId}`;
+  // Read back from the record's own class: a parent table does not return a child class's columns.
+  const recordTable = raw(record.sys_class_name) || table;
+  const name = raw(record.sys_update_name) || `${recordTable}_${sysId}`;
   if (!NAME.test(name)) throw errUsage(`The update name ${name} holds characters jsn will not put into a script.`);
 
   const current = await currentVersion(sdk, name);
   const query = version ? `sys_id=${version}` : `name=${name}^source_tableIN${BASE_TABLES.join(',')}^ORDERBYDESCsys_recorded_at^ORDERBYDESCsys_id`;
   const [target] = await read(sdk, VERSION, query, FIELDS, 1, 'false');
   if (version && (raw(target?.sys_id) !== version || raw(target.name) !== name)) throw errUsage(`${version} is not a version of ${name}; list them with jsn records versions ${table} ${sysId}.`);
+  if (target && (raw(target.name) !== name || (!version && !BASE_TABLES.includes(raw(target.source_table))))) throw malformed(`${VERSION} returned a row that is not a base system version of ${name}.`);
   if (!target) throw errUsage(`${name} has no base system version: it was created on this instance, or its base version is not readable. Pass --version to revert to one of its own versions.`);
   const base = BASE_TABLES.includes(raw(target.source_table));
   if (raw(target.sys_id) === raw(current.sys_id)) throw errUsage(version ? `${version} is the current version of ${name}; there is nothing to revert.` : `${name} is already at its base system version.`);
@@ -41,10 +44,11 @@ export async function planRevert(sdk, { table, identifier, identifierField, vers
   if (main.action === 'DELETE') throw errUsage(`Version ${raw(target.sys_id)} deletes ${name}; jsn records revert does not delete records.`);
   const changes = diffPayloads(parsePayload(raw(current.payload)), targetRecords);
   if (!changes.length) throw errUsage(`The current version of ${name} already matches version ${raw(target.sys_id)}; there is nothing to revert.`);
-  const changed = changes.find(change => change.sys_id === sysId)?.fields?.map(field => field.field).filter(field => !field.startsWith('(')) || [];
+  // A payload leaves fields it does not hold unchanged, so only fields both versions hold are changes.
+  const changed = changes.find(change => change.sys_id === sysId)?.fields?.filter(field => field.status === 'changed' && !field.field.startsWith('(')).map(field => field.field) || [];
   const expected = Object.fromEntries(changed.filter(field => !field.startsWith('sys_')).map(field => [field, raw(main.fields[field])]));
   return {
-    table, sys_id: sysId, update_name: name, base, from_version: raw(current.sys_id), to_version: raw(target.sys_id),
+    table: recordTable, sys_id: sysId, update_name: name, base, from_version: raw(current.sys_id), to_version: raw(target.sys_id),
     to_source: { source_table: raw(target.source_table), source: raw(target.source), recorded_at: raw(target.sys_recorded_at) },
     changes, changed_fields: changed, expected,
   };

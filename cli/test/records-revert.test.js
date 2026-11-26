@@ -181,6 +181,30 @@ test('revert runs one guarded global script and verifies the new version and the
   assert.deepEqual(f.data.changes[0].fields.map(field => field.field), ['active', 'script']);
 });
 
+test('a field only the current version holds is left alone and does not fail the readback', async () => {
+  const extra = xml('var custom = 2;', 'false').replace('<name>', '<sandbox_callable>false</sandbox_callable><name>');
+  const f = fixture({ versions: [version(13, 'current', 'sys_update_set', '', { payload: extra }), version(11, 'history', 'sys_upgrade_history', BASE)] });
+  await f.run();
+  assert.equal(f.reads.at(-1).sysparm_fields, 'sys_id,active,script');
+  assert.equal(f.data.reverted, true);
+});
+
+test('revert reads the record back from its own class and refuses a base row from another source', async () => {
+  const f = fixture();
+  await f.run({ table: 'sys_metadata' });
+  assert.equal(f.reads.at(-1).table, 'sys_script_include');
+  assert.equal(f.data.table, 'sys_script_include');
+  const wrong = fixture();
+  const list = wrong.app.sdk.listStrict;
+  wrong.app.sdk.listStrict = async (table, params) => (await list(table, params)).map(row => params.get('sysparm_query').includes('source_tableIN') ? { ...row, source_table: 'sys_update_set' } : row);
+  await assert.rejects(wrong.run(), /not a base system version/);
+  const named = fixture();
+  const read = named.app.sdk.listStrict;
+  named.app.sdk.listStrict = async (table, params) => (await read(table, params)).map(row => params.get('sysparm_query').includes('source_tableIN') ? { ...row, name: 'sys_script_include_other' } : row);
+  await assert.rejects(named.run(), /not a base system version/);
+  assert.deepEqual([...wrong.scripts, ...named.scripts], []);
+});
+
 test('revert to an explicit earlier version uses that version', async () => {
   const f = fixture({ after: (rows, live) => ({ rows: [version(14, 'current', 'sys_update_set', 'var custom = 1;', { reverted_from: id(12) }), ...rows.map(row => row.state === 'current' ? { ...row, state: 'previous' } : row)], live: { ...live, active: 'true', script: 'var custom = 1;' } }) });
   await f.run({ version: id(12) });
