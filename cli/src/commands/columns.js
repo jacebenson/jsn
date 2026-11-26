@@ -3,6 +3,8 @@ import { fieldBehaviorHelp } from '../field-behavior.js';
 import { CodeUsage, errNotFoundHint, errUsage } from '../errors.js';
 import { loadHierarchy } from '../table-behavior.js';
 import { buildDevCmd } from './_generic.js';
+import { columnWhy, formatColumnWhy } from '../column-why.js';
+import { FormatAuto, FormatStyled } from '../output.js';
 
 export const CHOICE_LIMIT = 100;
 const COLUMN = /^([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)$/;
@@ -55,8 +57,46 @@ async function addChoices(record, app, argv) {
   }
 }
 
+function whyCommand(wrap) {
+  return {
+    command: 'why <column>',
+    describe: 'Explain what makes a field read-only, mandatory or hidden on one record (read-only)',
+    builder: (y) => y
+      .positional('column', { type: 'string', describe: 'Column as <table>.<field> (e.g. incident.caller_id)' })
+      .option('record', { type: 'string', describe: 'Record number or sys_id to test conditions against' })
+      .option('table', { type: 'string', describe: 'Table name when not using table.field' })
+      .option('field', { type: 'string', describe: 'Dictionary element when not using table.field' })
+      .option('user', { type: 'string', describe: 'User whose live access to check when access-analyzer (#636) is available' })
+      .epilogue([
+        'Read-only. Reads the dictionary (inherited rows included), dictionary overrides, UI policy and data policy field actions and write ACLs.',
+        'Policy and ACL conditions are tested by reading the record back with sys_id=<id>^<condition> through the Table API.',
+        'Client scripts are candidates only and are never executed. ACL rows are configuration evidence, not proof of any user\'s effective access.',
+        'Example: jsn columns why incident.caller_id --record INC0000060 --json',
+      ].join('\n')),
+    handler: wrap(async (argv, app) => {
+      app.requireInstance();
+      if (!argv.record) throw errUsage('--record is required: pass a record number or sys_id to test conditions against.');
+      const data = await columnWhy(app.sdk, {
+        column: argv.column,
+        table: argv.table,
+        field: argv.field,
+        recordIdentifier: argv.record,
+        user: argv.user,
+      });
+      const human = [FormatAuto, FormatStyled].includes(app.output.getFormat());
+      return app.ok(human ? { ...data, _formatted: formatColumnWhy(data) } : data, {
+        summary: `${data.table}.${data.field} on ${data.record.label}: ${data.summary.counts.ui_policies} UI policy, ${data.summary.counts.data_policies} data policy, ${data.summary.counts.write_acls} write ACL, ${data.summary.counts.client_script_candidates} client-script candidate(s)`,
+        breadcrumbs: [
+          { action: 'behavior', cmd: `jsn tables behavior ${data.table}`, description: 'Inventory the full table configuration' },
+          { action: 'columns', cmd: `jsn columns list --table ${data.table}`, description: 'List dictionary entries for the table' },
+        ],
+      });
+    }),
+  };
+}
+
 export const columnsCmd = (wrap) => {
-  return buildDevCmd('columns', 'sys_dictionary', [],
+  const base = buildDevCmd('columns', 'sys_dictionary', [],
     ['element', 'column_label', 'internal_type', 'mandatory', 'max_length', 'active'],
     wrap, { definition: deferredFamilyDefinition('columns'), singular: 'column', scopeValidation: true, help: fieldBehaviorHelp,
       resolveIdentifier: resolveColumn, identifierRequired: true, onShow: addChoices,
@@ -71,5 +111,9 @@ export const columnsCmd = (wrap) => {
         const table = String(argv.table).trim();
         if (!/^[a-zA-Z0-9_]+$/.test(table)) throw errUsage('--table takes a table name, for example incident or sys_import_set.');
         return `name=${table}`;
-      } });
+      },
+      extraSubcommands: [{ name: 'why <table>.<field>', description: 'Explain what makes a field read-only, mandatory or hidden on one record (read-only)' }] });
+  const originalBuilder = base.builder;
+  base.builder = (yargs) => originalBuilder(yargs).command(whyCommand(wrap));
+  return base;
 };

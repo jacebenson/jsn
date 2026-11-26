@@ -10,6 +10,9 @@ import { discoverFlowContextFields, normalizeFlowContext, summarizeFlowContexts,
 import { docLink } from '../docs-links.js';
 import { inspectFlow } from '../flow-inspection.js';
 import { publishFlows, publishFlowLifecycle, publishDoctor, flowStatus } from '../flow-publish.js';
+import { flowWhy, formatFlowWhy } from '../flow-why.js';
+import { parseRecordArgument } from '../why-checks.js';
+import { FormatAuto, FormatStyled } from '../output.js';
 import { resolveRecord, unwrapSysId } from '../resolve-record.js';
 import { createFlowFromManifest, updateFlowFromManifest, readCurrentUpdateSet, readCatalogItemVariables } from '../flow-create.js';
 import { alignUpdateSetCapture } from '../context.js';
@@ -49,6 +52,7 @@ const FLOW_COMMANDS = [
   { name: 'show [identifier]', description: 'Show a flow: structure, inputs, steps and conditions' },
   { name: 'status [identifier]', description: 'Check whether a flow is actually able to run' },
   { name: 'settings [identifier]', description: 'Show or set a flow\'s reporting and logging levels; preview by default, --yes writes' },
+  { name: 'why <identifier>', description: 'Say why a flow did not run for one record (read-only)' },
   { name: 'publish [identifier]', description: 'Publish (activate) a flow, or a custom action with --action' },
   { name: 'test [identifier]', description: 'Execute a record-triggered flow against one record' },
   { name: 'clone [identifier]', description: 'Duplicate an inactive Draft flow using native Designer copy (alias: copy)' },
@@ -372,6 +376,41 @@ Documentation: ${docLink('flows')}`),
             return app.ok(status, {
               summary: `${status.ok ? '✅' : '❌'} ${status.flow.name} (${status.flow.type})\n${renderChecks(status.checks)}`,
               breadcrumbs: status.ok ? [] : [{ action: 'publish', cmd: `jsn flows publish ${sysID}`, description: 'Publish this flow' }],
+            });
+          }),
+        })
+        .command({
+          command: 'why <identifier>',
+          describe: 'Say why a flow did not run for one record (read-only)',
+          builder: (y) => y
+            .option('record', {
+              type: 'string', array: true,
+              describe: 'Record to explain as "<table>:<number|sys_id>" (or repeat --record <table> --record <id>)',
+            })
+            .epilogue([
+              'Read-only. Combines the flow runnability checks, the trigger table/condition and sys_flow_context executions for the record.',
+              'The trigger condition is tested by the platform query engine with sys_id=<id>^<condition>; each ^NQ group is tested separately.',
+              'Script conditions and CHANGESTO/CHANGESFROM/VALCHANGES operators describe things that cannot be proven against current state and are reported as untested.',
+              'Example: jsn flows why "Facilities incident follow-up work order" --record incident:INC0000060 --json',
+            ].join('\n')),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            if (!argv.record) throw errUsage('--record is required: pass "--record <table>:<number|sys_id>".');
+            const identifier = await pickFlow(argv, app);
+            if (identifier === undefined) return;
+            const record = parseRecordArgument(argv.record);
+            const data = await flowWhy(app.sdk, {
+              flowIdentifier: identifier,
+              recordTable: record.table,
+              recordIdentifier: record.identifier,
+            });
+            const human = [FormatAuto, FormatStyled].includes(app.output.getFormat());
+            return app.ok(human ? { ...data, _formatted: formatFlowWhy(data) } : data, {
+              summary: `${data.verdict.replaceAll('_', ' ')}: ${data.flow.name || data.flow.sys_id} on ${record.table} ${data.record.label}`,
+              breadcrumbs: [
+                { action: 'status', cmd: `jsn flows status ${data.flow.sys_id}`, description: 'Check the flow runnability gates' },
+                { action: 'executions', cmd: `jsn flows executions --record ${data.record.sys_id}`, description: 'List all flow executions for this record' },
+              ],
             });
           }),
         })
