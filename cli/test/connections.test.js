@@ -132,6 +132,10 @@ test('missing, ambiguous, denied, unreadable and malformed answers are never rep
   const hidden = await listConnections(fixtureSdk({ discovery_credentials: [] }));
   assert.deepEqual(hidden.records[0].credential, { sys_id: id(20), name: 'Wrong label, not a join key', type: null, table: null });
   assert.match(formatConnections(hidden, 'list'), /record not readable, so its type is unknown/);
+  const untyped = await listConnections(answering('discovery_credentials', [{ sys_id: field(id(20)), name: field('Alpha cred'), type: field(''), sys_class_name: field('basic_auth_credentials') }]));
+  assert.deepEqual(untyped.records[0].credential, { sys_id: id(20), name: 'Wrong label, not a join key', type: null, table: 'basic_auth_credentials' });
+  assert.match(formatConnections(untyped, 'list'), /\(no type, in basic_auth_credentials\)/);
+  assert.doesNotMatch(formatConnections(untyped, 'list').split('\n').find(line => line.includes(id(20))), /not readable/);
   const noOauth = await showConnection(fixtureSdk({ oauth_2_0_credentials: [] }), 'Beta');
   assert.equal(noOauth.credential.oauth, null);
   assert.match(formatConnections(noOauth, 'show'), /OAuth profile: unknown \(the OAuth credential record is not readable\)/);

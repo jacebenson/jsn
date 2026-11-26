@@ -35,7 +35,7 @@ function connection(row, cred) {
   return { sys_id: raw(row.sys_id), name: raw(row.name), active: raw(row.active) === 'true',
     alias: shown(row.connection_alias) || null, alias_sys_id: raw(row.connection_alias) || null,
     url: raw(row.connection_url) || null, host: raw(row.host) || null,
-    credential: credId ? { sys_id: credId, name: shown(row.credential), type: cred ? raw(cred.type) : null, table: cred ? raw(cred.sys_class_name) : null } : null };
+    credential: credId ? { sys_id: credId, name: shown(row.credential), type: cred ? raw(cred.type) || null : null, table: cred ? raw(cred.sys_class_name) || null : null } : null };
 }
 
 export async function listConnections(sdk, { limit = 50, offset = 0 } = {}) {
@@ -80,7 +80,7 @@ function oauthLines(o) {
 
 function credentialLine(c) {
   if (!c) return 'Credential: (none)';
-  return `Credential: ${c.name || c.sys_id} [${c.sys_id}] ${c.type ? `(${c.type}, in ${c.table})` : '(record not readable, so its type is unknown)'}`;
+  return `Credential: ${c.name || c.sys_id} [${c.sys_id}] ${c.table ? `(${c.type || 'no type'}, in ${c.table})` : '(record not readable, so its type is unknown)'}`;
 }
 function connectionLines(c) {
   return [`${c.name} [${c.sys_id}]${c.active ? '' : ' (inactive)'}`, `  URL: ${c.url || c.host || '(none)'}`,
