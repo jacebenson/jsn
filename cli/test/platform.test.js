@@ -133,3 +133,116 @@ describe('platform stats command', () => {
     assert.ok(!mutationPaths().some((path) => path[0] === 'platform' && path[1] === 'stats'));
   });
 });
+
+describe('platform health node reads', () => {
+  const clusterRow = (n) => ({
+    sys_id: { value: `node-${n}` },
+    status: 'Ready',
+    node_type: 'app',
+    node_stats: { value: `node-${n}` },
+  });
+  const ids = [1, 2, 3, 4, 5, 6].map(n => `node-${n}`);
+
+  // Counting transport: one cluster list plus one stats read per node. Reads can
+  // be given individual latency so completion order differs from request order.
+  function healthHarness({ rows, failFor = new Set(), latencyByID = new Map(), latencyMs = 5 }) {
+    const requests = [];
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+    const app = {
+      requireInstance: () => {},
+      getEffectiveInstance: () => 'https://example.service-now.com',
+      sdk: {
+        async list(table) {
+          requests.push({ kind: 'list', table });
+          await wait(latencyMs);
+          return rows;
+        },
+        async get(table, sysID) {
+          requests.push({ kind: 'get', table, sysID });
+          inFlight += 1;
+          maxInFlight = Math.max(maxInFlight, inFlight);
+          try {
+            await wait(latencyByID.get(sysID) ?? latencyMs);
+            if (failFor.has(sysID)) throw new Error(`HTTP 503 reading ${sysID}`);
+            return { stats: `<xmlstats><queue.length>${sysID.split('-')[1]}</queue.length></xmlstats>` };
+          } finally {
+            inFlight -= 1;
+          }
+        },
+      },
+      ok: (data, opts) => { app.result = { data, opts }; },
+    };
+    return { app, requests, get maxInFlight() { return maxInFlight; } };
+  }
+
+  async function runHealth(app, argv = {}) {
+    const { platformCmd } = await import('../src/commands/platform.js');
+    const commands = [];
+    const root = platformCmd((fn) => async (a) => fn(a, a.app));
+    root.builder({ command(definition) { commands.push(definition); return this; } });
+    const health = commands.find((command) => command.command === 'health');
+    await health.handler({ ...argv, app });
+    return app.result;
+  }
+
+  it('reads node stats through the bounded pool and keeps cluster row order', async () => {
+    // node-1 finishes last, so a completion-ordered implementation would move it.
+    const harness = healthHarness({
+      rows: [1, 2, 3, 4, 5, 6].map(clusterRow),
+      latencyByID: new Map([['node-1', 45]]),
+      latencyMs: 8,
+    });
+
+    const result = await runHealth(harness.app, { allNodes: true });
+
+    assert.deepEqual(harness.requests.filter(request => request.kind === 'list').map(request => request.table), ['sys_cluster_state']);
+    assert.deepEqual(
+      harness.requests.filter(request => request.kind === 'get').map(request => request.sysID).sort(),
+      [...ids].sort(),
+    );
+    assert.equal(harness.requests.length, 7, 'one cluster read plus exactly one stats read per node');
+    assert.equal(harness.maxInFlight, 4, 'six node reads must never exceed the pool of four');
+    assert.equal(result.data.node_count, 6);
+    assert.deepEqual(result.data.nodes.map(node => node.sys_id), ids);
+    assert.deepEqual(result.data.nodes.map(node => node.stats.queue.length), [1, 2, 3, 4, 5, 6]);
+    assert.equal(result.data.stats_unavailable, 0);
+    assert.equal(result.opts.summary, 'Platform health: 6 node(s)');
+  });
+
+  it('attributes an unreadable node read and still renders every other node', async () => {
+    const harness = healthHarness({
+      rows: [1, 2, 3, 4, 5, 6].map(clusterRow),
+      failFor: new Set(['node-3']),
+      latencyMs: 5,
+    });
+
+    const result = await runHealth(harness.app, { allNodes: true });
+
+    assert.equal(harness.requests.length, 7);
+    assert.deepEqual(result.data.nodes.map(node => node.sys_id), ids);
+    assert.equal(result.data.stats_unavailable, 1);
+    const failed = result.data.nodes.find(node => node.sys_id === 'node-3');
+    assert.equal(failed.stats, null);
+    assert.equal(failed.stats_unavailable, true);
+    assert.match(failed.stats_error, /HTTP 503 reading node-3/);
+    for (const node of result.data.nodes.filter(item => item.sys_id !== 'node-3')) {
+      assert.equal(node.stats_unavailable, undefined);
+      assert.equal(node.stats.queue.length, Number(node.sys_id.split('-')[1]));
+    }
+    assert.equal(result.opts.summary, 'Platform health: 6 node(s), 1 with unreadable stats');
+    assert.match(result.data._formatted, /⚠ Node stats unreadable for: node-3/);
+    assert.equal(result.data._formatted.split('\n').filter(line => line.startsWith('Ready')).length, 6);
+  });
+
+  it('keeps the --node selection to one stats read', async () => {
+    const harness = healthHarness({ rows: [1, 2, 3].map(clusterRow) });
+
+    const result = await runHealth(harness.app, { node: 'node-2' });
+
+    assert.equal(harness.requests.filter(request => request.kind === 'get').length, 1);
+    assert.deepEqual(result.data.nodes.map(node => node.sys_id), ['node-2']);
+    assert.equal(result.data.node_count, 1);
+  });
+});
