@@ -124,6 +124,35 @@ test('a superseded slow response cannot overwrite the newer filtered page', asyn
   assert.equal((await pending).value, 'ab');
 });
 
+test('navigation and Enter wait for the current term instead of acting on the stale list', async () => {
+  const io = terminal();
+  const browse = ['browse-0', 'browse-1', 'browse-2'].map(value => ({ name: value, value }));
+  const fresh = ['fresh-0', 'fresh-1', 'fresh-2', 'fresh-3'].map(value => ({ name: value, value }));
+  const terms = [];
+  const pending = paginatedSearch({
+    message: 'Find',
+    source: async term => {
+      terms.push(term ?? '');
+      if (!term) return browse;
+      await tick(120); // the term's page is still in flight when the arrows arrive
+      return fresh;
+    },
+  }, io);
+  await tick();
+  assert.match(io.visible(), /browse-0/, 'the stale browse list is on screen');
+
+  io.input.write('abc');
+  // Down, down, Enter all arrive before the debounce fires. They must flush
+  // the search and apply to its results, never to the browse rows.
+  io.input.write('\x1b[B\x1b[B\r');
+  const answer = await pending;
+
+  assert.ok(fresh.some(item => item.value === answer.value), 'the pick must come from the term result set');
+  assert.equal(answer.value, 'fresh-2', 'both deferred downs applied to the filtered rows');
+  assert.deepEqual(terms, ['', 'abc'], 'the flush issued one search, not a second debounced request');
+  assert.equal(io.input.listenerCount('keypress'), 0);
+});
+
 function listReturns(rows, onCall = () => {}) {
   return async (table, params) => {
     onCall(table, params);

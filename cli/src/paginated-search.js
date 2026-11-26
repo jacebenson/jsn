@@ -44,6 +44,8 @@ export const paginatedSearch = async (config = {}, context = {}) => {
     token: 0,
     error: '',
     debounce: null,
+    inflight: null,
+    appliedTerm: '',
   };
 
   const cancelDebounce = () => {
@@ -61,31 +63,56 @@ export const paginatedSearch = async (config = {}, context = {}) => {
   // newer results or be selected by a later Enter.
   const isCurrent = token => token === state.token && state.status !== 'cancelled';
 
-  async function load(term, offset, { append = false } = {}) {
-    request?.abort();
-    request = new AbortController();
-    const signal = context.signal ? AbortSignal.any([request.signal, context.signal]) : request.signal;
-    const token = ++state.token;
-    state.status = 'loading';
-    state.error = '';
-    try {
-      const items = normalizeChoices(await source(term || undefined, offset, { signal }) || []);
-      if (!isCurrent(token)) return;
-      state.choices = append ? state.choices.concat(items) : items;
-      state.loaded = state.choices.length;
-      state.exhausted = items.length === 0;
-      state.active = Math.min(state.active, Math.max(0, state.choices.length - 1));
-      state.status = 'done';
-    } catch (error) {
-      if (!isCurrent(token)) return;
-      state.status = 'done';
-      state.error = error?.message || String(error);
-      if (!append) {
-        state.choices = [];
-        state.loaded = 0;
-      }
-      // A failed load-more keeps the rows already on screen.
+  // True while the rows on screen belong to an older term: either the
+  // debounce has not fired yet or the current term's request is in flight.
+  const awaitingTermResults = () => state.searchMode
+    && (state.debounce !== null || state.status === 'loading');
+
+  // A navigation/selection key must never act on the stale list. Flush the
+  // pending debounce right away (the user is done typing) and resolve only
+  // once the current term's page has been applied.
+  async function flushPendingSearch() {
+    if (state.status === 'cancelled') return;
+    if (state.debounce) {
+      cancelDebounce();
+      await load(state.term, undefined);
+    } else if (state.status === 'loading' && state.inflight) {
+      await state.inflight;
     }
+    api?.redraw();
+  }
+
+  function load(term, offset, { append = false } = {}) {
+    const run = (async () => {
+      request?.abort();
+      request = new AbortController();
+      const signal = context.signal ? AbortSignal.any([request.signal, context.signal]) : request.signal;
+      const token = ++state.token;
+      state.status = 'loading';
+      state.error = '';
+      try {
+        const items = normalizeChoices(await source(term || undefined, offset, { signal }) || []);
+        if (!isCurrent(token)) return;
+        state.choices = append ? state.choices.concat(items) : items;
+        state.loaded = state.choices.length;
+        state.exhausted = items.length === 0;
+        state.active = Math.min(state.active, Math.max(0, state.choices.length - 1));
+        state.appliedTerm = term || '';
+        state.status = 'done';
+      } catch (error) {
+        if (!isCurrent(token)) return;
+        state.status = 'done';
+        state.error = error?.message || String(error);
+        if (!append) {
+          state.choices = [];
+          state.loaded = 0;
+          state.appliedTerm = term || '';
+        }
+        // A failed load-more keeps the rows already on screen.
+      }
+    })();
+    state.inflight = run;
+    return run;
   }
 
   let api;
@@ -104,8 +131,15 @@ export const paginatedSearch = async (config = {}, context = {}) => {
         if (state.status !== 'cancelled') api.redraw();
       });
     },
-    key(_state, key, handle) {
+    async key(_state, key, handle) {
       api = handle;
+      if ((key.name === 'up' || key.name === 'down' || key.name === 'return' || key.name === 'enter')
+        && awaitingTermResults()) {
+        // The visible rows belong to an older term. Issue the search now and
+        // wait for it before this key is allowed to move or select anything;
+        // the keypress queue serializes any keys that follow it.
+        await flushPendingSearch();
+      }
       if (key.name === 'return' || key.name === 'enter') {
         // No selecting a row while a request is in flight: the list on
         // screen may be about to change.
