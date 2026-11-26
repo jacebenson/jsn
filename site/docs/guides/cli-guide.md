@@ -231,8 +231,8 @@ trusted baseline from that history alone.
 ### Reverting an application's customised files
 
 ```sh
-jsn customizations revert --scope sn_hr_core --expect-scope sn_hr_core --expect-update-set "<set>"
-jsn customizations revert --scope sn_hr_core --expect-scope sn_hr_core --expect-update-set "<set>" --confirm <token>
+jsn customizations revert --scope sn_hr_core --expect-scope global --expect-update-set "<set>"
+jsn customizations revert --scope sn_hr_core --expect-scope global --expect-update-set "<set>" --confirm <token>
 ```
 
 `revert` is the one customizations subcommand that writes. It puts the
@@ -257,8 +257,10 @@ readback per file.
   file that changes after the preview rejects the old token. A terminal asks
   one default-No confirmation instead. `--force` does not waive either.
 - It is a mutation: read-only profiles refuse it, and noninteractive runs,
-  previews included, need `--expect-scope` (the application's own scope) and
-  `--expect-update-set`.
+  previews included, need `--expect-scope` and `--expect-update-set` naming the
+  current selection. Each revert runs as a global background script, so the
+  platform captures it in that update set; the application itself need not be
+  the selected scope.
 - A file that fails is reported with its error and the rest carry on; any
   failure exits nonzero, never with a success summary.
 

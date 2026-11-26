@@ -2,7 +2,6 @@ import { customizationsCmdDefinition } from '../command-families.js';
 import { errUsageHint, errUsage } from '../errors.js';
 import { canUsePicker } from '../helpers.js';
 import { confirm } from '../prompts.js';
-import { assertMutationScope } from '../intended-context.js';
 import { invalidateAfterMutation } from '../query-validate.js';
 import { paginatedSearch } from '../paginated-search.js';
 import { captureReport, listReports, getReport, compareReports, formatReport, formatReportList, formatReportComparison } from '../customizations.js';
@@ -90,12 +89,11 @@ export function customizationsCmd(wrap, ui = {}) {
         builder: b => b.option('scope', { type: 'string', demandOption: true, describe: 'Application scope, e.g. sn_hr_core' })
           .option('after', { type: 'string', describe: 'Start after this update name, as a preview with more files prints' })
           .option('confirm', { type: 'string', describe: 'Confirmation token from the preview; without it, and without a terminal, only the preview runs' })
-          .epilogue(`Previews by default. Reverts up to 100 customised files a run, each through jsn records revert: newest base system version, readback per file. Files added on the instance are listed and never deleted; applications built on this instance are refused. Without a terminal every run, the preview too, needs --expect-scope (the application's scope) and --expect-update-set.\nExample: jsn customizations revert --scope sn_hr_core --expect-scope sn_hr_core --expect-update-set "<set>", then the same with --confirm <token>`),
+          .epilogue(`Previews by default. Reverts up to 100 customised files a run, each through jsn records revert: newest base system version, readback per file. Files added on the instance are listed and never deleted; applications built on this instance are refused. Without a terminal every run, the preview too, needs --expect-scope and --expect-update-set naming the current selection: the reverts are captured in that update set, and the application need not be selected.\nExample: jsn customizations revert --scope sn_hr_core --expect-scope global --expect-update-set "<set>", then the same with --confirm <token>`),
         handler: wrap(async (argv, app) => {
           app.requireInstance();
           const { previewAppRevert, applyAppRevert, formatAppRevertPreview, formatAppRevert } = await import('../customizations-revert.js');
           const preview = await previewAppRevert(app.sdk, { scope: argv.scope, after: argv.after, instance: app.getEffectiveInstance() });
-          assertMutationScope(app.mutationContext, preview.application.sys_id, 'Application');
           const shown = { ...preview, _formatted: formatAppRevertPreview(preview) };
           if (argv.confirm !== undefined) {
             if (argv.confirm !== preview.confirmation_token) throw errUsageHint('The customised files changed since the preview, or the token does not match; nothing was reverted.', `Review a new preview: jsn customizations revert --scope ${argv.scope}${argv.after === undefined ? '' : ` --after ${argv.after}`}`);

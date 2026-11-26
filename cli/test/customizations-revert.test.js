@@ -169,11 +169,12 @@ test('customizations revert reports a failed file, carries on with the rest and 
   assert.match(f.outputs.at(-1).opts.summary, /1 reverted; 1 failed/);
 });
 
-test('customizations revert holds a verified capture context to the application\'s scope', async () => {
+test('customizations revert runs under a verified Global selection, which captures its global scripts', async () => {
   const f = fixture();
-  f.app.mutationContext = { verified: true, application_id: id(904) };
-  await assert.rejects(f.run(), /Application scope is unknown or differs/);
-  assert.deepEqual(f.scripts, []);
+  f.app.mutationContext = { verified: true, application_id: 'global' };
+  await f.run();
+  await f.run({ confirm: f.data.confirmation_token });
+  assert.deepEqual([f.scripts.length, f.data.success_count], [2, 2]);
 });
 
 test('customizations revert refuses a file now in another scope and never trusts rows it did not ask for', async () => {
