@@ -199,6 +199,9 @@
     "workflows"
   ],
   "approved": {
+    "access": {
+      "why": "users access says which sys_user flag or failed sign-in stops a user signing in; show prints the record without judging it, roles answers what a user may do once signed in, and check or status would not say that the subject is sign-in."
+    },
     "enable": {
       "why": "audit enable is the state-changing counterpart of the audit read; list/show only read saved evidence, and update would hide which table attribute changes."
     },
@@ -223,7 +226,7 @@
   },
   "budgets": {
     "$comment": "Subcommand count per family. A budget is a ratchet, not a ban: when a new command earns its place, raise the number in the same diff and say why in the PR. Adding a family means adding its budget entry.",
-    "total": 431,
+    "total": 432,
     "families": {
       "access-analyzer": 3,
       "acls": 5,
@@ -310,7 +313,7 @@
       "uipolicies": 5,
       "updatesets": 14,
       "upgrade": 1,
-      "users": 6,
+      "users": 7,
       "uxapplicability": 2,
       "uxlists": 2,
       "uxscripts": 5,
