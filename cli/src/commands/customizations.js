@@ -1,6 +1,6 @@
 import { customizationsCmdDefinition } from '../command-families.js';
 import { errUsageHint, errUsage } from '../errors.js';
-import { canUsePicker } from '../helpers.js';
+import { canUsePicker, buildRerunCommand } from '../helpers.js';
 import { confirm } from '../prompts.js';
 import { invalidateAfterMutation } from '../query-validate.js';
 import { paginatedSearch } from '../paginated-search.js';
@@ -101,7 +101,10 @@ export function customizationsCmd(wrap, ui = {}) {
           if (argv.confirm !== undefined) {
             if (argv.confirm !== preview.confirmation_token) throw errUsageHint('The customised files changed since the preview, or the token does not match; nothing was reverted.', `Review a new preview: jsn customizations revert --scope ${argv.scope}${argv.after === undefined ? '' : ` --after ${argv.after}`}`);
           } else if (!preview.plans.length || !prompts.canUsePicker(app, argv)) {
-            app.ok(shown, { summary: preview.plans.length ? `Preview: ${preview.plans.length} file(s) to revert; nothing reverted. Rerun with${argv.after === undefined ? '' : ` --after ${argv.after}`} --confirm ${preview.confirmation_token}` : preview.more ? `Nothing to revert in this batch; more customised files remain: rerun with --after ${preview.next_after}` : 'Nothing to revert' });
+            const revertRerun = after => buildRerunCommand(argv, { rerun: ['customizations', 'revert', '--scope', String(argv.scope),
+              ...(after === undefined ? [] : ['--after', String(after)]), '--confirm', String(preview.confirmation_token)] });
+            const moreRerun = buildRerunCommand(argv, { rerun: ['customizations', 'revert', '--scope', String(argv.scope), '--after', String(preview.next_after)] });
+            app.ok(shown, { summary: preview.plans.length ? `Preview: ${preview.plans.length} file(s) to revert; nothing reverted. Rerun: ${revertRerun(argv.after)}` : preview.more ? `Nothing to revert in this batch; more customised files remain: ${moreRerun}` : 'Nothing to revert' });
             return;
           } else {
             app.ok(shown, { summary: 'Review the files before confirming' });

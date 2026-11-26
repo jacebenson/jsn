@@ -63,7 +63,13 @@ test('health reads the nodes and five bounded queries, and flags each class of t
   assert.deepEqual(sdk.calls.map(call => call.table), ['sys_cluster_state', 'sys_trigger', 'sys_trigger', 'sys_trigger', 'sysauto_script', 'syslog_transaction']);
   const [nodes, overdue, erroring, dead, runAs, long] = sdk.calls.map(call => call.params);
   assert.deepEqual(nodes, { sysparm_query: 'ORDERBYsystem_id', sysparm_fields: 'system_id,status', sysparm_limit: '201', sysparm_display_value: 'all' });
-  assert.deepEqual(overdue, { sysparm_query: 'stateIN0,2^next_action<javascript:gs.minutesAgoStart(60)^trigger_typeNOT IN2,9^system_idNOT INALL NODES,ACTIVE NODES,PRIMARY NODES^ORsystem_idISEMPTY^ORDERBYnext_action', sysparm_fields: TRIGGER_FIELDS, sysparm_limit: '11', sysparm_display_value: 'all' });
+  assert.deepEqual(overdue, { sysparm_query: 'stateIN0,2^next_action<javascript:gs.minutesAgoStart(60)^trigger_typeNOT IN2,9^system_idNOT INALL NODES,ACTIVE NODES,PRIMARY NODES^NQstateIN0,2^next_action<javascript:gs.minutesAgoStart(60)^trigger_typeNOT IN2,9^system_idISEMPTY^ORDERBYnext_action', sysparm_fields: TRIGGER_FIELDS, sysparm_limit: '11', sysparm_display_value: 'all' });
+  // Each branch has to repeat the filters: a bare ^OR would start a new branch and
+  // every trigger with no system_id would come back as overdue.
+  const overdueBranches = overdue.sysparm_query.split('^NQ');
+  assert.equal(overdueBranches.length, 2);
+  assert.match(overdueBranches[0], /^stateIN0,2\^next_action</);
+  assert.match(overdueBranches[1], /^stateIN0,2\^next_action</);
   assert.equal(erroring.sysparm_query, 'stateIN-1,-2^ORerror_count>0^ORDERBYDESCsys_updated_on');
   assert.equal(dead.sysparm_query, `system_idISNOTEMPTY^system_idNOT INALL NODES,ACTIVE NODES,PRIMARY NODES,${NODE}^parentISEMPTY^trigger_type!=9^ORDERBYsystem_id`);
   assert.deepEqual(runAs, { sysparm_query: 'active=true^run_as.active=false^ORDERBYname', sysparm_fields: JOB_FIELDS, sysparm_limit: '11', sysparm_display_value: 'all' });

@@ -104,6 +104,18 @@ test('import runs on a data source reads the runs of its sets, then checks each 
   assert.deepEqual(data.error_rows.rows, []);
 });
 
+test('import runs reports an unreadable import set as unproven instead of a foreign data source', async () => {
+  const sdk = fakeSdk({
+    sys_import_set: q => q.startsWith('sys_idIN') ? [] : [],
+    sys_data_source: [ds()],
+    sys_import_set_run: [run(2)],
+  });
+  const data = await readImportRuns(sdk, DS, {});
+  assert.equal(data.runs.length, 1);
+  assert.equal(data.unproven_runs.length, 1);
+  assert.match(data.notes.join(' '), /cannot read, so their data source is unproven/);
+});
+
 test('import runs refuses a run whose set is not the data source asked for', async () => {
   const sdk = fakeSdk({
     sys_import_set: q => q.startsWith('sys_idIN') ? [set(SET, 'ISET0010001', 'b'.repeat(32))] : [],

@@ -59,8 +59,13 @@ export async function addUserRoles(sdk, { role, user, yes = false }) {
   if (!grant.length) return { ...base, dry_run: false, granted: [], failed: [], unconfirmed: [], verified: true };
   const failed = [], empty = new Set();
   for (const u of grant) {
-    try { if (!(await sdk.create(TABLE, { user: u.sys_id, role: t.role.sys_id }))?.sys_id) empty.add(u.sys_id); }
-    catch (error) { failed.push({ ...u, error: error.message || String(error) }); }
+    try {
+      // Only an empty reply means the platform refused the insert (a duplicate
+      // direct row). A reply that merely omits sys_id still created the row, so
+      // calling that "already held" would report our own grant as pre-existing.
+      const reply = await sdk.create(TABLE, { user: u.sys_id, role: t.role.sys_id });
+      if (!reply) empty.add(u.sys_id);
+    } catch (error) { failed.push({ ...u, error: error.message || String(error) }); }
   }
   const now = new Set(direct(await readRows(sdk, t.role.sys_id, grant.map(u => u.sys_id))).map(r => raw(r.user)));
   const tried = grant.filter(u => !failed.some(f => f.sys_id === u.sys_id));

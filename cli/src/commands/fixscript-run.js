@@ -6,7 +6,7 @@ import { getRecord } from '../records-engine.js';
 import { unwrapSysId } from '../resolve-record.js';
 import { assertMutationScope } from '../intended-context.js';
 import { guardExit, errUsage, CodeUsage } from '../errors.js';
-import { quoteShellArg } from '../helpers.js';
+import { buildRerunCommand } from '../helpers.js';
 
 const raw = value => value?.value ?? value;
 // The terminal view shows the script on a preview and what it printed on a run; --json keeps the data as it is.
@@ -34,12 +34,14 @@ export function withFixScriptRun(command, wrap) {
     handler: wrap(async (argv, app) => {
       app.requireInstance();
       const record = await getRecord(app.sdk, { table: 'sys_script_fix', identifier: argv.identifier, matchField: 'name', resource: 'fix script', fields: ['name', 'script', 'sys_scope', 'record_for_rollback', 'unloadable'], displayValues: 'raw' });
-      const sysId = unwrapSysId(record), name = raw(record.name), script = raw(record.script), scope = raw(record.sys_scope);
+      const sysId = unwrapSysId(record), name = raw(record.name), script = raw(record.script);
+      // A Global record stores an empty sys_scope; the verified context names it 'global'.
+      const scope = raw(record.sys_scope) || 'global';
       assertMutationScope(app.mutationContext, scope, 'Fix script');
       if (typeof script !== 'string' || !script.trim()) throw errUsage(`Fix script ${name} has no script to run. Nothing was run.`);
       const plan = { sys_id: sysId, name, scope, record_for_rollback: raw(record.record_for_rollback) === 'true', unloadable: raw(record.unloadable) === 'true', script };
       if (!argv.yes) {
-        const rerun = ['jsn', 'fixscripts', 'run', sysId, '--yes'].map(quoteShellArg).join(' ');
+        const rerun = buildRerunCommand(argv, { rerun: ['fixscripts', 'run', sysId, '--yes'] });
         const summary = `Dry run: would run fix script ${name} (${sysId}) in its scope, ${plan.record_for_rollback ? 'with' : 'without'} a rollback context`;
         return app.ok(withText({ ...plan, dry_run: true }, summary, script), {
           summary,
