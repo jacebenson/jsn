@@ -145,7 +145,20 @@ const deferredFamilies = {
   triggers: profileFamily("triggers", "./commands/_simple.js", "triggersCmd"),
   assignments: profileFamily("assignments", "./commands/_simple.js", "assignmentsCmd"),
   email: profileFamily("email", "./commands/_simple.js", "emailCmd"),
-  notifications: profileFamily("notifications", "./commands/_simple.js", "notificationsCmd"),
+  notifications: {
+    definition: {
+      command: "notifications [subcommand]",
+      aliases: ["notification"],
+      describe: "Inspect outbound email notifications: when they send, to whom, and why a user did or did not receive one",
+      summary: "Explain outbound notification delivery",
+    },
+    capabilities: {
+      table: "sysevent_email_action",
+      mutationContext: "operational",
+      mutationSubcommands: ["preview"],
+    },
+    module: "./commands/notifications.js", exportName: "notificationsCmd",
+  },
   uimacros: profileFamily("uimacros", "./commands/_simple.js", "uimacrosCmd"),
   uxlists: profileFamily("uxlists", "./commands/_simple.js", "uxlistsCmd"),
   uxapplicability: profileFamily("uxapplicability", "./commands/_simple.js", "uxapplicabilityCmd"),

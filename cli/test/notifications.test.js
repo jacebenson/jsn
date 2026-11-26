@@ -121,7 +121,7 @@ test('real CLI lists and shows notifications on a read-only profile and refuses 
     const list = JSON.parse((await run(['notifications', 'list', '--json'])).stdout);
     assert.equal(list.ok, true);
     assert.equal(list.data.table, 'sysevent_email_action');
-    assert.deepEqual(list.data.columns, ['name', 'collection', 'generation_type', 'active', 'sys_scope']);
+    assert.deepEqual(list.data.columns, ['name', 'collection', 'generation_type', 'active', 'weight', 'sends_on', 'recipients', 'body']);
     const before = calls.length;
     const show = JSON.parse((await run(['notifications', 'show', id(1), '--json'])).stdout);
     assert.equal(show.ok, true);

@@ -228,15 +228,40 @@ persist, the whole subcommand is declared write-class for read-only profiles.
 jsn notifications list --query "collection=incident^active=true"
 jsn notifications show "Incident opened and unassigned" --format styled
 jsn notifications show <sys_id> --get data._delivery
+jsn notifications why incident INC0010007 abel.tuter
+jsn notifications preview "Incident Opened and Unassigned" incident INC0010007
 ```
 
-These commands read `sysevent_email_action` and never render or send email.
-`show` adds `_delivery`: what sends the notification (a record insert or update
-with its condition, an event, or a flow) and which body is used. A template
-with a body replaces the notification's own `message_html`; an empty template
-body leaves it in play. Mail script names come from the body in use. A template
+`list`, `show` and `why` read `sysevent_email_action` and never render or send
+email. `list` shows what sends each notification, who it targets, its weight
+and the winning body; template bodies are read in one bounded batch. `show`
+adds `_delivery`: what sends the notification (a record insert or update with
+its condition, an event, or a flow) and which body is used. A template with a
+body replaces the notification's own `message_html`; an empty template body
+leaves it in play. Mail script names come from the body in use. A template
 that cannot be read is reported `unavailable`, never as the notification's own
 body, and plain-text notifications are `unsupported`.
+
+`why <table> <number|sys_id> <user>` attributes the engine's own evidence for
+one record: `notification_engine.process` events (parm1 is the notification),
+event-named rows, linked `sys_email` rows, and `syslog_email` inclusion or
+exclusion lines when that table is readable. It shows the user's active flag,
+email, notification setting, devices and subscriptions, plus the instance
+switches that decide whether an absent email means anything. When nothing was
+logged it says so and shows the recipient configuration and the record's own
+values in those fields; it never recomputes the platform's recipient rules.
+Flow-triggered notifications are counted as not covered. A 403 on
+`syslog_email` is rendered as unavailable, never as zero.
+
+`preview <notification> <table> <number|sys_id>` calls the platform's
+NotificationSimulator over `xmlhttp.do` the same way `jsn scan` calls
+ScanAjaxProcessor. It is declared as a mutation because it runs mail scripts:
+read-only profiles refuse it and it asks for confirmation (`--force` for
+automation). It sends no email, and it reports `sys_email`, `sysevent` and
+`syslog_email` counts before and after the call so a write would be visible.
+Its answer contains no recipient rows and does not explain inclusion or
+exclusion; use `why` for that.
+
 ## Find a REST API
 
 ```sh
