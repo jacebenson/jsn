@@ -61,7 +61,7 @@ test('reads one record\'s changes keyed on its own class and raw sys_id, newest 
     sysparm_fields: 'sys_id,tablename,documentkey,fieldname,oldvalue,newvalue,user,reason,sys_created_on',
     sysparm_limit: '21', sysparm_display_value: 'false', sysparm_no_count: 'true',
   });
-  assert.deepEqual(data.record, { sys_id: SYS_ID, table: 'incident', exists: true });
+  assert.deepEqual(data.record, { sys_id: SYS_ID, table: 'incident', found: true });
   assert.equal(data.count, 2);
   assert.deepEqual(data.changes[0], { sys_id: '3'.padStart(32, '0'), changed_on: '2026-11-23 10:00:00', user: 'alex.chen', field: 'assigned_to', old_value: '', new_value: OTHER, reason: '' });
   assert.deepEqual(data.notes, []);
@@ -86,15 +86,21 @@ test('--field and --since narrow the keyed query; bad input rejects before any r
 test('a deleted record still shows its history; a missing record with none is not found', async () => {
   const deleted = fixture({ record: null, rows: [audit(4, { fieldname: 'DELETED', oldvalue: 'DELETED', newvalue: 'DELETED' }), audit(3)] });
   const data = await recordHistory(deleted.sdk, { table: 'incident', identifier: SYS_ID });
-  assert.equal(data.record.exists, false);
+  assert.equal(data.record.found, false);
   assert.equal(data.count, 2);
   assert.match(data.notes.join(' '), /No incident record has sys_id a{32} now; these rows are its history before it was deleted/);
   assert.match(formatHistory(data), /record deleted/);
   // A full sys_id is looked up exactly once: no prefix or suffix scans of the record's table.
   assert.equal(deleted.calls.filter(call => call.table === 'incident').length, 1);
 
+  // Without the DELETED row (filtered out, or the record is hidden by ACLs) it does not claim a delete.
+  const hidden = await recordHistory(fixture({ record: null, rows: [audit(3)] }).sdk, { table: 'incident', identifier: SYS_ID, field: 'priority' });
+  assert.match(hidden.notes.join(' '), /is readable now \(deleted, or hidden by ACLs\)/);
+  assert.doesNotMatch(hidden.notes.join(' '), /before it was deleted/);
+
   const missing = fixture({ record: null });
-  await assert.rejects(recordHistory(missing.sdk, { table: 'incident', identifier: SYS_ID }), error => error.code === 'not_found' && /own table \(incident, not task\)/.test(error.hint));
+  await assert.rejects(recordHistory(missing.sdk, { table: 'incident', identifier: SYS_ID }), error => error.code === 'not_found' && /may not exist, or ACLs hide it/.test(error.hint) && /own table \(incident, not task\)/.test(error.hint) && !/--field/.test(error.hint));
+  await assert.rejects(recordHistory(fixture({ record: null }).sdk, { table: 'incident', identifier: SYS_ID, field: 'priority' }), error => error.code === 'not_found' && /no rows for it matching --field or --since/.test(error.hint));
   // Without a sys_id there is no documentkey to read.
   const byNumber = fixture({ record: null });
   await assert.rejects(recordHistory(byNumber.sdk, { table: 'incident', identifier: 'INC0010001', identifierField: 'number' }), error => error.code === 'not_found');
@@ -120,7 +126,7 @@ test('an empty history says why where the audit settings tell, and never claims 
   // Audit status needs admin too; failing to read it is a note, not a failed history read.
   const unread = await recordHistory(fixture({ tables: { ...auditWorld(), sys_properties: [] } }).sdk, { table: 'incident', identifier: SYS_ID });
   assert.match(unread.notes[0], /audit status for incident was not read: No audit properties were readable/);
-  assert.match(formatHistory(unread), /No changes\./);
+  assert.match(formatHistory(unread), /\(read-only\)\nNo changes found; audit status/);
 });
 
 test('a row for another record or field, or a malformed page, is never shown as history', async () => {
@@ -146,18 +152,18 @@ test('lookahead reports more changes without claiming a total, and long values a
 
 test('real CLI reads only with GETs on a read-only profile, renders human and JSON output, and rejects bad input before transport', async () => {
   const calls = [];
-  const { sdk } = fixture({ rows: [audit(2), audit(1, { fieldname: 'state', oldvalue: '1', newvalue: '2' })] });
+  let { sdk } = fixture({ rows: [audit(2), audit(1, { fieldname: 'state', oldvalue: '1', newvalue: '2' })] });
   const server = createServer((req, res) => {
     const url = new URL(req.url, 'http://fixture.invalid');
     calls.push({ method: req.method, pathname: url.pathname });
     res.setHeader('Content-Type', 'application/json');
     if (!url.pathname.startsWith('/api/now/table/')) return res.end(JSON.stringify({ result: [] }));
     const table = url.pathname.split('/').pop();
-    (table === 'sys_audit' ? sdk.listStrict(table, url.searchParams) : sdk.list(table, url.searchParams)).then(rows => res.end(JSON.stringify({ result: rows })));
+    (table === 'incident' ? sdk.list(table, url.searchParams) : sdk.listStrict(table, url.searchParams)).then(rows => res.end(JSON.stringify({ result: rows })));
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-records-history-'));
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-records-history-')));
   fs.mkdirSync(path.join(dir, 'servicenow'));
   fs.writeFileSync(path.join(dir, 'servicenow/config.json'), JSON.stringify({ default_profile: 'fixture', profiles: { fixture: { instance_url: `http://127.0.0.1:${server.address().port}`, auth_method: 'basic', read_only: true } } }));
   const env = loopbackFixtureEnv({ HOME: dir, XDG_CONFIG_HOME: dir, XDG_CACHE_HOME: dir, JSN_DATA_HOME: path.join(dir, 'data'), SN_USERNAME: 'fixture', SN_PASSWORD: 'fixture-secret', JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_HEADER: '1', JSN_NO_PROMPTS: '1' });
@@ -179,6 +185,11 @@ test('real CLI reads only with GETs on a read-only profile, renders human and JS
     }
     assert.equal(calls.filter(call => call.pathname.startsWith('/api/now/table/')).length, before);
     assert.ok(calls.filter(call => call.pathname.startsWith('/api/now/table/')).every(call => call.method === 'GET'));
+    // An empty history's summary is the reason, never a bare count of zero.
+    ({ sdk } = fixture({ tables: auditWorld({ audited: false }) }));
+    const empty = await run(['records', 'history', 'incident', SYS_ID, '--get', 'summary']);
+    assert.match(empty.stdout, /No changes found: table auditing is off for incident/);
+    assert.doesNotMatch(empty.stdout, /0 change/);
     const help = await run(['records', '--help']);
     assert.ok(help.stdout.includes('history'));
   } finally {

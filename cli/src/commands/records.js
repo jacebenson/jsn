@@ -948,7 +948,7 @@ export function recordsCmd(wrap) {
             const { recordHistory, formatHistory } = await import('../records/history.js');
             const data = await recordHistory(app.sdk, { table: argv.table, identifier: argv.identifier, identifierField: argv.identifierField, field: argv.field, since: argv.since, limit: argv.limit });
             Object.defineProperty(data, '_formatted', { value: formatHistory(data), enumerable: false });
-            app.ok(data, { summary: `${data.count} change(s) to ${data.record.table} ${data.record.sys_id}${data.pagination.has_more ? '; more exist' : ''}` });
+            app.ok(data, { summary: data.count ? `${data.count} change(s) to ${data.record.table} ${data.record.sys_id}${data.pagination.has_more ? '; more exist' : ''}` : data.notes[0] });
           }),
         })
 

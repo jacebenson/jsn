@@ -58,7 +58,8 @@ export async function recordHistory(sdk, { table, identifier, identifierField, f
   if (!Array.isArray(rows) || rows.some(row => !row || typeof row !== 'object' || Array.isArray(row))) throw malformed(`Malformed table response for ${AUDIT}`);
   if (rows.some(row => raw(row.documentkey) !== sysId || raw(row.tablename) !== tablename || (field && raw(row.fieldname) !== field))) throw malformed(`${AUDIT} returned a row for another record or field than ${tablename} ${sysId}.`);
   if (missing && !rows.length) {
-    missing.hint = `No ${table} record has sys_id ${sysId}, and ${AUDIT} holds no rows for it. Audit rows are kept under the record's own table (incident, not task).`;
+    // An ACL-hidden record also lists as empty, and a filter can hide the rows a deleted record does have.
+    missing.hint = `No ${table} record with sys_id ${sysId} is readable (it may not exist, or ACLs hide it), and ${AUDIT} holds no rows for it${field || since ? ' matching --field or --since; run without them to see all its rows' : ''}. Audit rows are kept under the record's own table (incident, not task).`;
     throw missing;
   }
 
@@ -73,12 +74,12 @@ export async function recordHistory(sdk, { table, identifier, identifierField, f
     reason: raw(row.reason),
   }));
   const notes = [];
-  if (missing) notes.push(`No ${table} record has sys_id ${sysId} now; these rows are its history before it was deleted.`);
+  if (missing) notes.push(rows.some(row => raw(row.fieldname) === 'DELETED') ? `No ${table} record has sys_id ${sysId} now; these rows are its history before it was deleted.` : `No ${table} record with sys_id ${sysId} is readable now (deleted, or hidden by ACLs); these are its ${AUDIT} rows.`);
   if (!changes.length) notes.push(await whyEmpty(sdk, tablename, field, since), UNPROVEN);
   if (rows.length > limit) notes.push(limit < 200 ? 'More changes exist; raise --limit (up to 200), or narrow with --field or --since.' : 'More changes exist; narrow with --field or --since (--limit is at its maximum, 200).');
   return {
     table,
-    record: { sys_id: sysId, table: tablename, exists: Boolean(record) },
+    record: { sys_id: sysId, table: tablename, found: Boolean(record) },
     field: field ?? null,
     since: since ?? null,
     count: changes.length,
@@ -97,7 +98,6 @@ export function formatHistory(data) {
     const what = change.field === 'DELETED' ? 'record deleted' : `${change.field}: ${shown(change.old_value)} -> ${shown(change.new_value)}`;
     lines.push(`${change.changed_on}  ${change.user || '(user hidden)'}  ${what}${change.reason ? `  (reason: ${change.reason})` : ''}`);
   }
-  if (!data.changes.length) lines.push('No changes.');
   if (data.changes.some(change => change.old_value.length > MAX_SHOWN || change.new_value.length > MAX_SHOWN)) lines.push(`Values over ${MAX_SHOWN} characters are cut here; --json returns them whole.`);
   lines.push(...data.notes);
   return lines.join('\n');
