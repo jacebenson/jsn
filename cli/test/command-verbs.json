@@ -222,11 +222,14 @@
     },
     "access": {
       "why": "users access says which sys_user flag or failed sign-in stops a user signing in; show prints the record without judging it, roles answers what a user may do once signed in, and check or status would not say that the subject is sign-in."
+    },
+    "userroles": {
+      "why": "userroles writes direct sys_user_has_role rows for chosen users; users roles only reads them, and grouproles grants through a group, which reaches every member rather than one user."
     }
   },
   "budgets": {
     "$comment": "Subcommand count per family. A budget is a ratchet, not a ban: when a new command earns its place, raise the number in the same diff and say why in the PR. Adding a family means adding its budget entry.",
-    "total": 432,
+    "total": 435,
     "families": {
       "access-analyzer": 3,
       "acls": 5,
@@ -319,7 +322,8 @@
       "uxscripts": 5,
       "version": 0,
       "views": 5,
-      "workflows": 2
+      "workflows": 2,
+      "userroles": 3
     }
   }
 }

@@ -103,6 +103,7 @@ const ACCESS_COMMANDS = [
   { name: 'groups', alias: 'group', desc: 'Manage groups' },
   { name: 'groupmembers', alias: 'gm', desc: 'Group memberships' },
   { name: 'grouproles', alias: 'gr', desc: 'Group roles' },
+  { name: 'userroles', alias: 'ur', desc: 'Direct user roles' },
   { name: 'users', alias: 'user', desc: 'Manage users' },
 ];
 

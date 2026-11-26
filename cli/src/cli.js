@@ -366,6 +366,7 @@ export function buildCLI() {
     .command(deferredFamily('groups', wrap))
     .command(deferredFamily('groupmembers', wrap))
     .command(deferredFamily('grouproles', wrap))
+    .command(deferredFamily('userroles', wrap))
     .command(deferredFamily('users', wrap))
     // USER EXPERIENCE — Shared
     .command(deferredFamily('forms', wrap))
