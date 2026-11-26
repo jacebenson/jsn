@@ -1,6 +1,7 @@
 import { deferredFamilyDefinition } from '../command-families.js';
 
 import { formatRecordForDisplay, interactiveList, getStringField } from '../helpers.js';
+import { createLogFollower } from '../log-follow.js';
 
 function logIcon(level) {
   level = (level || '').toLowerCase();
@@ -109,27 +110,6 @@ export function logsCmd(wrap) {
             if (argv.source) filters.push(`sourceLIKE${argv.source}`);
             const base = filters.filter(Boolean).join('^');
             const intervalMs = Math.max(500, argv.interval || 2000);
-            let watermark = '';
-            const seen = new Set();
-
-            // sys_created_on> comparisons run in UTC; the display_value is server-local
-            // time, so a display-based watermark never advances on a non-UTC instance.
-            // Normalize the raw UTC .value to 'YYYY-MM-DD HH:mm:ss' for the query and
-            // lexicographic comparison. The sys_id seen-set guarantees a row can never
-            // re-print even if two polls fall in the same timestamp bucket.
-            const toQueryTs = (v) => {
-              if (typeof v !== 'string') return v;
-              return v.replace('T', ' ').replace(/\.\d{1,3}[Zz]?$/, '').replace(/[Zz]$/, '');
-            };
-            const rawTs = (r) => {
-              const f = r.sys_created_on;
-              if (f && typeof f === 'object') {
-                const v = f.value != null ? f.value : f.display_value;
-                return v ? toQueryTs(String(v)) : '';
-              }
-              return f ? toQueryTs(String(f)) : '';
-            };
-            const sysIdOf = (r) => getStringField(r, 'sys_id');
 
             const formatRow = (r) => {
               const ts = getStringField(r, 'sys_created_on');
@@ -139,53 +119,30 @@ export function logsCmd(wrap) {
               return `${ts} ${logIcon(level).padEnd(2)} [${src}] ${msg}`;
             };
 
-            const emit = (r) => {
-              const id = sysIdOf(r);
-              if (id) {
-                if (seen.has(id)) return; // never re-print a row this run
-                seen.add(id);
-              }
-              const ts = rawTs(r);
-              if (ts && !watermark) watermark = ts;
-              else if (ts && ts > watermark) watermark = ts;
-              process.stdout.write(formatRow(r) + '\n');
-            };
-
-            const fetchNew = async () => {
-              const params = new URLSearchParams();
-              params.set('sysparm_display_value', 'all');
-              params.set('sysparm_fields', 'sys_created_on,level,source,message,sys_id');
-              params.set('sysparm_limit', '100');
-              let q = watermark ? `sys_created_on>${watermark}^ORDERBYsys_created_on` : 'ORDERBYsys_created_on';
-              if (base) q = `${base}^${q}`;
-              params.set('sysparm_query', q);
-              let records;
-              try { records = await app.sdk.list('syslog', params); } catch (err) {
-                process.stderr.write(`⚠ poll error: ${err.message}\n`);
-                return;
-              }
-              for (const r of records) emit(r);
-            };
+            // The polling engine owns the watermark, dedupe and single-flight
+            // rules; this handler only formats what it emits.
+            // sys_created_on> comparisons run in UTC, and the engine's `>=`
+            // continuation plus its same-second sys_id set keeps a row from
+            // being lost or printed twice.
+            const follower = createLogFollower({
+              list: (params) => app.sdk.list('syslog', params),
+              write: (record) => process.stdout.write(formatRow(record) + '\n'),
+              warn: (err) => process.stderr.write(`⚠ poll error: ${err.message}\n`),
+              baseQuery: base,
+              intervalMs,
+            });
 
             // Optional backfill: show last N newest-first, then follow.
-            if (argv.tail > 0) {
-              const params = new URLSearchParams();
-              params.set('sysparm_display_value', 'all');
-              params.set('sysparm_fields', 'sys_created_on,level,source,message,sys_id');
-              let q = base ? `${base}^ORDERBYDESCsys_created_on` : 'ORDERBYDESCsys_created_on';
-              params.set('sysparm_query', q);
-              params.set('sysparm_limit', String(argv.tail));
-              try {
-                const recent = await app.sdk.list('syslog', params);
-                const ordered = [...recent].reverse(); // oldest->newest on screen
-                for (const r of ordered) emit(r);
-              } catch (err) { process.stderr.write(`⚠ backfill error: ${err.message}\n`); }
-            }
+            if (argv.tail > 0) await follower.backfill(argv.tail);
 
-            await fetchNew();
-            const timer = setInterval(fetchNew, intervalMs);
+            follower.start();
             process.stdout.write(`\n[jsn logs follow] watching syslog every ${intervalMs}ms — Ctrl+C to stop\n`);
-            const stop = () => { clearInterval(timer); process.exit(0); };
+            const stop = () => {
+              follower.stop();
+              process.off('SIGINT', stop);
+              process.off('SIGTERM', stop);
+              process.exit(0);
+            };
             process.on('SIGINT', stop);
             process.on('SIGTERM', stop);
           }),
