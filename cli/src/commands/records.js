@@ -12,6 +12,8 @@ import { watchRecord } from '../record-watch.js';
 import { assertMutationRecordScope, assertMutationScope } from '../intended-context.js';
 import { validateReadQuery, assertWriteQuery, queryDiagnostics, invalidateAfterMutation } from '../query-validate.js';
 import { previewCascade } from '../delete-cascade.js';
+import { recordPipeline, formatRecordPipeline } from '../record-pipeline.js';
+import { FormatAuto, FormatStyled } from '../output.js';
 
 const tableDefaultColumns = {
   incident: ['number', 'short_description', 'priority', 'state', 'assigned_to'],
@@ -584,6 +586,38 @@ export function recordsCmd(wrap) {
               deleted_on: entry.sys_created_on, deleted_by: entry.sys_created_by }, {
               summary: `Restored ${argv.table} ${display} from Deleted Records`,
               breadcrumbs: [{ action: 'get', cmd: `jsn records get --table ${quoteShellArg(argv.table)} --sys-id ${entry.documentkey}`, description: 'Read the restored record' }],
+            });
+          }),
+        })
+        .command({
+          command: 'pipeline <table> <identifier>',
+          describe: 'Show what runs when this record saves, in execution order, and which conditions match now (read-only)',
+          builder: (y) => y
+            .positional('table', { type: 'string', describe: 'Table name (e.g. incident)' })
+            .positional('identifier', { type: 'string', describe: 'Record number or sys_id' })
+            .option('op', { type: 'string', choices: ['insert', 'update', 'delete'], demandOption: true, describe: 'Record event to explain' })
+            .option('all', { type: 'boolean', default: false, describe: 'Also list artifacts that do not run for this operation' })
+            .epilogue([
+              'Read-only. Reuses the table behavior inventory (inherited and global rules included) and lays artifacts out in documented execution order:',
+              'before business rules, platform engines, after business rules, flow record triggers, notifications, then async business rules.',
+              'Each encoded-query condition is tested by reading the record back with sys_id=<id>^<condition> through the Table API.',
+              'Script conditions, change operators, setWorkflow(false) and mid-save changes are not simulated and are reported as untested.',
+              'Example: jsn records pipeline incident INC0000060 --op update --json',
+            ].join('\n')),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const data = await recordPipeline(app.sdk, {
+              table: argv.table,
+              identifier: argv.identifier,
+              op: argv.op,
+            });
+            const human = [FormatAuto, FormatStyled].includes(app.output.getFormat());
+            return app.ok(human ? { ...data, _formatted: formatRecordPipeline(data, { all: argv.all === true }) } : data, {
+              summary: `${data.table} ${data.record.label}: ${data.summary.applicable} applicable artifact(s) for ${data.op}; ${data.summary.matching_now} condition(s) match now, ${data.summary.untested} untested`,
+              breadcrumbs: [
+                { action: 'behavior', cmd: `jsn tables behavior ${data.table}`, description: 'Inventory the full table configuration' },
+                { action: 'why', cmd: `jsn flows why <flow> --record ${data.table} ${data.record.sys_id}`, description: 'Explain one flow for this record' },
+              ],
             });
           }),
         })

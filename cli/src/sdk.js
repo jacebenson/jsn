@@ -16,6 +16,8 @@ import {
 import {
   previewUpdateSet as previewRetrievedUpdateSet,
   commitUpdateSet as commitRetrievedUpdateSet,
+  retrieveUpdateSet as retrieveRemoteUpdateSet,
+  commitUpdateSets as commitRetrievedUpdateSets,
   listPreviewProblems,
 } from './update-set-apply.js';
 
@@ -1158,6 +1160,27 @@ export class SDKClient {
    */
   async commitUpdateSet(sysID, opts = {}) {
     return commitRetrievedUpdateSet(this, sysID, opts);
+  }
+
+  /**
+   * Retrieve a completed update set from a configured remote instance through
+   * the CICD Update Set API and wait for its progress tracker. The retrieved
+   * copy is left in place (`cleanup_retrieved` false) and is not previewed.
+   * @param {{updateSetId: string, updateSourceId: string}} ids
+   * @param {{timeoutMs?: number, pollMs?: number}} [opts]
+   */
+  async retrieveUpdateSet({ updateSetId, updateSourceId }, opts = {}) {
+    return retrieveRemoteUpdateSet(this, { updateSetId, updateSourceId, ...opts });
+  }
+
+  /**
+   * Commit several retrieved update sets in one ordered CICD request and wait
+   * for its progress tracker. `force_commit` stays false.
+   * @param {string[]} sysIDs - sys_remote_update_set sys_ids in commit order
+   * @param {{timeoutMs?: number, pollMs?: number}} [opts]
+   */
+  async commitUpdateSets(sysIDs, opts = {}) {
+    return commitRetrievedUpdateSets(this, sysIDs, opts);
   }
 
   /** Read sys_update_preview_problem rows for a retrieved update set. */

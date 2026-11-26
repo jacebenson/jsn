@@ -79,6 +79,18 @@ function requestLine(row) {
 function outcome(row) {
   return `${rawAccessValue(row.sys_id)} | ${text(row.operation) || '(operation unavailable)'}: ${text(row.overall_access) || '(undefined)'} | execution ${text(row.execution_id) || '(unavailable)'}\n  ACL: ${text(row.acl_result) || '(undefined)'}; security data filter: ${text(row.security_data_filter_result) || '(undefined)'}; access handler: ${text(row.accesshandler_result) || '(undefined)'}; data filtration: ${text(row.datafiltration_result) || '(undefined)'}`;
 }
+// One debug-log line, shared by saved checks (`show`) and live evaluation checks
+// (`run`). The analyzer's numeric/string return code is shown only when the
+// provider supplies it; saved rows carry their verdict in status alone.
+export function formatCheckLine(row) {
+  const code = text(row.return_code)
+    ? ` (return code ${text(row.return_code)}${text(row.return_code_display_value) ? ` = ${text(row.return_code_display_value)}` : ''})`
+    : '';
+  return `${text(row.log_sequence)}. ${text(row.type)} ${text(row.path) || '(no path)'}: ${text(row.status) || '(undefined)'} [${rawAccessValue(row.sys_id)}]${code}`;
+}
+export function formatCheckDetail(row) {
+  return `  Roles: ${text(row.roles)} (${text(row.roles_result) || '(undefined)'}); condition: ${text(row.condition_result) || '(undefined)'}; script: ${text(row.script_result) || '(undefined)'}; security attribute: ${text(row.security_attribute) || '(undefined)'}; decision: ${text(row.decision_type) || '(undefined)'}`;
+}
 export function formatAccessAnalysis(data, mode) {
   const lines = ['Saved Access Analyzer evidence (read-only)'];
   if (mode === 'list') lines.push(...data.records.map(requestLine));
@@ -86,12 +98,19 @@ export function formatAccessAnalysis(data, mode) {
   if (mode === 'result') {
     lines.push(outcome(data.result), ...data.notes);
     for (const row of data.records) {
-      lines.push(`${text(row.log_sequence)}. ${text(row.type)} ${text(row.path)}: ${text(row.status) || '(undefined)'} [${rawAccessValue(row.sys_id)}]`);
+      lines.push(formatCheckLine(row));
       lines.push(`  Referenced rule: ${text(row.record_ref) || '(unavailable)'}; table: ${text(row.log_table_name) || '(unavailable)'}; sys_id: ${rawAccessValue(row.record_ref) || '(unavailable)'}`);
-      lines.push(`  Roles: ${text(row.roles)} (${text(row.roles_result) || '(undefined)'}); condition: ${text(row.condition_result) || '(undefined)'}; script: ${text(row.script_result) || '(undefined)'}; security attribute: ${text(row.security_attribute) || '(undefined)'}; decision: ${text(row.decision_type) || '(undefined)'}`);
+      lines.push(formatCheckDetail(row));
     }
   }
   if (!data.count) lines.push('No readable saved rows on this page. Empty results do not prove access or absence of ACL-filtered records.');
   lines.push(`Page: ${data.count} rows, offset ${data.pagination.offset}${data.pagination.has_more ? `; more available, next offset ${data.pagination.next_offset}` : '; no further readable rows'}.`);
   return lines.join('\n');
+}
+
+// Recent requests for one identity+target, newest first. `run --save` takes this
+// before and after the evaluation and reports only a request that appeared in
+// between, so an older saved analysis is never passed off as this run's.
+export async function recentAnalysisRequests(sdk, { user, table, record }) {
+  return read(sdk, REQUEST, `user=${user}^target_table=${table}^target_record=${record}^ORDERBYDESClast_run^ORDERBYDESCsys_id`, 5);
 }
