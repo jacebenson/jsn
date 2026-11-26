@@ -256,6 +256,9 @@
     "sources": {
       "why": "sources lists configured Remote Instances (sys_update_set_source); list reads update sets on the target, and those rows cannot identify where a set should be retrieved from."
     },
+    "steps": {
+      "why": "atf steps lists a test's sys_atf_step rows in order with their input values from sys_variable_value; list reads one table's rows without joining the inputs, and show and results describe a run's outcome rather than what the test does."
+    },
     "suggest-index": {
       "why": "perf suggest-index asks the platform's IndexSuggestionAPI for a suggestion and reads that record back; create writes a record the caller describes, while here the table and columns are the instance's answer, not caller input."
     },
@@ -268,7 +271,7 @@
   },
   "budgets": {
     "$comment": "Subcommand count per family. A budget is a ratchet, not a ban: when a new command earns its place, raise the number in the same diff and say why in the PR. Adding a family means adding its budget entry.",
-    "total": 465,
+    "total": 466,
     "families": {
       "access-analyzer": 4,
       "acls": 5,
@@ -279,7 +282,7 @@
       "approvals": 5,
       "assignments": 2,
       "asyncrules": 5,
-      "atf": 5,
+      "atf": 6,
       "attachments": 3,
       "auth": 7,
       "b4rules": 5,

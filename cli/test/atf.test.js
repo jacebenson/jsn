@@ -16,7 +16,7 @@ describe('ATF Command Structure', () => {
     const mockYargs = { command: (c) => { subcommands.push(typeof c === 'string' ? c : c.command); return mockYargs; } };
     cmd.builder(mockYargs);
     const names = subcommands.map(s => s.split(' ')[0]);
-    for (const n of ['list', 'suites', 'run', 'run-suite', 'results']) {
+    for (const n of ['list', 'suites', 'run', 'run-suite', 'results', 'steps']) {
       assert.ok(names.includes(n), `missing subcommand: ${n}`);
     }
   });
