@@ -16,13 +16,18 @@ import { execFileSync } from 'node:child_process';
 const darwin = process.platform === 'darwin';
 const skip = darwin ? false : 'macOS Keychain only';
 const security = (args) => execFileSync('/usr/bin/security', args, { encoding: 'utf8' });
-const unquoted = (value) => value.trim().replace(/^"|"$/g, '');
+const unquoted = (value) => String(value).trim().replace(/^"|"$/g, '');
+// A hosted runner can have no default keychain at all; there is then nothing to
+// restore, and refusing here would hide the real assertions below.
+function currentDefaultKeychain() {
+  try { return unquoted(security(['default-keychain', '-d'])); } catch { return null; }
+}
 
 test('Keychain stores, reads back, probes and deletes a credential', { skip }, async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-keychain-'));
   const keychain = path.join(dir, 'jsn-test.keychain-db');
   const password = 'jsn-test-keychain';
-  const original = unquoted(security(['default-keychain', '-d']));
+  const original = currentDefaultKeychain();
 
   security(['create-keychain', '-p', password, keychain]);
   security(['unlock-keychain', '-p', password, keychain]);
@@ -30,7 +35,7 @@ test('Keychain stores, reads back, probes and deletes a credential', { skip }, a
   security(['default-keychain', '-s', keychain]);
   security(['list-keychains', '-s', keychain]);
   t.after(() => {
-    try { security(['default-keychain', '-s', original]); } catch { /* restore is best effort */ }
+    if (original) { try { security(['default-keychain', '-s', original]); } catch { /* best effort */ } }
     try { security(['delete-keychain', keychain]); } catch { /* already gone */ }
     fs.rmSync(dir, { recursive: true, force: true });
   });
@@ -66,13 +71,13 @@ test('the Keychain item is discoverable by the documented service and account', 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-keychain-item-'));
   const keychain = path.join(dir, 'jsn-test.keychain-db');
   const password = 'jsn-test-keychain';
-  const original = unquoted(security(['default-keychain', '-d']));
+  const original = currentDefaultKeychain();
   security(['create-keychain', '-p', password, keychain]);
   security(['unlock-keychain', '-p', password, keychain]);
   security(['default-keychain', '-s', keychain]);
   security(['list-keychains', '-s', keychain]);
   t.after(() => {
-    try { security(['default-keychain', '-s', original]); } catch { /* best effort */ }
+    if (original) { try { security(['default-keychain', '-s', original]); } catch { /* best effort */ } }
     try { security(['delete-keychain', keychain]); } catch { /* already gone */ }
     fs.rmSync(dir, { recursive: true, force: true });
   });

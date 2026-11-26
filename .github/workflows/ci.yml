@@ -147,7 +147,7 @@ jobs:
       # The full suite is not macOS-clean yet (symlinked /var, PTY driver), so
       # this job runs the credential-storage suites and nothing else.
       - name: Keychain store, read back, probe and delete
-        run: node --test test/macos-keychain.test.js test/credential-storage-preflight.test.js
+        run: node --experimental-test-module-mocks --test test/macos-keychain.test.js test/credential-storage-preflight.test.js
 
   site:
     name: Website tests
