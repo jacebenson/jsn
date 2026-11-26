@@ -45,6 +45,21 @@ to each role: a direct grant, a chain of contained roles, or a group. Groups
 appear by the name the platform prints; the API returns no sys_ids. A missing,
 denied or malformed reply is an error, never an empty answer.
 
+## Which table holds a sys_id
+
+```sh
+jsn records find <sys_id>
+jsn records find <sys_id> --get data.table
+```
+
+Tries `sys_metadata` and `task` through the Table API, then background scripts
+of up to 20 seconds each query the base tables that have a sys_id field
+(children included), skipping remote and virtual tables. `--max-tables` and `--time-limit` bound the
+search; a limit reached is reported as not found within the bound, and a miss
+exits 1. The scripts write no records of their own, but they run server-side code
+as `jsn eval` does, so read-only profiles refuse `find` and it needs a user who
+may run background scripts.
+
 ## Record version history
 
 ```sh
