@@ -126,7 +126,7 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
               ...(missingColumns.length ? {
                 missing_columns: missingColumns,
                 warnings: [
-                  `Column(s) not returned by ServiceNow (non-existent or restricted on ${table}): ${missingColumns.join(', ')}. Run \`jsn columns --table ${table}\` to inspect valid fields.`,
+                  `Column(s) not returned by ServiceNow (non-existent or restricted on ${table}): ${missingColumns.join(', ')}. Run \`jsn columns list --table ${table}\` to inspect valid fields.`,
                 ],
               } : {}),
               records: displayRecords,

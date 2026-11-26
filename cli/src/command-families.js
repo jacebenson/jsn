@@ -511,6 +511,7 @@ const deferredFamilies = {
     capabilities: {
       transactionScopeOption: "scope",
       mutationSubcommands: [""],
+      mutationContextReadOnlyFlags: ["sandbox"],
     },
     module: "./commands/eval.js", exportName: "evalCmd",
   },

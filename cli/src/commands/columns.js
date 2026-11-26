@@ -1,6 +1,6 @@
 import { deferredFamilyDefinition } from '../command-families.js';
 import { fieldBehaviorHelp } from '../field-behavior.js';
-import { CodeUsage, errNotFoundHint } from '../errors.js';
+import { CodeUsage, errNotFoundHint, errUsage } from '../errors.js';
 import { loadHierarchy } from '../table-behavior.js';
 import { buildDevCmd } from './_generic.js';
 
@@ -56,29 +56,20 @@ async function addChoices(record, app, argv) {
 }
 
 export const columnsCmd = (wrap) => {
-  const base = buildDevCmd('columns', 'sys_dictionary', [],
+  return buildDevCmd('columns', 'sys_dictionary', [],
     ['element', 'column_label', 'internal_type', 'mandatory', 'max_length', 'active'],
     wrap, { definition: deferredFamilyDefinition('columns'), singular: 'column', scopeValidation: true, help: fieldBehaviorHelp,
       resolveIdentifier: resolveColumn, identifierRequired: true, onShow: addChoices,
-      showDescribe: 'Show a column by <table>.<column> or sys_id, with a choice field\'s choices' });
-
-  // Add --table filter
-  const origBuilder = base.builder;
-  base.builder = (yargs) => {
-    const built = origBuilder(yargs);
-    // Patch the 'list' subcommand builder to add --table
-    const listCmd = built._commands?.find(c => c.name === 'list' || c._aliases?.includes('ls'));
-    if (listCmd) {
-      const origListBuilder = listCmd.builder;
-      listCmd.builder = (y) => (origListBuilder ? origListBuilder(y).option('table', { type: 'string', describe: 'Filter by table (e.g. incident)' }) : y.option('table', { type: 'string' }));
-      const origHandler = listCmd.handler;
-      listCmd.handler = async (argv) => {
-        if (argv.table) argv.query = argv.query ? `${argv.query}^name=${argv.table}` : `name=${argv.table}`;
-        return origHandler(argv);
-      };
-    }
-    return built;
-  };
-
-  return base;
+      showDescribe: 'Show a column by <table>.<column> or sys_id, with a choice field\'s choices',
+      // `--table` is a first-class list filter, not a patched handler: the
+      // previous post-build monkey patch never registered the option, so
+      // `jsn columns list --table incident` silently listed every table's
+      // dictionary rows.
+      listOptions: (y) => y.option('table', { type: 'string', describe: 'Only direct sys_dictionary entries of this table (inherited columns live on its parent)' }),
+      listFilter: (argv) => {
+        if (!argv.table) return '';
+        const table = String(argv.table).trim();
+        if (!/^[a-zA-Z0-9_]+$/.test(table)) throw errUsage('--table takes a table name, for example incident or sys_import_set.');
+        return `name=${table}`;
+      } });
 };

@@ -7,16 +7,20 @@ import { readImportFile, checkStagingTable, loadImportRows, loadRerun, formatLoa
 import { detailCount } from './_detail-count.js';
 
 export const importCmd = (wrap) => withWrites(buildDevCmd('import', 'sys_import_set', [],
-  ['name', 'sys_target_table', 'state', 'sys_created_on'], wrap, {
+  ['number', 'table_name', 'state', 'sys_created_on'], wrap, {
     definition: deferredFamilyDefinition('import'),
     singular: 'import set',
     readOnly: true,
     extraSubcommands: [{ name: 'load', description: 'Load rows into a staging table and transform them' },
       { name: 'transform', description: 'Rerun the transform maps on an existing import set' }],
+    // sys_import_set identifies a run by number and names the target table in
+    // table_name; `name` and `sys_target_table` are not fields on it.
+    labelField: 'number',
+    identifierField: 'number',
     formatLabel: (r) => {
-      const name = getStringField(r, 'name') || '';
-      const table = getStringField(r, 'sys_target_table') || '';
-      return table ? `${name} [${table}]` : name;
+      const number = getStringField(r, 'number') || '';
+      const table = getStringField(r, 'table_name') || '';
+      return table ? `${number} [${table}]` : number;
     },
     onShow: async (record, app) => {
       const sysID = getStringField(record, 'sys_id') || '';

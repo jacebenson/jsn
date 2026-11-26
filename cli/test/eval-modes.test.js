@@ -91,10 +91,19 @@ describe('jsn eval flags', () => {
     }
   });
 
-  it('requires independent intent before evaluating multi-line sandbox input', () => {
+  it('treats sandbox evaluation as a non-writing invocation, not a customization', () => {
     const r = run(['eval', '--stdin', '--sandbox', '--json'], 'var a = 1;\nvar b = 2;\ngs.info(a+b);', isolatedEnv());
-    // Fake instance present so the guard passes and the handler runs; it then
-    // fails at auth, but the sandbox warning is emitted first on stderr.
+    // Sandbox mode evaluates a single expression and writes nothing, so the
+    // capture-context guard must not demand --expect-scope/--expect-update-set.
+    // The run still fails later (fake instance, no credentials), but the
+    // handler's sandbox warning proves it got past the guard.
+    assert.doesNotMatch(r.stdout + r.stderr, /require intended scope and update set/);
+    assert.match(r.stderr, /KittyScript/);
+    assert.notStrictEqual(r.status, 0);
+  });
+
+  it('still requires intended context for a real script write', () => {
+    const r = run(['eval', '--stdin', '--json'], 'gs.info(1);', isolatedEnv());
     assert.match(r.stdout + r.stderr, /require intended scope and update set/);
     assert.notStrictEqual(r.status, 0);
   });

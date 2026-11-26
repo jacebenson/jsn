@@ -54,7 +54,7 @@ export function ticketsCmd(wrap) {
               ...(missingColumns.length ? {
                 missing_columns: missingColumns,
                 warnings: [
-                  `Column(s) not returned by ServiceNow (non-existent or restricted on task): ${missingColumns.join(', ')}. Run \`jsn columns --table task\` to inspect valid fields.`,
+                  `Column(s) not returned by ServiceNow (non-existent or restricted on task): ${missingColumns.join(', ')}. Run \`jsn columns list --table task\` to inspect valid fields.`,
                 ],
               } : {}),
               records: displayRecords,
