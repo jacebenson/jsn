@@ -130,8 +130,7 @@ jobs:
   macos-probe:
     # Temporary: measures how far the full suite gets on macOS (#645).
     name: macOS full suite (probe)
-    needs: changes
-    if: needs.changes.outputs.cli == 'true'
+    # Unconditional: this job exists to measure, not to gate.
     continue-on-error: true
     runs-on: macos-latest
     defaults:
