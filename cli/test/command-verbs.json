@@ -219,11 +219,17 @@
     },
     "revert": {
       "why": "records revert puts a record back to a saved sys_update_version through the platform's Revert to this version; update writes a payload the caller supplies, rollback undoes one eval run's own changes, and undelete restores a deleted copy."
+    },
+    "sources": {
+      "why": "sources lists configured Remote Instances (sys_update_set_source); list reads update sets on the target, and those rows cannot identify where a set should be retrieved from."
+    },
+    "retrieve": {
+      "why": "retrieve pulls a completed set from a configured remote instance through the CICD API; import loads XML already on disk and cannot reach the source, while create makes a local capture set."
     }
   },
   "budgets": {
     "$comment": "Subcommand count per family. A budget is a ratchet, not a ban: when a new command earns its place, raise the number in the same diff and say why in the PR. Adding a family means adding its budget entry.",
-    "total": 431,
+    "total": 433,
     "families": {
       "access-analyzer": 3,
       "acls": 5,
@@ -308,7 +314,7 @@
       "uimacros": 5,
       "uipages": 5,
       "uipolicies": 5,
-      "updatesets": 14,
+      "updatesets": 16,
       "upgrade": 1,
       "users": 6,
       "uxapplicability": 2,

@@ -470,8 +470,8 @@ const deferredFamilies = {
     },
     capabilities: {
       queryTable: "sys_update_set",
-      mutationSubcommands: ["create", "set", "complete", "ignore", "parent", "import", "reopen", "preview", "commit"],
-      mutationContextExemptSubcommands: ["create", "set", "import", "reopen", "preview", "commit"],
+      mutationSubcommands: ["create", "set", "complete", "ignore", "parent", "import", "reopen", "preview", "commit", "retrieve"],
+      mutationContextExemptSubcommands: ["create", "set", "import", "reopen", "preview", "commit", "retrieve"],
       skipContextHeaderSubcommands: ["diff"],
       noImpersonateSubcommands: ["diff"],
       localPreviewSubcommands: ["import"],

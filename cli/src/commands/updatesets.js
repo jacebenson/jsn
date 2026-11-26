@@ -136,6 +136,72 @@ async function fetchRetrievedUpdateSet(app, sysID) {
   return record || null;
 }
 
+// sys_update_set_source carries `username` and a two-way-encrypted `password`.
+// Neither is ever requested: the source listing needs identity and reachability,
+// not credentials, and the CLI must never print a stored password.
+const UPDATE_SET_SOURCE_FIELDS = 'sys_id,name,url,type,active,instance_id,instance_name,short_description';
+
+/** Strip embedded userinfo from a stored URL before it reaches output. */
+export function redactSourceUrl(value) {
+  return String(value || '').replace(/\/\/[^/@\s]+@/, '//');
+}
+
+function normalizeUpdateSetSource(record) {
+  const active = getStringField(record, 'active');
+  return {
+    sys_id: getStringField(record, 'sys_id'),
+    name: getStringField(record, 'name'),
+    url: redactSourceUrl(getStringField(record, 'url')),
+    type: getStringField(record, 'type'),
+    active: active === '' ? null : active.toLowerCase() === 'true',
+    instance_id: getStringField(record, 'instance_id'),
+    instance_name: getStringField(record, 'instance_name'),
+    short_description: getStringField(record, 'short_description'),
+  };
+}
+
+/**
+ * Resolve a configured remote instance (sys_update_set_source) by exact name or
+ * sys_id. Credentials are never selected.
+ * @returns {Promise<object>} normalized source ({sys_id,name,url,type,active,...})
+ */
+export async function resolveUpdateSetSource(app, identifier) {
+  assertSafeExactMatch(identifier);
+  const isSysID = /^[0-9a-f]{32}$/i.test(identifier);
+  const params = new URLSearchParams();
+  params.set('sysparm_query', isSysID ? `sys_id=${identifier}` : `name=${identifier}`);
+  params.set('sysparm_limit', isSysID ? '1' : '2');
+  params.set('sysparm_display_value', 'false');
+  params.set('sysparm_fields', UPDATE_SET_SOURCE_FIELDS);
+  const records = await app.sdk.list('sys_update_set_source', params);
+  if (!records.length) {
+    throw errUsage(`Update set source not found: ${identifier}\nList configured sources with: jsn updatesets sources`);
+  }
+  if (records.length > 1) {
+    throw errUsage(`Multiple update set sources named "${identifier}". Pass the sys_id instead:\n${records.map((r) => `  ${getStringField(r, 'sys_id')}  ${redactSourceUrl(getStringField(r, 'url'))}`).join('\n')}`);
+  }
+  return normalizeUpdateSetSource(records[0]);
+}
+
+/**
+ * A retrieve creates the target's copy of the source set with
+ * sys_remote_update_set.remote_sys_id equal to the source sys_update_set sys_id.
+ * That is the only safe way to identify what landed; a name match could pick an
+ * unrelated copy.
+ */
+async function findRetrievedByRemoteSysId(app, remoteSysId) {
+  const params = new URLSearchParams();
+  params.set('sysparm_query', `remote_sys_id=${remoteSysId}`);
+  params.set('sysparm_limit', '2');
+  params.set('sysparm_display_value', 'all');
+  params.set('sysparm_fields', RETRIEVED_FIELDS);
+  const records = await app.sdk.list('sys_remote_update_set', params);
+  if (records.length > 1) {
+    throw errUsage(`Retrieve accepted, but ${records.length} retrieved update sets share remote_sys_id ${remoteSysId}; the outcome is ambiguous.\nInspect Retrieved Update Sets before retrying. jsn does not repeat the retrieve.`);
+  }
+  return records[0] || null;
+}
+
 /**
  * Confirmation gate shared by updatesets mutations. Automation gets a
  * confirmation-required error with a rerun command instead of a prompt.
@@ -206,6 +272,80 @@ async function findLocalUpdateSet(app, name, reference) {
   } catch (error) {
     return { ambiguous: false, unverified: true, note: `Could not read local update sets: ${error.message}` };
   }
+}
+
+/**
+ * Resolve every set in an ordered commit, refuse before any request when one is
+ * not previewed or not clean, then commit them in one provider request and
+ * verify each transition in the same order.
+ */
+async function commitOrderedUpdateSets(argv, app, identifiers) {
+  const seen = new Set();
+  for (const identifier of identifiers) {
+    if (seen.has(identifier)) {
+      throw errUsage(`Update set "${identifier}" appears more than once in --ordered; a set cannot be committed twice in one request.`);
+    }
+    seen.add(identifier);
+  }
+
+  const targets = [];
+  for (const identifier of identifiers) {
+    const target = await resolveRetrievedUpdateSet(app, identifier);
+    const sysID = getStringField(target, 'sys_id');
+    const name = getStringField(target, 'name');
+    const state = remoteState(target);
+    if (state === 'loaded') {
+      throw errUsage(`Retrieved update set "${name}" has not been previewed yet; refusing the ordered commit before any request.\nRun: jsn updatesets preview ${quoteShellArg(sysID)}`);
+    }
+    if (state !== 'previewed') {
+      throw errUsage(`Cannot commit a retrieved update set in state "${state}"; expected previewed. Refusing the ordered commit before any request.`);
+    }
+    const previewProblems = await app.sdk.listUpdateSetPreviewProblems(sysID);
+    try {
+      assertNoUnresolvedProblems(previewProblems);
+    } catch (error) {
+      throw errUsage(`Refusing the ordered commit: "${name}" has not previewed clean.\n${error.message}`);
+    }
+    targets.push({ sys_id: sysID, name, preview_problems: previewProblems.count });
+  }
+
+  const question = `Commit ${targets.length} retrieved update set(s) in this order on ${app.getEffectiveInstance()}?\n`
+    + `${targets.map((target, index) => `  ${index + 1}. ${target.name} (${target.sys_id})`).join('\n')}\n`
+    + 'This applies their changes to the instance.';
+  const rerun = ['updatesets', 'commit', '--ordered', ...targets.map((target) => target.sys_id), '--yes'];
+  if (!await confirmUpdateSetMutation(argv, app, question, rerun)) return;
+
+  const progress = await app.sdk.commitUpdateSets(targets.map((target) => target.sys_id), { timeoutMs: timeoutFrom(argv) });
+
+  const committed = [];
+  for (const target of targets) {
+    let verified;
+    try {
+      verified = await fetchRetrievedUpdateSet(app, target.sys_id);
+    } catch (error) {
+      throw errAPI(error.status || 0, `Ordered commit reported "${progress.label}" but "${target.name}" could not be read back: ${error.message}\nInspect the sets in the given order before retrying; the outcome is unknown.`);
+    }
+    const state = verified ? remoteState(verified) || 'unknown' : 'unreadable';
+    if (state !== 'committed') {
+      throw errAPI(200, `Ordered commit reported "${progress.label}" but "${target.name}" is in state "${state}".\nThe commit may still be running or stopped before this set. Inspect Retrieved Update Sets in the given order before retrying; jsn does not retry it.`);
+    }
+    committed.push({
+      sys_id: target.sys_id,
+      name: target.name,
+      state,
+      preview_problems: target.preview_problems,
+      local_update_set: await findLocalUpdateSet(app, target.name, verified.update_set),
+    });
+  }
+
+  app.ok({
+    ordered: true,
+    count: committed.length,
+    commit: { status: progress.label, percent_complete: progress.percent_complete, message: progress.message, tracked: progress.tracked !== false },
+    sets: committed,
+  }, {
+    summary: `Committed ${committed.length} retrieved update set(s) in order: ${committed.map((target) => target.name).join(' → ')}`,
+  });
 }
 
 function rawReferenceId(value) {
@@ -772,15 +912,111 @@ export function updateSetsCmd(wrap) {
           }),
         })
         .command({
-          command: 'commit <name>',
-          describe: 'Commit a previewed retrieved update set once its preview problems are resolved',
+          command: 'sources',
+          aliases: ['source-list'],
+          describe: 'List configured remote instances (sys_update_set_source) by name, URL, type and active state; never reads or prints credentials',
           builder: y => y
-            .positional('name', { type: 'string', describe: 'Retrieved update set name or sys_id' })
-            .option('yes', { type: 'boolean', describe: 'Confirm applying the update set to the selected target' })
+            .option('query', { type: 'string', describe: 'Encoded query applied before the name order (e.g. "active=true")' })
+            .option('limit', { alias: 'l', type: 'number', default: 50, describe: 'Max sources' }),
+          handler: wrap(async (argv, app) => {
+            const params = new URLSearchParams();
+            params.set('sysparm_limit', String(argv.limit));
+            params.set('sysparm_display_value', 'false');
+            params.set('sysparm_fields', UPDATE_SET_SOURCE_FIELDS);
+            params.set('sysparm_query', argv.query ? `${argv.query}^ORDERBYname` : 'ORDERBYname');
+            const records = await app.sdk.list('sys_update_set_source', params);
+            const sources = records.map(normalizeUpdateSetSource);
+            app.ok({
+              table: 'sys_update_set_source',
+              count: sources.length,
+              records: sources,
+              context: { instance_url: app.getEffectiveInstance() },
+            }, { summary: `${sources.length} update set source(s)` });
+          }),
+        })
+        .command({
+          command: 'retrieve <set>',
+          describe: 'Retrieve a completed update set from a configured remote instance (loads it; does not preview or commit)',
+          builder: y => y
+            .positional('set', { type: 'string', describe: 'Source instance sys_update_set sys_id (32 hex characters)' })
+            .option('source', { type: 'string', demandOption: true, describe: 'Configured source name or sys_update_set_source sys_id (see: jsn updatesets sources)' })
+            .option('yes', { type: 'boolean', describe: 'Confirm loading the retrieved set onto the selected target' })
+            .option('timeout', { type: 'number', describe: 'Seconds to wait for the retrieve tracker (default 600)' }),
+          handler: wrap(async (argv, app) => {
+            const updateSetId = String(argv.set || '').trim();
+            if (!/^[0-9a-f]{32}$/i.test(updateSetId)) {
+              throw errUsage(
+                `retrieve takes the source instance's update set sys_id (32 hex characters), not a name: "${argv.set}".\n`
+                + 'The CICD retrieve endpoint resolves the set on the remote instance, so jsn cannot look a name up from here. '
+                + 'Read it from the source profile first: jsn --profile <source> updatesets list --json',
+              );
+            }
+            app.requireInstance();
+            const source = await resolveUpdateSetSource(app, argv.source);
+            if (source.active === false) {
+              throw errUsage(`Update set source "${source.name}" is inactive; no retrieve was started.\nActivate it in ServiceNow (System Update Sets > Remote Instances) or choose another source: jsn updatesets sources`);
+            }
+            const question = `Retrieve update set ${updateSetId} from source "${source.name}" (${source.url || 'no URL'}) onto ${app.getEffectiveInstance()}?\n`
+              + 'This loads a retrieved update set. It does not preview or commit it, and it does not delete an existing retrieved copy.';
+            const rerun = ['updatesets', 'retrieve', updateSetId, '--source', argv.source, '--yes'];
+            if (!await confirmUpdateSetMutation(argv, app, question, rerun)) return;
+
+            const progress = await app.sdk.retrieveUpdateSet(
+              { updateSetId, updateSourceId: source.sys_id },
+              { timeoutMs: timeoutFrom(argv) },
+            );
+
+            let verified;
+            try {
+              verified = await findRetrievedByRemoteSysId(app, updateSetId);
+            } catch (error) {
+              throw errAPI(error.status || 0, `Retrieve reported "${progress.label}" but the retrieved update set could not be read back: ${error.message}\nThe outcome is unknown; inspect Retrieved Update Sets before retrying. jsn does not repeat the retrieve.`);
+            }
+            if (!verified) {
+              throw errAPI(200, `Retrieve reported "${progress.label}" but no retrieved update set with remote_sys_id ${updateSetId} is visible.\nThe outcome is unknown; inspect Retrieved Update Sets before retrying. jsn does not repeat the retrieve.`);
+            }
+            const state = remoteState(verified);
+            if (!['loaded', 'previewed'].includes(state)) {
+              throw errAPI(200, `Retrieve reported "${progress.label}" but the retrieved update set is in state "${state || 'unknown'}"; expected loaded.\nThe outcome is unknown; inspect Retrieved Update Sets before retrying.`);
+            }
+            const name = getStringField(verified, 'name');
+            const sysID = getStringField(verified, 'sys_id');
+            app.ok({
+              update_set: name,
+              sys_id: sysID,
+              remote_sys_id: updateSetId,
+              state,
+              source: { sys_id: source.sys_id, name: source.name, url: source.url, type: source.type },
+              retrieve: { status: progress.label, percent_complete: progress.percent_complete, message: progress.message, tracked: progress.tracked !== false },
+              cleanup_retrieved: false,
+            }, {
+              summary: `Retrieved "${name}" from source "${source.name}" (state: ${state}); not previewed or committed`,
+              breadcrumbs: [{ action: 'preview', cmd: `jsn updatesets preview ${quoteShellArg(sysID)}`, description: 'Preview against this instance before committing' }],
+            });
+          }),
+        })
+        .command({
+          command: 'commit <name..>',
+          describe: 'Commit a previewed retrieved update set once its preview problems are resolved; --ordered commits several in the given order through commitMultiple',
+          builder: y => y
+            .positional('name', { type: 'string', array: true, describe: 'Retrieved update set name or sys_id; several with --ordered' })
+            .option('ordered', { type: 'boolean', describe: 'Commit every set in the given order with one CICD commitMultiple request' })
+            .option('yes', { type: 'boolean', describe: 'Confirm applying the update set(s) to the selected target' })
             .option('timeout', { type: 'number', describe: 'Seconds to wait for the commit tracker (default 600)' }),
           handler: wrap(async (argv, app) => {
+            const identifiers = (Array.isArray(argv.name) ? argv.name : [argv.name])
+              .map((value) => String(value ?? '').trim())
+              .filter(Boolean);
+            if (!identifiers.length) {
+              throw errUsage('Provide at least one retrieved update set: jsn updatesets commit <set> [<set>...] --ordered');
+            }
+            if (!argv.ordered && identifiers.length !== 1) {
+              throw errUsage('commit takes one retrieved update set. Pass --ordered to commit several in a fixed order.');
+            }
+            if (argv.ordered) return commitOrderedUpdateSets(argv, app, identifiers);
+
             app.requireInstance();
-            const target = await resolveRetrievedUpdateSet(app, argv.name);
+            const target = await resolveRetrievedUpdateSet(app, identifiers[0]);
             const sysID = getStringField(target, 'sys_id');
             const name = getStringField(target, 'name');
             const state = remoteState(target);
@@ -1034,9 +1270,12 @@ export function updateSetsCmd(wrap) {
         console.log('  show <name>    Show an update set (type counts + risky items)');
         console.log('  export <name>  Export an update set to XML (stdout or --out)');
         console.log('  import <file>  Load retrieved XML (--dry-run inspects locally; --yes confirms)');
+        console.log('  sources        List configured remote instances (no credentials shown)');
+        console.log('  retrieve <set> Load a completed set from a configured remote instance (--source)');
         console.log('  preview <set>  Platform preview of a loaded retrieved set; reports problems');
         console.log('  problems <set> List preview problems (read-only; never resolves them)');
         console.log('  commit <set>   Commit a previewed retrieved set after problems are resolved');
+        console.log('  commit --ordered <set> <set>...  Commit several sets in the given order');
         console.log('  reopen <name>  Explicitly return a closed set to in progress');
         console.log('  set  [name]    Set the current update set (picker when run bare)');
         console.log('  create         Create a new update set (auto-sets as current)');
