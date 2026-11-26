@@ -188,26 +188,35 @@ function fixtureRoutes(overrides = {}) {
   return routes;
 }
 
-async function startFixture(overrides = {}) {
+async function startFixture(overrides = {}, { delayMs = 0 } = {}) {
   const requests = [];
   const routes = fixtureRoutes(overrides);
+  let inFlight = 0;
+  let maxInFlight = 0;
   const server = createServer(async (request, response) => {
     const url = new URL(request.url, 'http://fixture.invalid');
     const isTable = url.pathname.startsWith('/api/now/table/');
     requests.push({ method: request.method, path: url.pathname, query: queryOf(url), table: isTable });
-    response.setHeader('Content-Type', 'application/json');
-    // Authentication bootstraps a session with POST /angular.do; record writes
-    // are the boundary this reader must never cross.
-    if (isTable) assert.equal(request.method, 'GET', `unexpected ${request.method} ${url.pathname}`);
-    const table = url.pathname.replace('/api/now/table/', '');
-    const route = routes[table];
-    const result = typeof route === 'function' ? route(url) : route;
-    if (result && !Array.isArray(result) && result.status) {
-      response.writeHead(result.status);
-      response.end(JSON.stringify({ error: { message: 'ACL denied' } }));
-      return;
+    inFlight += 1;
+    maxInFlight = Math.max(maxInFlight, inFlight);
+    try {
+      if (delayMs) await new Promise(resolve => setTimeout(resolve, delayMs));
+      response.setHeader('Content-Type', 'application/json');
+      // Authentication bootstraps a session with POST /angular.do; record writes
+      // are the boundary this reader must never cross.
+      if (isTable) assert.equal(request.method, 'GET', `unexpected ${request.method} ${url.pathname}`);
+      const table = url.pathname.replace('/api/now/table/', '');
+      const route = routes[table];
+      const result = typeof route === 'function' ? route(url) : route;
+      if (result && !Array.isArray(result) && result.status) {
+        response.writeHead(result.status);
+        response.end(JSON.stringify({ error: { message: 'ACL denied' } }));
+        return;
+      }
+      response.end(JSON.stringify({ result: result || [] }));
+    } finally {
+      inFlight -= 1;
     }
-    response.end(JSON.stringify({ result: result || [] }));
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -217,6 +226,7 @@ async function startFixture(overrides = {}) {
   return {
     sdk,
     requests,
+    get maxInFlight() { return maxInFlight; },
     close: () => new Promise(resolve => {
       // Undici keeps sockets alive; without closing them `server.close`
       // waits out its keep-alive timeout and stretches the test.
@@ -706,5 +716,92 @@ test('real binary lists and shows legacy workflows over read-only HTTP', async (
   } finally {
     await fixture.close();
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// Independent reads run through one bounded pool. These tests pin the request
+// count, the pool ceiling, output order and per-source failure isolation so a
+// future edit cannot quietly serialize the reads again or fan them out.
+test('workflows list reads published and checked-out versions together, once each', async () => {
+  const fixture = await startFixture({}, { delayMs: 15 });
+  try {
+    const data = await listWorkflows(fixture.sdk, { limit: 3 });
+    assertOnlyReads(fixture.requests);
+    const tableReads = fixture.requests.filter(request => request.table);
+    assert.deepEqual(
+      tableReads.map(request => request.path.split('/').pop()).sort(),
+      ['wf_workflow', 'wf_workflow_version', 'wf_workflow_version'],
+    );
+    assert.equal(tableReads.length, 3);
+    assert.equal(fixture.maxInFlight, 2, 'the two version reads must overlap and never exceed the pool of four');
+    assert.deepEqual(data.records.map(record => record.name), ['Incident approval', 'Change gate', 'Problem follow-up']);
+    assert.equal(data.records[0].published_version.sys_id, V_PUBLISHED);
+    assert.equal(data.records[0].checked_out_version.sys_id, V_DRAFT);
+    assert.equal(data.coverage.components.versions, 'ok');
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('workflow inspection reads independent components concurrently, once each', async () => {
+  const fixture = await startFixture({}, { delayMs: 15 });
+  try {
+    const data = await inspectWorkflow(fixture.sdk, { identifier: 'Incident approval' });
+    assertOnlyReads(fixture.requests);
+    const tableReads = fixture.requests.filter(request => request.table);
+    assert.deepEqual(
+      tableReads.map(request => request.path.split('/').pop()).sort(),
+      ['sys_variable_value', 'wf_activity', 'wf_condition', 'wf_element_definition',
+        'wf_stage', 'wf_transition', 'wf_workflow', 'wf_workflow_version'].sort(),
+    );
+    assert.equal(tableReads.length, 8, 'resolution, version, activity and five independent component reads');
+    assert.equal(fixture.maxInFlight, 4, 'five component reads must never exceed the pool of four');
+
+    // Output order and content are unchanged: steps, conditions and edges keep
+    // their deterministic ordering no matter which read finished first.
+    assert.deepEqual(data.activities.map(activity => activity.name), ['Begin', 'Tag record', 'Approval']);
+    const approval = data.activities.find(activity => activity.sys_id === ACT_APPROVAL);
+    assert.deepEqual(approval.conditions.map(condition => condition.name), ['approved', 'else']);
+    assert.deepEqual(
+      data.transitions.map(transition => `${transition.from_name}->${transition.to_name}`).sort(),
+      ['Approval->', 'Approval->Tag record', 'Begin->Tag record', 'Tag record->Approval'].sort(),
+    );
+    assert.deepEqual(data.coverage.components, {
+      versions: 'ok', activities: 'ok', conditions: 'ok', transitions: 'ok',
+      stages: 'ok', configuration: 'ok', definitions: 'ok',
+    });
+    assert.equal(data.coverage.complete, true);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('one unreadable component read is reported as that component only', async () => {
+  const fixture = await startFixture({ wf_condition: () => ({ status: 403 }) }, { delayMs: 6 });
+  try {
+    const data = await inspectWorkflow(fixture.sdk, { identifier: 'Incident approval' });
+    assertOnlyReads(fixture.requests);
+    assert.equal(data.coverage.components.conditions, 'inaccessible');
+    // Every other component still rendered.
+    assert.equal(data.coverage.components.transitions, 'ok');
+    assert.equal(data.coverage.components.definitions, 'ok');
+    assert.equal(data.coverage.components.stages, 'ok');
+    assert.equal(data.coverage.components.configuration, 'ok');
+    assert.equal(data.coverage.complete, false);
+    assert.deepEqual(data.integrity.inaccessible.map(item => item.component), ['conditions']);
+    assert.deepEqual(data.activities.map(activity => activity.name), ['Begin', 'Tag record', 'Approval']);
+    assert.deepEqual(data.activities.map(activity => activity.conditions.length), [0, 0, 0]);
+    // Edges survive, with the unread condition reported rather than blanked.
+    assert.equal(data.transitions.length, 4);
+    assert.deepEqual(
+      data.transitions.filter(transition => transition.condition_status === 'missing')
+        .map(transition => transition.condition_id).sort(),
+      [COND_APPROVED, COND_UNREADABLE].sort(),
+    );
+    const outline = formatWorkflowOutline(data, { includeConfiguration: true });
+    assert.match(outline, /conditions: inaccessible \(HTTP 403\)/);
+    assert.match(outline, /Run Script/);
+  } finally {
+    await fixture.close();
   }
 });
