@@ -2,6 +2,7 @@ import { analyzeWorkflowGraph } from './workflow-graph.js';
 import { numberWorkflowSteps } from './workflow-steps.js';
 import { assertSafeExactMatch } from './helpers.js';
 import { errAmbiguous, errNotFound, errUsage } from './errors.js';
+import { boundedReads } from './bounded-reads.js';
 
 /**
  * Read-only inspection of legacy Workflow Editor automation (the `wf_*`
@@ -203,12 +204,17 @@ function normalizeCondition(row) {
 async function versionsForWorkflows(sdk, workflowIds) {
   if (workflowIds.length === 0) return { state: 'ok', rows: [] };
   const scope = `workflowIN${workflowIds.join(',')}`;
-  const published = await readComponent(sdk, VERSION, {
-    query: `${scope}^published=true`, fields: VERSION_FIELDS, limit: CHUNK,
-  });
-  const drafts = await readComponent(sdk, VERSION, {
-    query: `${scope}^checked_outISNOTEMPTY`, fields: VERSION_FIELDS, limit: CHUNK,
-  });
+  // Published and checked-out versions are independent reads of the same
+  // table. They share the bounded pool; each keeps its own state, and the
+  // rows are concatenated in the same published-then-drafts order.
+  const [published, drafts] = await boundedReads([
+    () => readComponent(sdk, VERSION, {
+      query: `${scope}^published=true`, fields: VERSION_FIELDS, limit: CHUNK,
+    }),
+    () => readComponent(sdk, VERSION, {
+      query: `${scope}^checked_outISNOTEMPTY`, fields: VERSION_FIELDS, limit: CHUNK,
+    }),
+  ], (task) => task());
   const states = [published, drafts].filter(read => read.state !== 'ok');
   return {
     state: states.length === 0 ? 'ok' : states[0].state,
@@ -595,14 +601,51 @@ export async function inspectWorkflow(sdk, {
 
     const activityIds = activities.map(activity => activity.sys_id).filter(isSysId);
 
-    const conditionReads = [];
-    for (const chunk of chunks(activityIds)) {
-      conditionReads.push(await readComponent(sdk, CONDITION, {
+    // Conditions, transitions, stages, activity configuration and the activity
+    // type records they reference are independent reads of one selected
+    // version. They share the bounded pool (chunks included) and each query
+    // keeps its own state; the blocks below slice the results back out in
+    // their original order so status reporting and output order are unchanged.
+    const conditionQueries = chunks(activityIds);
+    const transitionQueries = chunks(activityIds);
+    const configurationQueries = includeConfiguration ? chunks(activityIds) : [];
+    const definitionIds = [...new Set(activities.map(activity => activity.definition_id).filter(isSysId))];
+    const definitionQueries = chunks(definitionIds);
+    const componentReads = await boundedReads([
+      ...conditionQueries.map(chunk => () => readComponent(sdk, CONDITION, {
         query: `activityIN${chunk.join(',')}^ORDERBYorder`,
         fields: CONDITION_FIELDS,
         limit: MAX_LIMIT,
-      }));
-    }
+      })),
+      ...transitionQueries.map(chunk => () => readComponent(sdk, TRANSITION, {
+        query: `fromIN${chunk.join(',')}`,
+        fields: TRANSITION_FIELDS,
+        limit: MAX_LIMIT,
+      })),
+      () => readComponent(sdk, STAGE, {
+        query: `workflow_version=${version.sys_id}^ORDERBYorder`,
+        fields: STAGE_FIELDS,
+        limit: 500,
+      }),
+      ...configurationQueries.map(chunk => () => readComponent(sdk, VARIABLE_VALUE, {
+        query: `document=wf_activity^document_keyIN${chunk.join(',')}^ORDERBYorder`,
+        fields: 'document_key,variable.element,variable.internal_type,variable.reference,value',
+        limit: MAX_LIMIT,
+      })),
+      ...definitionQueries.map(chunk => () => readComponent(sdk, DEFINITION, {
+        query: `sys_idIN${chunk.join(',')}`,
+        fields: DEFINITION_FIELDS,
+        limit: CHUNK,
+      })),
+    ], (task) => task());
+    let readIndex = 0;
+    const takeReads = (count) => {
+      const part = componentReads.slice(readIndex, readIndex + count);
+      readIndex += count;
+      return part;
+    };
+    const conditionReads = takeReads(conditionQueries.length);
+
     const conditionState = worstState(conditionReads);
     components.conditions = activityIds.length === 0 ? 'not_applicable' : conditionState;
     if (conditionState !== 'ok' && conditionState !== 'not_applicable') {
@@ -612,14 +655,7 @@ export async function inspectWorkflow(sdk, {
     conditions = conditionReads.flatMap(read => read.rows || []).map(normalizeCondition)
       .sort((a, b) => a.activity_id.localeCompare(b.activity_id) || a.order - b.order);
 
-    const transitionReads = [];
-    for (const chunk of chunks(activityIds)) {
-      transitionReads.push(await readComponent(sdk, TRANSITION, {
-        query: `fromIN${chunk.join(',')}`,
-        fields: TRANSITION_FIELDS,
-        limit: MAX_LIMIT,
-      }));
-    }
+    const transitionReads = takeReads(transitionQueries.length);
     // Hitting a per-query bound is conservatively incomplete; do not add a
     // count query or fetch more rows just for graph analysis.
     transitionsTruncated = transitionReads.some(read => read.state === 'ok' && read.rows.length >= MAX_LIMIT);
@@ -630,11 +666,7 @@ export async function inspectWorkflow(sdk, {
       inaccessible.push({ component: 'transitions', state: failed.state, http_status: failed.http_status ?? null, code: failed.code ?? null });
     }
 
-    const stageRead = await readComponent(sdk, STAGE, {
-      query: `workflow_version=${version.sys_id}^ORDERBYorder`,
-      fields: STAGE_FIELDS,
-      limit: 500,
-    });
+    const stageRead = takeReads(1)[0];
     components.stages = stageRead.state;
     if (stageRead.state !== 'ok' && stageRead.state !== 'unavailable') {
       inaccessible.push({ component: 'stages', state: stageRead.state, http_status: stageRead.http_status ?? null, code: stageRead.code ?? null });
@@ -648,14 +680,7 @@ export async function inspectWorkflow(sdk, {
 
     if (includeConfiguration && activityIds.length === 0) components.configuration = 'not_applicable';
     if (includeConfiguration && activityIds.length > 0) {
-      const configurationReads = [];
-      for (const chunk of chunks(activityIds)) {
-        configurationReads.push(await readComponent(sdk, VARIABLE_VALUE, {
-          query: `document=wf_activity^document_keyIN${chunk.join(',')}^ORDERBYorder`,
-          fields: 'document_key,variable.element,variable.internal_type,variable.reference,value',
-          limit: MAX_LIMIT,
-        }));
-      }
+      const configurationReads = takeReads(configurationQueries.length);
       const configurationState = worstState(configurationReads);
       components.configuration = configurationState;
       if (configurationState !== 'ok') {
@@ -691,15 +716,7 @@ export async function inspectWorkflow(sdk, {
       }
     }
 
-    const definitionIds = [...new Set(activities.map(activity => activity.definition_id).filter(isSysId))];
-    const definitionReads = [];
-    for (const chunk of chunks(definitionIds)) {
-      definitionReads.push(await readComponent(sdk, DEFINITION, {
-        query: `sys_idIN${chunk.join(',')}`,
-        fields: DEFINITION_FIELDS,
-        limit: CHUNK,
-      }));
-    }
+    const definitionReads = takeReads(definitionQueries.length);
     const definitionState = worstState(definitionReads, definitionIds.length === 0 ? 'not_applicable' : 'ok');
     components.definitions = definitionState;
     if (definitionState !== 'ok' && definitionState !== 'not_applicable') {

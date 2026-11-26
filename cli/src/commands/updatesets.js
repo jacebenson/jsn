@@ -12,6 +12,7 @@ import { AppError, CodeConfirmationRequired, errAPI, errUsage, errConfirmationRe
 import { resolveScope } from './scopes.js';
 import { unwrapSysId } from '../resolve-record.js';
 import { assertNoUnresolvedProblems, DEFAULT_OPERATION_TIMEOUT_MS } from '../update-set-apply.js';
+import { boundedReads, createReadDeduper } from '../bounded-reads.js';
 
 /**
  * Scope-mismatch check for an update set vs the current app.
@@ -319,6 +320,17 @@ async function resolveMoveSets(app, from, to, toDefault) {
   return { source: found.from[0], target: found.to[0] };
 }
 
+const UPDATE_SET_CHILD_FIELDS = 'sys_id,name,state,application,application.scope,parent,description,sys_created_on,sys_updated_on';
+
+function childQueryParams(parentID) {
+  const params = new URLSearchParams();
+  params.set('sysparm_query', `parent=${parentID}^ORDERBYname`);
+  params.set('sysparm_limit', '500');
+  params.set('sysparm_display_value', 'all');
+  params.set('sysparm_fields', UPDATE_SET_CHILD_FIELDS);
+  return params;
+}
+
 /** Build a safe, flat preorder hierarchy with ancestors before the selected set. */
 export async function buildUpdateSetHierarchy(app, selectedRecord) {
   const selectedID = getStringField(selectedRecord, 'sys_id');
@@ -328,6 +340,8 @@ export async function buildUpdateSetHierarchy(app, selectedRecord) {
   const ancestors = [];
   let parentRef = selectedRecord?.parent;
 
+  // Ancestor reads are a dependency chain: a parent's own parent is only known
+  // after that parent is read, so this walk stays serial by construction.
   while (rawReferenceId(parentRef)) {
     const parentID = rawReferenceId(parentRef);
     const parentDisplay = referenceName(parentRef);
@@ -347,22 +361,44 @@ export async function buildUpdateSetHierarchy(app, selectedRecord) {
     parentRef = parent.parent;
   }
 
-  const descendants = [];
-  async function walkChildren(parentID, depth) {
-    if (!parentID) return;
-    let children;
+  // Sibling children lists are independent reads, so each tree level is read
+  // through the shared bounded pool instead of one node at a time. Every parent
+  // is read at most once per invocation, and a failed children read stays a
+  // local, empty list for that parent only — it does not blank or reorder its
+  // siblings. Assembly below is still depth-first preorder, so rows keep the
+  // exact order and depth they had when this walk was serial.
+  const childrenOf = new Map();
+  const readOnce = createReadDeduper();
+  const fetchChildren = (parentID) => readOnce(parentID, async () => {
     try {
-      const params = new URLSearchParams();
-      params.set('sysparm_query', `parent=${parentID}^ORDERBYname`);
-      params.set('sysparm_limit', '500');
-      params.set('sysparm_display_value', 'all');
-      params.set('sysparm_fields', 'sys_id,name,state,application,application.scope,parent,description,sys_created_on,sys_updated_on');
-      children = await app.sdk.list('sys_update_set', params);
+      return await app.sdk.list('sys_update_set', childQueryParams(parentID));
     } catch {
-      children = [];
+      return [];
     }
-    if (!Array.isArray(children)) return;
-    for (const child of children) {
+  });
+
+  let frontier = selectedID ? [selectedID] : [];
+  while (frontier.length > 0) {
+    const level = frontier.filter(parentID => !childrenOf.has(parentID));
+    if (level.length === 0) break;
+    const lists = await boundedReads(level, (parentID) => fetchChildren(parentID));
+    level.forEach((parentID, index) => {
+      childrenOf.set(parentID, Array.isArray(lists[index]) ? lists[index] : []);
+    });
+    const next = [];
+    for (const parentID of level) {
+      for (const child of childrenOf.get(parentID)) {
+        const childID = getStringField(child, 'sys_id');
+        if (childID) next.push(childID);
+      }
+    }
+    frontier = next;
+  }
+
+  const descendants = [];
+  function walkChildren(parentID, depth) {
+    if (!parentID) return;
+    for (const child of childrenOf.get(parentID) || []) {
       const childID = getStringField(child, 'sys_id');
       if (!childID) continue;
       if (visited.has(childID)) {
@@ -371,7 +407,7 @@ export async function buildUpdateSetHierarchy(app, selectedRecord) {
       }
       visited.add(childID);
       descendants.push({ record: child, depth });
-      await walkChildren(childID, depth + 1);
+      walkChildren(childID, depth + 1);
     }
   }
 
@@ -379,7 +415,7 @@ export async function buildUpdateSetHierarchy(app, selectedRecord) {
     ...ancestors.reverse().map((record, index) => updateSetHierarchyRow(record, { depth: index, kind: 'ancestor', missing: record.missing })),
     updateSetHierarchyRow(selectedRecord, { depth: ancestors.length, kind: 'selected', selected: true }),
   ];
-  await walkChildren(selectedID, ancestors.length + 1);
+  walkChildren(selectedID, ancestors.length + 1);
   hierarchy.push(...descendants.map(({ record, depth }) => updateSetHierarchyRow(record, { depth, kind: 'descendant' })));
 
   return { hierarchy, cycleIds: [...cycleIds], missingParents };
@@ -461,33 +497,43 @@ export async function formatUpdateSetDetail(app, record) {
   let children = [];
   const byType = {};
   const risky = [];
-  try {
-    const params = new URLSearchParams();
-    params.set('sysparm_query', `update_set=${sysID}^ORDERBYDESCsys_updated_on`);
-    params.set('sysparm_limit', '500');
-    params.set('sysparm_fields', 'name,sys_updated_on,sys_class_name');
-    const updates = await app.sdk.list('sys_update_xml', params);
-    if (Array.isArray(updates)) {
-      for (const u of updates) {
-        const name = getStringField(u, 'name');
-        if (!name) continue;
-        // sys_class_name is often empty on dev; fall back to the element-type
-        // prefix baked into the update name (e.g. sys_security_acl_<sysid32>).
-        let type = getStringField(u, 'sys_class_name');
-        if (!type) {
-          const m = /^(sys_[a-z_]+?)_[0-9a-f]{32}$/i.exec(name);
-          type = m ? m[1] : '?';
-        }
-        children.push({ name, type });
-        if (type && type !== '?') byType[type] = (byType[type] || 0) + 1;
-        if (type && RISKY_TYPES.has(type)) risky.push(name);
-      }
-    }
-  } catch {
-    // children are best-effort — a broken query shouldn't kill the display
-  }
 
-  const hierarchyData = await buildUpdateSetHierarchy(app, full);
+  const readPayload = async () => {
+    try {
+      const params = new URLSearchParams();
+      params.set('sysparm_query', `update_set=${sysID}^ORDERBYDESCsys_updated_on`);
+      params.set('sysparm_limit', '500');
+      params.set('sysparm_fields', 'name,sys_updated_on,sys_class_name');
+      const updates = await app.sdk.list('sys_update_xml', params);
+      if (Array.isArray(updates)) {
+        for (const u of updates) {
+          const name = getStringField(u, 'name');
+          if (!name) continue;
+          // sys_class_name is often empty on dev; fall back to the element-type
+          // prefix baked into the update name (e.g. sys_security_acl_<sysid32>).
+          let type = getStringField(u, 'sys_class_name');
+          if (!type) {
+            const m = /^(sys_[a-z_]+?)_[0-9a-f]{32}$/i.exec(name);
+            type = m ? m[1] : '?';
+          }
+          children.push({ name, type });
+          if (type && type !== '?') byType[type] = (byType[type] || 0) + 1;
+          if (type && RISKY_TYPES.has(type)) risky.push(name);
+        }
+      }
+    } catch {
+      // children are best-effort — a broken query shouldn't kill the display
+    }
+  };
+
+  // The member payload and the set hierarchy are independent read-only reads of
+  // an already-resolved record; neither decides a write, so they share the
+  // bounded pool and each keeps its own failure behavior.
+  const [, hierarchyData] = await boundedReads([
+    readPayload,
+    () => buildUpdateSetHierarchy(app, full),
+  ], (task) => task());
+
   const lines = [];
   lines.push(`Update set: ${name}`);
   lines.push(`  State:     ${state}`);
