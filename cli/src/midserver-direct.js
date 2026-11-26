@@ -1,3 +1,4 @@
+import { isSafeAncestorAlias } from './path-safety.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
@@ -62,8 +63,14 @@ function checkParents(directory, platform) {
   let current = path.dirname(directory);
   while (true) {
     if (fs.existsSync(current)) {
-      const st = fs.lstatSync(current);
-      if (st.isSymbolicLink() || !st.isDirectory()) throw new Error('Installation ancestors must be real directories');
+      let st = fs.lstatSync(current);
+      if (st.isSymbolicLink()) {
+        // Ancestors may be Apple-owned aliases (macOS /var -> /private/var); a
+        // user-created alias still fails.
+        if (!isSafeAncestorAlias(current)) throw new Error('Installation ancestors must be real directories');
+        st = fs.statSync(fs.realpathSync(current));
+      }
+      if (!st.isDirectory()) throw new Error('Installation ancestors must be real directories');
       if (platform === 'linux' && (st.mode & 0o022) && !(st.mode & 0o1000)) throw new Error('Installation ancestor is writable by other users');
     }
     const parent = path.dirname(current);
