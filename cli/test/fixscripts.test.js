@@ -6,12 +6,15 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { isMutationCommand } from '../src/mutations.js';
+import { fixscriptsCmd } from '../src/commands/_simple.js';
 import '../src/command-families.js';
 
 // fixscripts is a record profile over sys_script_fix. These run the real CLI over
 // a mocked SDK: the table on the wire, the script read from a file, and the
 // capture-context check that runs before the one write.
 const root = fileURLToPath(new URL('..', import.meta.url));
+const scope = 'a'.repeat(32), execution = 'e'.repeat(32);
+const stored = 'var gr = new GlideRecord("incident");\ngr.addQuery("impact", 1);\ngs.info("lowered " + gr.getRowCount());';
 let dir;
 before(() => {
   dir = mkdtempSync(path.join(tmpdir(), 'jsn-fixscripts-'));
@@ -30,6 +33,7 @@ class SDKClient {
   async list(table, params) {
     log('list', table, params.toString());
     if (table === 'sys_db_object') return [{ sys_id: 'fix-table', name: 'sys_script_fix', super_class: 'metadata' }];
+    if (table === 'sys_script_fix' && params.get('sysparm_display_value') === 'false') return [{ sys_id: 'c'.repeat(32), name: 'Lower impact', script: process.env.FIXTURE_EMPTY ? ' ' : ${JSON.stringify(stored)}, record_for_rollback: process.env.FIXTURE_NO_ROLLBACK ? 'false' : 'true', unloadable: 'false', sys_scope: process.env.FIXTURE_RECORD_SCOPE || scope }];
     if (table === 'sys_script_fix') return [{ sys_id: 'c'.repeat(32), name: 'Lower impact', record_for_rollback: 'true', unloadable: 'false', sys_scope: { value: scope, display_value: 'Global' } }];
     if (table === 'sys_user') return [{ sys_id: 'user', user_name: 'fixture' }];
     if (table === 'sys_user_preference') return [{ value: params.get('sysparm_query').includes('apps.current_app') ? scope : set }];
@@ -52,6 +56,10 @@ class SDKClient {
   async create(table, data) {
     log('create', table, data);
     return { sys_id: 'created', ...data };
+  }
+  async runBackgroundScript(script, scopeId, opts) {
+    log('runBackgroundScript', script, scopeId, { ...opts, signal: opts.signal instanceof AbortSignal });
+    return { output: 'lowered 3', execution_id: ${JSON.stringify(execution)} };
   }
 }
 mock.module(${JSON.stringify(new URL('../src/sdk.js', import.meta.url).href)}, { namedExports: { ...sdk, SDKClient } });
@@ -118,7 +126,85 @@ for (const [verb, args] of [['update', ['Lower impact', '-f', 'script=x']], ['de
   });
 }
 
-test('create, update and delete are writes for the read-only profile and the mutation guard; list and show are reads', () => {
-  for (const verb of ['create', 'update', 'delete']) assert.equal(isMutationCommand({ _: ['fixscripts', verb] }), true, verb);
+test('run without --yes previews the stored script and runs nothing', () => {
+  const result = run(['fixscripts', 'run', 'Lower impact', ...intent, '--json']);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  const { data } = JSON.parse(result.stdout);
+  assert.equal(data.dry_run, true);
+  assert.equal(data.sys_id, 'c'.repeat(32));
+  assert.equal(data.script, stored);
+  assert.equal(data.record_for_rollback, true);
+  assert.equal(data.unloadable, false);
+  assert.ok(!result.calls.some(call => call[0] === 'runBackgroundScript'));
+});
+
+test('the terminal view shows the script on a preview and what it printed on a run', () => {
+  const preview = run(['fixscripts', 'run', 'Lower impact', ...intent, '--format', 'styled']);
+  assert.equal(preview.status, 0, preview.stdout + preview.stderr);
+  assert.match(preview.stdout, /Dry run: would run fix script Lower impact/);
+  assert.ok(preview.stdout.includes(stored));
+  const ran = run(['fixscripts', 'run', 'Lower impact', ...intent, '--yes', '--format', 'styled']);
+  assert.equal(ran.status, 0, ran.stdout + ran.stderr);
+  assert.match(ran.stdout, /Ran fix script Lower impact\n\nlowered 3/);
+});
+
+test('run --yes runs the stored script unchanged, once, in the fix script\'s scope with its rollback setting and a cancel signal', () => {
+  const result = run(['fixscripts', 'run', 'Lower impact', ...intent, '--yes', '--json', '--verbose']);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.deepEqual(result.calls.filter(call => call[0] === 'runBackgroundScript'),
+    [['runBackgroundScript', stored, scope, { rollback: true, quotaManagedTransaction: true, sandbox: false, scriptlet: false, timeout: 30000, signal: true }]]);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.data.output, 'lowered 3');
+  assert.equal(output.data.execution, execution);
+  assert.ok(output.breadcrumbs.some(item => item.cmd === `jsn eval rollback ${execution}`));
+});
+
+test('a fix script without Record for rollback runs without a rollback context; --timeout reaches the instance call', () => {
+  const result = run(['fixscripts', 'run', 'Lower impact', ...intent, '--timeout', '600', '--yes', '--json', '--verbose'], { FIXTURE_NO_ROLLBACK: '1' });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  const [call] = result.calls.filter(item => item[0] === 'runBackgroundScript');
+  assert.equal(call[3].rollback, false);
+  assert.equal(call[3].timeout, 600000);
+  assert.ok(!JSON.parse(result.stdout).breadcrumbs.some(item => item.cmd.includes('eval rollback')));
+});
+
+for (const [label, args, env, code, message, readsNothing] of [
+  ['read-only', intent, { FIXTURE_READONLY: '1' }, 'read_only', /read-only/i, true],
+  ['missing intent', [], {}, 'usage_error', /require intended scope and update set/],
+  ['session scope mismatch', intent, { FIXTURE_MISMATCH: '1' }, 'usage_error', /Intended scope does not match/],
+  ['a fix script in another scope', intent, { FIXTURE_RECORD_SCOPE: 'd'.repeat(32) }, 'usage_error', /Fix script scope is unknown or differs/],
+  ['an empty script', intent, { FIXTURE_EMPTY: '1' }, 'usage_error', /has no script/],
+  ['--timeout 0', [...intent, '--timeout', '0'], {}, 'usage_error', /--timeout must be a whole number of seconds from 1 to 86400/, true],
+]) {
+  test(`run refused by ${label} runs nothing`, () => {
+    const result = run(['fixscripts', 'run', 'Lower impact', ...args, '--yes', '--json'], env);
+    assert.notEqual(result.status, 0);
+    const output = JSON.parse(result.stdout);
+    assert.equal(output.code, code, result.stdout);
+    assert.match(output.error, message);
+    assert.ok(!result.calls.some(call => call[0] === 'runBackgroundScript' || call[0] === 'create'));
+    if (readsNothing) assert.deepEqual(result.calls, []);
+  });
+}
+
+test('Ctrl-C while a fix script runs aborts the signal given to the instance call, and the handler is removed after', async () => {
+  let handler;
+  fixscriptsCmd(fn => fn).builder({ command(definition) { if (definition.command?.startsWith('run ')) handler = definition.handler; return this; } });
+  assert.equal(typeof handler, 'function');
+  const before = process.listenerCount('SIGINT');
+  const write = process.stderr.write;
+  const writes = [];
+  process.stderr.write = chunk => { writes.push(String(chunk)); return true; };
+  const app = { requireInstance() {}, mutationContext: { verified: true, application_id: scope }, ok() { throw new Error('no success output after a cancel'); },
+    sdk: { list: async () => [{ sys_id: 'c'.repeat(32), name: 'Lower impact', script: stored, record_for_rollback: 'true', sys_scope: scope }],
+      runBackgroundScript: async (_script, _scope, opts) => { process.emit('SIGINT'); assert.equal(opts.signal.aborted, true); throw new Error('stopped'); } } };
+  try { await assert.rejects(handler({ identifier: 'Lower impact', yes: true, timeout: 30 }, app), /stopped/); }
+  finally { process.stderr.write = write; }
+  assert.match(writes.join(''), /Cancelling the fix script on the instance/);
+  assert.equal(process.listenerCount('SIGINT'), before);
+});
+
+test('create, update, delete and run are writes for the read-only profile and the mutation guard; list and show are reads', () => {
+  for (const verb of ['create', 'update', 'delete', 'run']) assert.equal(isMutationCommand({ _: ['fixscripts', verb] }), true, verb);
   for (const verb of ['list', 'show']) assert.equal(isMutationCommand({ _: ['fixscripts', verb] }), false, verb);
 });

@@ -147,6 +147,8 @@ jsn fixscripts list --query "nameLIKEimpact"
 jsn fixscripts create -f name="Lower incident impact" -f script=@fix.js \
   --expect-scope global --expect-update-set "Data fixes"
 jsn fixscripts show "Lower incident impact" --get data.script.value
+jsn fixscripts run "Lower incident impact" \
+  --expect-scope global --expect-update-set "Data fixes" --yes
 ```
 
 A fix script (`sys_script_fix`) is a customization record, so `create`, `update`
@@ -155,6 +157,15 @@ other customization writes do, and the platform captures the record in that
 update set. `-f script=@fix.js` reads the body from a file. Creating a fix
 script does not run it; the platform runs one on its own only when an
 application that holds it is installed or upgraded.
+
+`run` previews unless `--yes`, then runs the stored script unchanged as a
+background script in the fix script's own scope, which must be the intended
+scope, with a rollback context when Record for rollback is ticked. It is the
+`jsn eval` path: `--timeout` and Ctrl-C cancel it on the instance, and after a
+run with a rollback context `jsn eval rollback <execution>` undoes it. It does
+not start the platform's Run Fix Script worker, so no progress worker or fix
+script log is written, and it ignores the record's Unloadable setting:
+customizations the script writes are captured in the intended update set.
 
 ## Choose output
 

@@ -3,6 +3,7 @@ import { getStringField } from '../helpers.js';
 import { withTableBehavior } from './table-behavior.js';
 import { describeNotification, deliverySummary } from '../notifications.js';
 import { withTableAudit } from './table-audit.js';
+import { withFixScriptRun } from './fixscript-run.js';
 // Simple table-based commands — singular names passed for grammar
 // Default columns and aliases match the Go version exactly
 
@@ -121,7 +122,7 @@ export const catalogscriptsCmd = (wrap) => buildProfileCommand('catalogscripts',
 // ── Automation: Async ──
 export const scriptactionsCmd = (wrap) => buildProfileCommand('scriptactions', wrap);
 export const scheduledjobsCmd = (wrap) => buildProfileCommand('scheduledjobs', wrap);
-export const fixscriptsCmd = (wrap) => buildProfileCommand('fixscripts', wrap);
+export const fixscriptsCmd = (wrap) => withFixScriptRun(buildProfileCommand('fixscripts', wrap), wrap);
 export const asyncrulesCmd = (wrap) => buildProfileCommand('asyncrules', wrap);
 export const triggersCmd = (wrap) => buildProfileCommand('triggers', wrap);
 
