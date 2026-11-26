@@ -18,6 +18,7 @@ function validate(w) {
   // /usr/bin/security, so macOS gets a scoped job rather than the full suite,
   // which is not macOS-clean yet. The repository is public: the runner is free.
   assert.equal(ci.jobs['macos-keychain']['runs-on'], 'macos-latest');
+  assert.equal(ci.jobs['macos-probe']['runs-on'], 'macos-latest');
   assert.match(commands(ci.jobs['macos-keychain']), /node .*--test test\/macos-keychain\.test\.js/);
   assert.equal(ci.jobs.site.uses, './.github/workflows/docs-site.yml');
   assert.equal(ci.jobs.site.needs, 'changes');

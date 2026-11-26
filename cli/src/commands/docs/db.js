@@ -1,5 +1,6 @@
 // Docs DB path resolution and schema helpers.
 
+import { canonicalizeSafeAliases, isSafeAncestorAlias } from '../../path-safety.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -131,11 +132,19 @@ export function resolveDocsRoot(dir) {
     let stat;
     try { stat = fs.lstatSync(current); }
     catch (error) { if (error.code === 'ENOENT') return null; throw error; }
-    if (stat.isSymbolicLink()) throw new Error(`Documentation source contains a symbolic link or junction alias: ${current}`);
+    if (stat.isSymbolicLink()) {
+      // Ancestors may be Apple-owned aliases (macOS /var -> /private/var); the
+      // docs root itself may not. isSafeAncestorAlias() only accepts a link whose
+      // target is root-owned and not writable by others.
+      if (!isSafeAncestorAlias(current)) throw new Error(`Documentation source contains a symbolic link or junction alias: ${current}`);
+      try { stat = fs.statSync(fs.realpathSync(current)); } catch { throw new Error(`Documentation source contains a symbolic link or junction alias: ${current}`); }
+    }
     if (!stat.isDirectory()) throw new Error(`Documentation source is not a directory: ${current}`);
   }
   const canonical = fs.realpathSync(absolute);
-  if (path.relative(absolute, canonical) !== '') throw new Error(`Documentation source resolves through an alias: ${absolute}`);
+  // Compare against the path with only the allowed ancestor aliases resolved, so
+  // macOS's /var spelling is not treated as an alias.
+  if (canonicalizeSafeAliases(absolute) !== canonical) throw new Error(`Documentation source resolves through an alias: ${absolute}`);
   return canonical;
 }
 

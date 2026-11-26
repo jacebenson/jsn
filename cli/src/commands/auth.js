@@ -1158,6 +1158,10 @@ Examples:
     authMethod: targetProfile ? targetProfile.auth_method : 'oauth',
     username: targetProfile?.username,
   };
+  // A refresh writes the new token, so the host must be able to store it. This
+  // fails (or offers the repair) before the token endpoint is contacted, the
+  // same way login does.
+  await ensureCredentialStorage(app, argv);
   const creds = await app.auth.getCredentialsFor(
     instanceURL,
     targetProfile?.username,

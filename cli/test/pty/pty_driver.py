@@ -71,7 +71,8 @@ def main():
     flags = fcntl.fcntl(master, fcntl.F_GETFL)
     fcntl.fcntl(master, fcntl.F_SETFL, flags | os.O_NONBLOCK)
     # A stable, dumb-friendly window so renderers do not depend on host size.
-    fcntl.ioctl(slave, 0x5414, __import__('struct').pack('HHHH', 40, args.columns, 0, 0))  # TIOCSWINSZ
+    import termios
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, __import__('struct').pack('HHHH', 40, args.columns, 0, 0))
     child = subprocess.Popen(
         ['sh', '-c', wrapper], cwd=args.cwd, stdin=slave, stdout=slave,
         stderr=slave, start_new_session=True, env={**os.environ, 'TERM': 'xterm'},

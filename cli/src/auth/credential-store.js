@@ -107,22 +107,33 @@ function malformedSecureEntry() {
 // Validate broad ancestors without chmod: only the leaf secret directory must
 // be private. Root-owned sticky temporary ancestors are permitted, not leaves.
 function checkPath(target, directory, privateMode = false) {
-  const stat = fs.lstatSync(target);
+  let stat = fs.lstatSync(target);
+  if (stat.isSymbolicLink()) {
+    // macOS ships /var -> /private/var, so an ordinary XDG path has symlinked
+    // ancestors. Only ancestors may be links: the secret directory and the file
+    // itself still may not be, and the resolved target must pass the same
+    // ownership and mode checks.
+    if (privateMode || !directory) throw unsafePathError();
+    try { stat = fs.statSync(fs.realpathSync(target)); } catch { throw unsafePathError(); }
+  }
   // Windows stat mode/uid fields do not describe DACL access. Retain type,
   // symlink/junction and hardlink checks there; do not claim POSIX privacy.
   // Windows files inherit their parent's ACL; see the documented storage policy.
   const posix = process.platform !== 'win32';
   const uid = posix ? process.getuid?.() : undefined;
-  if (stat.isSymbolicLink() || (directory ? !stat.isDirectory() : !stat.isFile()) ||
+  if ((directory ? !stat.isDirectory() : !stat.isFile()) ||
       (uid !== undefined && stat.uid !== uid && !(directory && !privateMode && stat.uid === 0)) ||
       (!directory && stat.nlink !== 1) ||
       (posix && (privateMode ? (stat.mode & 0o7777) !== (directory ? 0o700 : 0o600) :
         ((stat.mode & 0o022) !== 0 && !(directory && stat.uid === 0 && (stat.mode & 0o1000)))))) {
-    throw storageError(posix
-      ? 'Unsafe credential/PKCE path: require owned regular 0600 files and private 0700 secret directories; reject symlinks, links and writable ancestors. Repair or move the path manually, then retry.'
-      : 'Unsafe credential/PKCE path: require regular files/directories without symlinks, junctions or hard links. Windows ACL privacy must be managed separately.', 'storage_path_unsafe');
+    throw unsafePathError();
   }
   return stat;
+}
+function unsafePathError() {
+  return storageError(process.platform === 'win32'
+    ? 'Unsafe credential/PKCE path: require regular files/directories without symlinks, junctions or hard links. Windows ACL privacy must be managed separately.'
+    : 'Unsafe credential/PKCE path: require owned regular 0600 files and private 0700 secret directories; reject symlinks, links and writable ancestors. Repair or move the path manually, then retry.', 'storage_path_unsafe');
 }
 // Enumerate below the parsed root: a drive/UNC prefix is not a component.
 export function privateStateDirectories(dir, pathAPI = path) {

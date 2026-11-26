@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from '../../src/config.js';
@@ -34,7 +35,10 @@ if (new URL(import.meta.url).searchParams.get('loopback-credential-fixture') ===
       !['fixture-secret', 'synthetic-fixture-only', 'fixture'].includes(process.env.SN_PASSWORD)) refuse();
   // Validate isolated paths BEFORE loadConfig could consult personal settings.
   const home = process.env.HOME;
-  if (!home || path.resolve(home) !== process.cwd()) refuse();
+  // macOS reports cwd as /private/var/... while HOME keeps the /var/... spelling,
+  // so compare the resolved paths rather than the strings.
+  const real = (value) => { try { return fs.realpathSync(value); } catch { return path.resolve(value); } };
+  if (!home || real(home) !== real(process.cwd())) refuse();
   for (const key of ['XDG_CONFIG_HOME', 'XDG_CACHE_HOME', 'JSN_DATA_HOME']) {
     const relative = path.relative(home, process.env[key] || '');
     if (!process.env[key] || relative.startsWith('..') || path.isAbsolute(relative)) refuse();

@@ -127,6 +127,26 @@ jobs:
       - run: npm --prefix cli ci --ignore-scripts
       - run: npm run test:workflows
 
+  macos-probe:
+    # Temporary: measures how far the full suite gets on macOS (#645).
+    name: macOS full suite (probe)
+    needs: changes
+    if: needs.changes.outputs.cli == 'true'
+    continue-on-error: true
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: cli
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 'lts/*'
+          cache: npm
+          cache-dependency-path: cli/package-lock.json
+      - run: npm ci
+      - run: npm test
+
   macos-keychain:
     name: macOS Keychain
     needs: changes

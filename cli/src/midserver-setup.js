@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { assertSafeExactMatch, getStringField } from './helpers.js';
+import { isSafeAncestorAlias } from './path-safety.js';
 
 // Read-only: never create parents, chmod existing paths or adopt installations.
 export function validateMidInstallDirectory(directory, { allowEmpty = false } = {}) {
@@ -13,7 +14,13 @@ export function validateMidInstallDirectory(directory, { allowEmpty = false } = 
     let stat;
     try { stat = fs.lstatSync(current); } catch (error) { if (error.code !== 'ENOENT') throw error; }
     if (stat) {
-      if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error(`Unsafe MID directory component: ${current}`);
+      if (stat.isSymbolicLink()) {
+        // Ancestors may be Apple-owned aliases (macOS /var); the install
+        // destination itself may not be a link.
+        if (destination || !isSafeAncestorAlias(current)) throw new Error(`Unsafe MID directory component: ${current}`);
+        try { stat = fs.statSync(fs.realpathSync(current)); } catch { throw new Error(`Unsafe MID directory component: ${current}`); }
+      }
+      if (!stat.isDirectory()) throw new Error(`Unsafe MID directory component: ${current}`);
       if (destination && (!allowEmpty || fs.readdirSync(current).length)) throw new Error(`MID installation directory already exists: ${resolved}`);
       if (process.platform !== 'win32') {
         if ((stat.mode & 0o022) && !(stat.mode & 0o1000)) throw new Error(`MID directory parent is writable by other users: ${current}`);
