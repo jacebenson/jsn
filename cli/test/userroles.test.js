@@ -23,7 +23,7 @@ const NAMES = { [BETH]: 'beth.anglin', [ABEL]: 'abel.tuter', [DAVID]: 'david.loo
 const grant = (rowId, user, inherited) => ({ sys_id: field(rowId), user: field(user, NAMES[user]), role: field(ROLE, 'itil'), inherited: field(String(inherited)) });
 
 // A fake instance: itil exists, three users, and the sys_user_has_role rows in `rows`.
-function fixture(rows = [], { createError = {}, deleteError = {}, keepDeleted = false, dropCreated = false, raced = [] } = {}) {
+function fixture(rows = [], { createError = {}, deleteError = {}, keepDeleted = false, dropCreated = false, raced = [], silent = [] } = {}) {
   const calls = [];
   const state = [...rows];
   const sdk = {
@@ -47,6 +47,7 @@ function fixture(rows = [], { createError = {}, deleteError = {}, keepDeleted = 
       calls.push(['create', table, data]);
       if (createError[data.user]) throw createError[data.user];
       if (raced.includes(data.user)) { state.push(grant(id('9'), data.user, false)); return null; } // another grant landed first; the platform aborts ours silently
+      if (silent.includes(data.user)) return null;
       if (!dropCreated) state.push(grant(String(state.length + 100).padStart(32, 'c'), data.user, false));
       return { sys_id: 'x' };
     },
@@ -151,6 +152,14 @@ describe('userroles', () => {
     assert.deepEqual(data.skipped, [{ sys_id: ABEL, user_name: 'abel.tuter', reason: 'holds_directly' }]);
     assert.equal(data.verified, true);
     assert.equal(opts.summary, 'Granted itil directly to 1 user(s); 1 skipped');
+    assert.equal(process.exitCode, undefined);
+    // An empty reply with no direct row on the read-back is not a grant.
+    const quiet = fixture([], { silent: [ABEL] });
+    await add({ app: quiet.app, role: 'itil', user: ['abel.tuter'], yes: true });
+    assert.deepEqual(quiet.app.lastOk.data.unconfirmed.map(u => u.user_name), ['abel.tuter']);
+    assert.equal(quiet.app.lastOk.data.verified, false);
+    assert.equal(process.exitCode, 1);
+    process.exitCode = undefined;
   });
 
   for (const [label, args] of [
