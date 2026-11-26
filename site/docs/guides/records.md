@@ -241,6 +241,10 @@ jsn records versions sys_script_include MyUtil --identifier-field name --diff 2 
   an update set (a retrieved update not yet committed is left out), with its
   update set as a raw sys_id and label. A version's `source` is the set at the
   time; the two differ after an update is moved.
+- `updates` lists every such capture, newest first, so a record captured in
+  several sets shows each set with its state (`update_set.state`). It reads up
+  to `--limit` rows with one-row lookahead for `updates_pagination.has_more`;
+  `latest_update` is its first row.
 - `--diff N` reads two payloads, version N and the version in state current,
   and compares them in the CLI. Every element with an `action` attribute is a
   record, keyed by table and sys_id, so composite payloads (a list layout's
