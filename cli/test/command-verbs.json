@@ -219,11 +219,17 @@
     },
     "revert": {
       "why": "records revert puts a record back to a saved sys_update_version through the platform's Revert to this version; update writes a payload the caller supplies, rollback undoes one eval run's own changes, and undelete restores a deleted copy."
+    },
+    "queue": {
+      "why": "list reads one table's newest page and show reads one record; neither aggregates a backlog over a window, so queue names the read that answers how much is stuck and for how long."
+    },
+    "why": {
+      "why": "show returns a record's stored fields and cannot weigh watermark, action and log evidence against each other, so why names the diagnostic question rather than overloading show or explain."
     }
   },
   "budgets": {
     "$comment": "Subcommand count per family. A budget is a ratchet, not a ban: when a new command earns its place, raise the number in the same diff and say why in the PR. Adding a family means adding its budget entry.",
-    "total": 431,
+    "total": 433,
     "families": {
       "access-analyzer": 3,
       "acls": 5,
@@ -255,7 +261,7 @@
       "docs": 6,
       "document": 1,
       "domains": 8,
-      "email": 5,
+      "email": 7,
       "eval": 1,
       "flows": 17,
       "forms": 2,
