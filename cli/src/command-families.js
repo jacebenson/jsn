@@ -50,9 +50,9 @@ export const subscriptionsCmd = wrap => ({ ...subscriptionsCmdDefinition, load: 
 
 export const customizationsCmdDefinition = {
   command: 'customizations [subcommand]',
-  describe: 'Capture and compare read-only customization evidence locally',
+  describe: 'Capture and compare customization evidence locally, or revert an application\'s customised files',
 };
-declareCapabilities('customizations', { noInstance: true, skipDailyChecks: true, mutationSubcommands: [] });
+declareCapabilities('customizations', { noInstance: true, skipDailyChecks: true, mutationSubcommands: ['revert'] });
 export const customizationsCmd = wrap => ({ ...customizationsCmdDefinition, load: () => require('./commands/customizations.js').customizationsCmd(wrap) });
 
 export const skippedUpdatesCmdDefinition = {

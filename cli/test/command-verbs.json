@@ -232,7 +232,7 @@
   },
   "budgets": {
     "$comment": "Subcommand count per family. A budget is a ratchet, not a ban: when a new command earns its place, raise the number in the same diff and say why in the PR. Adding a family means adding its budget entry.",
-    "total": 443,
+    "total": 444,
     "families": {
       "access-analyzer": 3,
       "acls": 5,
@@ -257,7 +257,7 @@
       "codesearch": 1,
       "columns": 5,
       "compare": 0,
-      "customizations": 5,
+      "customizations": 6,
       "decisiontables": 6,
       "diff": 1,
       "discover": 0,

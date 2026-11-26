@@ -140,6 +140,14 @@ the group; `remove` deletes every row for the users, and `--yes` needs the
 `--expect-count` its preview printed. Both match the group and users exactly,
 preview without `--yes`, take up to 100 users, read the rows back, and exit
 nonzero unless every change is there.
+```sh
+jsn customizations revert --scope sn_hr_core
+jsn customizations revert --scope sn_hr_core --confirm <token>
+```
+
+`customizations revert` does the same for every customised file of a Store or
+repository application, 100 files a run, after a preview and its token. Files
+added on the instance are listed, never deleted.
 
 ## Saved Access Analyzer evidence
 

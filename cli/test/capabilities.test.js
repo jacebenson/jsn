@@ -79,10 +79,10 @@ describe('capabilities registry', () => {
     assert.ok(!skip.has('records'));
   });
 
-  it('declares customization local review and read-only data capture capabilities', () => {
-    assert.deepStrictEqual(collectCapabilities().get('customizations'), { noInstance: true, skipDailyChecks: true, mutationSubcommands: [] });
+  it('declares customization local review, read-only capture and revert as its only mutation', () => {
+    assert.deepStrictEqual(collectCapabilities().get('customizations'), { noInstance: true, skipDailyChecks: true, mutationSubcommands: ['revert'] });
     assert.ok(noInstanceCommands().has('customizations'));
-    assert.ok(!mutationPaths().some(path => path[0] === 'customizations'));
+    assert.deepStrictEqual(mutationPaths().filter(path => path[0] === 'customizations'), [['customizations', 'revert']]);
   });
 
   it('derives dailyCheckSkipCommands including offline customization reports', () => {
