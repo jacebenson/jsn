@@ -219,11 +219,14 @@
     },
     "revert": {
       "why": "records revert puts a record back to a saved sys_update_version through the platform's Revert to this version; update writes a payload the caller supplies, rollback undoes one eval run's own changes, and undelete restores a deleted copy."
+    },
+    "basic-auth": {
+      "why": "users basic-auth gives one enforcement verdict per account the platform recorded using Basic Auth. list returns generic user records, show reads one user, and users roles lists role names, but none of them reports the Basic Auth decision or whether enforcement blocks the account."
     }
   },
   "budgets": {
     "$comment": "Subcommand count per family. A budget is a ratchet, not a ban: when a new command earns its place, raise the number in the same diff and say why in the PR. Adding a family means adding its budget entry.",
-    "total": 431,
+    "total": 432,
     "families": {
       "access-analyzer": 3,
       "acls": 5,
@@ -310,7 +313,7 @@
       "uipolicies": 5,
       "updatesets": 14,
       "upgrade": 1,
-      "users": 6,
+      "users": 7,
       "uxapplicability": 2,
       "uxlists": 2,
       "uxscripts": 5,

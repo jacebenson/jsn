@@ -2,6 +2,7 @@ import { formatRecordForDisplay, getStringField, interactiveList, resolveFieldsP
 import { deferredFamilyDefinition } from '../command-families.js';
 import { resolveRecord, resolveSysId } from '../resolve-record.js';
 import { listUserRoles, explainUserRoles, formatUserRoleWhy } from '../user-roles.js';
+import { basicAuthReport, formatBasicAuthReport } from '../basic-auth-report.js';
 import { errUsage } from '../errors.js';
 
 export function usersCmd(wrap) {
@@ -89,6 +90,29 @@ export function usersCmd(wrap) {
           }),
         })
         .command({
+          command: 'basic-auth',
+          describe: 'List accounts the platform recorded using Basic Auth and whether enforcement will block them (read-only)',
+          builder: (y) => y
+            .option('blocked', { type: 'boolean', default: false, describe: 'Only accounts enforcement would block' })
+            .option('limit', { alias: 'l', type: 'number', default: 200, describe: 'Max exception rows to show (1-1000)' }),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const data = await basicAuthReport(app.sdk, { blocked: argv.blocked === true, limit: argv.limit });
+            Object.defineProperty(data, '_formatted', { value: formatBasicAuthReport(data), enumerable: false });
+            const policy = data.policy;
+            const switches = policy.readable ? `active=${policy.active}, enforce=${policy.enforce}` : 'policy not readable';
+            app.ok(data, {
+              summary: !data.exception_table.readable
+                ? `Basic Auth restriction ${switches}; exception table not readable (${data.exception_table.error}), so per-account verdicts are unknown`
+                : `Basic Auth restriction ${switches}; ${data.counts.total} exception row(s): ${data.counts.blocked} blocked, ${data.counts.allowed} allowed, ${data.counts.unknown} unknown`,
+              breadcrumbs: [
+                { action: 'account', cmd: 'jsn users show <user>', description: 'Inspect one recorded account' },
+                { action: 'mid', cmd: 'jsn midservers add --help', description: 'Single-account diagnosis used by MID setup' },
+              ],
+            });
+          }),
+        })
+        .command({
           command: 'create',
           describe: 'Create a new user',
           builder: (y) => y
@@ -157,6 +181,7 @@ export function usersCmd(wrap) {
       console.log('  list                  List users');
       console.log('  show <name or sys_id>  Show a user by user_name or sys_id');
       console.log('  roles <identifier>    List a user\'s roles; --why shows how each is granted');
+      console.log('  basic-auth            Accounts recorded using Basic Auth and their enforcement verdict');
       console.log('  create                Create a new user');
       console.log('  update <identifier>   Update a user');
       console.log('  delete <identifier>   Delete a user');
