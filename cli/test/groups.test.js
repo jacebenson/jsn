@@ -46,3 +46,12 @@ describe('Groups handlers', () => {
     assert.strictEqual(createData.manager, 'manager.user');
   });
 });
+
+describe('GroupRoles bare help', () => {
+  it('names sys_group_has_role, the table every subcommand reads and writes', (t) => {
+    const lines = [];
+    t.mock.method(console, 'log', (...args) => lines.push(args.join(' ')));
+    groupRolesCmd(wrapHandler).handler();
+    assert.strictEqual(lines[0], 'Manage group roles in sys_group_has_role.');
+  });
+});
