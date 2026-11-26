@@ -60,6 +60,14 @@ describe('mutations.js', () => {
     assert.strictEqual(isMutationCommand({ _: ['scopes', 'set'] }), true);
   });
 
+  // `run` can persist with --save, so the path is the write class; the CLI
+  // never lets an option change a command's read/write class.
+  it('treats access-analyzer run as a mutation and check as a read', () => {
+    assert.strictEqual(isMutationCommand({ _: ['access-analyzer', 'run'], save: false }), true);
+    assert.strictEqual(isMutationCommand({ _: ['access-analyzer', 'run'], save: true }), true);
+    assert.strictEqual(isMutationCommand({ _: ['access-analyzer', 'check'] }), false);
+  });
+
   it('should not detect removed dev scopes list as mutation', () => {
     assert.strictEqual(isMutationCommand({ _: ['dev', 'scopes', 'list'] }), false);
   });

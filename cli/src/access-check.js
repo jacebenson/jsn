@@ -79,12 +79,18 @@ function verdict(name, operations, read, rules) {
     : `ACLs allow ${name} to read this record, but a read as ${name} does not return it, and no active before-query rule is on these tables.`;
 }
 
+// Resolve the identity to analyze. Both live commands run a server-side evaluation
+// as --user, which a browser-session profile cannot do without a UI session of its own.
+export async function resolveAnalyzedUser(sdk, options, verb) {
+  if ((await sdk.authProvider?.getCredentials())?.auth_method === 'gck') throw errUsageHint(`access-analyzer ${verb} cannot use a browser-session profile: it evaluates access as --user on a UI session of its own.`, `Use a basic or OAuth profile: jsn --profile <name> access-analyzer ${verb} ...`);
+  return findUser(sdk, `${isSysId(options.user) ? 'sys_id' : 'user_name'}=${options.user}`, options.user);
+}
+
 // asUser(userSysId, read) runs read(sdk) as that user and returns its result.
 export async function checkAccess(sdk, input, { asUser }) {
   const options = parseCheckOptions(input);
   const { table, record } = options;
-  if ((await sdk.authProvider?.getCredentials())?.auth_method === 'gck') throw errUsageHint('access-analyzer check cannot use a browser-session profile: it reads as --user on a UI session of its own.', 'Use a basic or OAuth profile: jsn --profile <name> access-analyzer check ...');
-  const user = await findUser(sdk, `${isSysId(options.user) ? 'sys_id' : 'user_name'}=${options.user}`, options.user);
+  const user = await resolveAnalyzedUser(sdk, options, 'check');
 
   const output = await sdk.executeScript(evaluationScript(user.sys_id, options), 'global', { rollback: false });
   const line = String(output).match(/JSN_ACCESS_CHECK:(\{[^\r\n]*\})/);

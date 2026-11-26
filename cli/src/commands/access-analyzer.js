@@ -2,7 +2,13 @@ import { accessAnalyzerCmdDefinition } from '../command-families.js';
 import { errUsage } from '../errors.js';
 import { listAccessAnalyses, showAccessAnalysis, formatAccessAnalysis } from '../access-analyzer.js';
 import { checkAccess, formatAccessCheck } from '../access-check.js';
+import { formatAccessRun, parseRunOptions, runAccessAnalysis } from '../access-analyzer-run.js';
+import { confirmAction } from '../helpers.js';
 import { runImpersonated } from '../impersonation.js';
+
+const userOption = describe => ({ type: 'string', demandOption: true, describe });
+const tableOption = describe => ({ type: 'string', demandOption: true, describe });
+const recordOption = describe => ({ type: 'string', demandOption: true, describe });
 
 export function accessAnalyzerCmd(wrap) {
   const commands = [
@@ -35,9 +41,9 @@ export function accessAnalyzerCmd(wrap) {
       }
       return y.command({ command: 'check', describe: 'Check live whether a user can read, write or delete a record, and what stops them',
         builder: sub => sub
-          .option('user', { type: 'string', demandOption: true, describe: 'user_name or sys_id to check' })
-          .option('table', { type: 'string', demandOption: true, describe: 'Table of the record, such as incident' })
-          .option('record', { type: 'string', demandOption: true, describe: 'The record\'s 32-character sys_id' })
+          .option('user', userOption('user_name or sys_id to check'))
+          .option('table', tableOption('Table of the record, such as incident'))
+          .option('record', recordOption('The record\'s 32-character sys_id'))
           .option('operations', { type: 'string', default: 'read,write,delete', describe: 'Comma-separated: read, write, delete' }),
         handler: wrap(async (argv, app) => {
           app.requireInstance();
@@ -46,7 +52,29 @@ export function accessAnalyzerCmd(wrap) {
           Object.defineProperty(data, '_formatted', { value: formatAccessCheck(data), enumerable: false });
           app.ok(data, { summary: data.verdict });
         }),
-      });
+      })
+        .command({ command: 'run', describe: 'Run a live access evaluation and print every ACL and business rule checked; --save keeps the analysis',
+          builder: sub => sub
+            .option('user', userOption('user_name or sys_id to evaluate'))
+            .option('table', tableOption('Table of the record, such as incident'))
+            .option('record', recordOption('The record\'s 32-character sys_id'))
+            .option('operations', { type: 'string', default: 'read,write,delete', describe: 'Comma-separated: read, write, delete' })
+            .option('field', { type: 'string', describe: 'Field of the record to evaluate, such as state' })
+            .option('save', { type: 'boolean', default: false, describe: 'Persist the analysis through the provider (a mutation; asks for confirmation)' }),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            if (argv.save) {
+              const options = parseRunOptions(argv);
+              await confirmAction(app, argv, `Save the Access Analyzer evaluation of ${options.operations.join(', ')} for ${options.user} on ${options.table} ${options.record}${options.field ? `.${options.field}` : ''}?`, {
+                destructive: false,
+                rerun: ['access-analyzer', 'run', '--user', argv.user, '--table', argv.table, '--record', argv.record, '--operations', options.operations.join(','), ...(options.field ? ['--field', options.field] : []), '--save'],
+              });
+            }
+            const data = await runAccessAnalysis(app.sdk, argv);
+            Object.defineProperty(data, '_formatted', { value: formatAccessRun(data), enumerable: false });
+            app.ok(data, { summary: data.summary });
+          }),
+        });
     },
   };
 }

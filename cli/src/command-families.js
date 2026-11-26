@@ -13,9 +13,17 @@ const require = createRequire(import.meta.url);
 
 export const accessAnalyzerCmdDefinition = {
   command: 'access-analyzer [subcommand]',
-  describe: 'Inspect saved Access Analyzer requests, outcomes and checks, or check a user\'s access live (read-only)',
+  describe: 'Inspect saved Access Analyzer requests, outcomes and checks, check a user\'s access live, or run a live evaluation (--save keeps it)',
 };
-declareCapabilities('access-analyzer', { queryTable: 'sn_access_analyzer_request', mutationSubcommands: [], noImpersonateSubcommands: ['check'] });
+declareCapabilities('access-analyzer', {
+  queryTable: 'sn_access_analyzer_request',
+  // `run` is the write class because it can persist with --save; the CLI's
+  // read/write class follows the path, never an option (command-verbs.test.js).
+  mutationSubcommands: ['run'],
+  // A saved analysis is operational data, not a customization/update-set write.
+  mutationContext: 'operational',
+  noImpersonateSubcommands: ['check', 'run'],
+});
 export const accessAnalyzerCmd = wrap => ({ ...accessAnalyzerCmdDefinition, load: () => require('./commands/access-analyzer.js').accessAnalyzerCmd(wrap) });
 
 export const flowsCmdDefinition = {
