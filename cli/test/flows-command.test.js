@@ -55,14 +55,14 @@ function styledApp() {
 test('flows root summary uses the normal output envelope without a provider call', async () => {
   const { app, envelope } = jsonApp({});
   await flowsCmd(fn => fn).handler({}, app);
-  assert.deepEqual(envelope().data.commands, ['schemas', 'catalog-variables [identifier]', 'search <term>', 'list', 'executions', 'show [identifier]', 'status [identifier]', 'settings [identifier]', 'publish [identifier]', 'test [identifier]', 'clone [identifier]', 'create', 'update [identifier]', 'doctor', 'unlock [identifier]', 'delete [identifier]']);
+  assert.deepEqual(envelope().data.commands, ['schemas', 'catalog-variables [identifier]', 'search <term>', 'list', 'executions', 'show [identifier]', 'status [identifier]', 'settings [identifier]', 'why <identifier>', 'publish [identifier]', 'test [identifier]', 'clone [identifier]', 'create', 'update [identifier]', 'doctor', 'unlock [identifier]', 'delete [identifier]']);
 });
 
 test('flows root renders every subcommand in a terminal, not just the summary', async () => {
   const { app, text } = styledApp();
   await flowsCmd(fn => fn).handler({}, app);
   const rendered = text();
-  for (const name of ['schemas', 'catalog-variables [identifier]', 'search <term>', 'list', 'executions', 'show [identifier]', 'status [identifier]', 'settings [identifier]', 'publish [identifier]', 'test [identifier]', 'clone [identifier]', 'create', 'update [identifier]', 'doctor', 'unlock [identifier]', 'delete [identifier]']) {
+  for (const name of ['schemas', 'catalog-variables [identifier]', 'search <term>', 'list', 'executions', 'show [identifier]', 'status [identifier]', 'settings [identifier]', 'why <identifier>', 'publish [identifier]', 'test [identifier]', 'clone [identifier]', 'create', 'update [identifier]', 'doctor', 'unlock [identifier]', 'delete [identifier]']) {
     assert.ok(rendered.includes(name), `terminal output is missing ${name}`);
   }
   assert.match(rendered, /Available subcommands:/);

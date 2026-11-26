@@ -1,11 +1,15 @@
-// Preview and commit a *retrieved* update set, and read its preview problems.
+// Retrieve, preview and commit *retrieved* update sets, and read their preview
+// problems.
 //
-// These are the platform's own steps: retrieving (import) only loads the XML,
-// previewing compares it with the target, and committing applies it. ServiceNow
-// exposes all three through the CICD Update Set API (sn_cicd):
+// These are the platform's own steps: retrieving pulls a completed set from a
+// remote instance, previewing compares it with the target, and committing
+// applies it. ServiceNow exposes all of them through the CICD Update Set API
+// (sn_cicd):
 //
+//   POST /api/sn_cicd/update_set/retrieve?update_set_id=…&update_source_id=…
 //   POST /api/sn_cicd/update_set/preview/{remote_update_set_id}
 //   POST /api/sn_cicd/update_set/commit/{remote_update_set_id}
+//   POST /api/sn_cicd/update_set/commitMultiple?remote_update_set_ids=…
 //   GET  /api/sn_cicd/progress/{progress_id}
 //
 // The alternate path — calling hidden Ajax processors or scripting
@@ -172,30 +176,35 @@ function cicdOperationError(error) {
 /**
  * Start a sn_cicd update-set operation and wait for its tracker.
  * @param {object} sdk
- * @param {'preview'|'commit'} operation
- * @param {string} sysID - sys_remote_update_set sys_id
+ * @param {string} operation - human name used in errors (retrieve, preview, commit)
+ * @param {string} endpoint - exact POST endpoint
+ * @param {{body?: string, what?: string}} [request]
  */
-export async function runUpdateSetOperation(sdk, operation, sysID, options = {}) {
-  const endpoint = `${sdk.baseURL}/api/sn_cicd/update_set/${operation}/${encodeURIComponent(sysID)}`;
+export async function dispatchCicdOperation(sdk, operation, endpoint, request = {}) {
   let response;
   try {
-    response = await sdk.request(endpoint, { method: 'POST', body: '{}' });
+    response = await sdk.request(endpoint, {
+      method: 'POST',
+      ...(request.body === undefined ? {} : { body: request.body }),
+    });
   } catch (error) {
     if (error?.status === 403) {
       throw new AppError(
         CodeUsage,
         `This account cannot use the CICD Update Set API; no ${operation} was started.`,
-        'The account needs the sn_cicd.sys_ci_automation role. Preview and commit the set in ServiceNow instead.',
+        'The account needs the sn_cicd.sys_ci_automation role. ' +
+        `${operation === 'retrieve' ? 'Retrieve' : 'Preview and commit'} the set in ServiceNow instead.`,
         403,
         error,
       );
     }
     const platformError = cicdOperationError(error);
     if (platformError) {
+      const outcome = request.what || { retrieve: 'retrieved', preview: 'previewed', commit: 'committed' }[operation] || 'completed';
       throw new AppError(
         CodeAPI,
         `The CICD API rejected the ${operation}: ${platformError}`,
-        `Nothing was ${operation === 'preview' ? 'previewed' : 'committed'}. Inspect the retrieved update set and try again.`,
+        `Nothing was ${outcome}. Inspect the update set on both instances and try again.`,
         error.status || 0,
         error,
       );
@@ -204,8 +213,8 @@ export async function runUpdateSetOperation(sdk, operation, sysID, options = {})
       throw new AppError(
         CodeUsage,
         `The CICD Update Set API is not available on this instance; no ${operation} was started.`,
-        'The sn_cicd plugin (com.glide.continuousdelivery) provides preview/commit. ' +
-        'Preview and commit the set in ServiceNow instead: System Update Sets > Retrieved Update Sets.',
+        'The sn_cicd plugin (com.glide.continuousdelivery) provides retrieve, preview and commit. ' +
+        'Use System Update Sets > Retrieved Update Sets in ServiceNow instead.',
         error.status || 0,
         error,
       );
@@ -213,17 +222,76 @@ export async function runUpdateSetOperation(sdk, operation, sysID, options = {})
     throw error;
   }
 
-  const final = await waitForCicdProgress(sdk, response, options);
-  if (!isSuccessfulProgress(final)) {
-    const detail = final.message ? `: ${final.message}` : '';
+  const final = await waitForCicdProgress(sdk, response, request);
+  if (isSuccessfulProgress(final)) return final;
+  if (!isTerminalProgress(final)) {
     throw new AppError(
       CodeAPI,
-      `Update set ${operation} did not succeed (${final.label})${detail}`,
-      `Inspect Retrieved Update Sets on ${sdk.baseURL} before retrying; jsn does not retry the operation.`,
+      `The CICD API accepted the ${operation} but returned no readable progress tracker; the outcome is unknown.`,
+      `Inspect Retrieved Update Sets on ${sdk.baseURL} before retrying; jsn does not repeat the operation.`,
       0,
     );
   }
-  return final;
+  const detail = final.message ? `: ${final.message}` : '';
+  throw new AppError(
+    CodeAPI,
+    `Update set ${operation} did not succeed (${final.label})${detail}`,
+    `Inspect Retrieved Update Sets on ${sdk.baseURL} before retrying; jsn does not retry the operation.`,
+    0,
+  );
+}
+
+/**
+ * Start a single-set sn_cicd update-set operation and wait for its tracker.
+ * @param {object} sdk
+ * @param {'preview'|'commit'} operation
+ * @param {string} sysID - sys_remote_update_set sys_id
+ */
+export async function runUpdateSetOperation(sdk, operation, sysID, options = {}) {
+  const endpoint = `${sdk.baseURL}/api/sn_cicd/update_set/${operation}/${encodeURIComponent(sysID)}`;
+  return dispatchCicdOperation(sdk, operation, endpoint, { body: '{}', ...options });
+}
+
+/**
+ * Retrieve a completed update set from a configured remote instance.
+ *
+ * `cleanup_retrieved` is pinned false: it deletes an existing retrieved copy on
+ * the target, which is destructive and not part of this command's contract.
+ *
+ * @param {object} sdk
+ * @param {{updateSetId: string, updateSourceId: string}} ids
+ *   updateSetId is the source instance's sys_update_set sys_id;
+ *   updateSourceId is the target's sys_update_set_source sys_id.
+ */
+export async function retrieveUpdateSet(sdk, { updateSetId, updateSourceId, ...options }) {
+  const params = new URLSearchParams({
+    update_set_id: updateSetId,
+    update_source_id: updateSourceId,
+    cleanup_retrieved: 'false',
+    auto_preview: 'false',
+  });
+  const endpoint = `${sdk.baseURL}/api/sn_cicd/update_set/retrieve?${params.toString()}`;
+  return dispatchCicdOperation(sdk, 'retrieve', endpoint, { what: 'retrieved', ...options });
+}
+
+/**
+ * Commit several retrieved update sets in one ordered request. The provider
+ * commits them in the order given and refuses to reorder.
+ *
+ * `force_commit` is pinned false: forcing would re-commit sets that are already
+ * committed and hide an out-of-order request instead of reporting it.
+ *
+ * @param {object} sdk
+ * @param {string[]} sysIDs - sys_remote_update_set sys_ids, in commit order
+ */
+export async function commitUpdateSets(sdk, sysIDs, options = {}) {
+  const params = new URLSearchParams({ remote_update_set_ids: sysIDs.join(',') });
+  const endpoint = `${sdk.baseURL}/api/sn_cicd/update_set/commitMultiple?${params.toString()}`;
+  return dispatchCicdOperation(sdk, 'commit', endpoint, {
+    body: JSON.stringify({ force_commit: 'false' }),
+    what: 'committed',
+    ...options,
+  });
 }
 
 export async function previewUpdateSet(sdk, sysID, options = {}) {

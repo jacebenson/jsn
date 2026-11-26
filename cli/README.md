@@ -172,6 +172,8 @@ jsn access-analyzer show <request-id> --json
 jsn access-analyzer show <result-id> --format styled
 jsn access-analyzer show <request-id> --get data.request.user.value
 jsn access-analyzer check --user abel.tuter --table incident --record <sys_id>
+jsn access-analyzer run --user abel.tuter --table incident --record <sys_id> --operations read,write
+jsn access-analyzer run --user abel.tuter --table incident --record <sys_id> --field state --save
 ```
 
 `list` and `show` read saved `sn_access_analyzer_request`,
@@ -202,21 +204,64 @@ Raw reference values and display labels are retained in JSON; joins use raw IDs.
 Passed, Blocked, Skipped and Undefined remain distinct. A record-availability
 failure with Business Rule evidence is not automatically an ACL failure.
 
+`run` performs the same live evaluation but prints what the provider checked:
+one line per ACL and business rule with its path, sys_id, status and the
+provider's return code and display value, then an overall allowed/blocked
+verdict per operation. `--field` evaluates that field's ACLs and paths instead
+of the record-level ones. It sends `shouldPersistResult: false` and writes
+nothing. The script uses `CrossScopeGetDebugLogsAPI().getDebugLogs` where the
+installed release publishes it and `CrossScopeEvaluateAccessAPI().evaluateAccess`
+otherwise; if the instance has no public evaluation API, or the caller scope is
+not a registered extension point, the provider's refusal is reported as a
+failure — `run` never falls back to a weaker local check.
+
+`--save` also persists the analysis through the provider. It is a mutation: a
+read-only profile is refused, and the command asks for confirmation. After the
+evaluation it reads `sn_access_analyzer_request` for this identity and target
+and reports only a request that appeared during the run; if none appeared, the
+command fails rather than pointing at an older saved analysis. Because `run` can
+persist, the whole subcommand is declared write-class for read-only profiles.
+
 ## Outbound email notifications
 
 ```sh
 jsn notifications list --query "collection=incident^active=true"
 jsn notifications show "Incident opened and unassigned" --format styled
 jsn notifications show <sys_id> --get data._delivery
+jsn notifications why incident INC0010007 abel.tuter
+jsn notifications preview "Incident Opened and Unassigned" incident INC0010007
 ```
 
-These commands read `sysevent_email_action` and never render or send email.
-`show` adds `_delivery`: what sends the notification (a record insert or update
-with its condition, an event, or a flow) and which body is used. A template
-with a body replaces the notification's own `message_html`; an empty template
-body leaves it in play. Mail script names come from the body in use. A template
+`list`, `show` and `why` read `sysevent_email_action` and never render or send
+email. `list` shows what sends each notification, who it targets, its weight
+and the winning body; template bodies are read in one bounded batch. `show`
+adds `_delivery`: what sends the notification (a record insert or update with
+its condition, an event, or a flow) and which body is used. A template with a
+body replaces the notification's own `message_html`; an empty template body
+leaves it in play. Mail script names come from the body in use. A template
 that cannot be read is reported `unavailable`, never as the notification's own
 body, and plain-text notifications are `unsupported`.
+
+`why <table> <number|sys_id> <user>` attributes the engine's own evidence for
+one record: `notification_engine.process` events (parm1 is the notification),
+event-named rows, linked `sys_email` rows, and `syslog_email` inclusion or
+exclusion lines when that table is readable. It shows the user's active flag,
+email, notification setting, devices and subscriptions, plus the instance
+switches that decide whether an absent email means anything. When nothing was
+logged it says so and shows the recipient configuration and the record's own
+values in those fields; it never recomputes the platform's recipient rules.
+Flow-triggered notifications are counted as not covered. A 403 on
+`syslog_email` is rendered as unavailable, never as zero.
+
+`preview <notification> <table> <number|sys_id>` calls the platform's
+NotificationSimulator over `xmlhttp.do` the same way `jsn scan` calls
+ScanAjaxProcessor. It is declared as a mutation because it runs mail scripts:
+read-only profiles refuse it and it asks for confirmation (`--force` for
+automation). It sends no email, and it reports `sys_email`, `sysevent` and
+`syslog_email` counts before and after the call so a write would be visible.
+Its answer contains no recipient rows and does not explain inclusion or
+exclusion; use `why` for that.
+
 ## Find a REST API
 
 ```sh
@@ -297,6 +342,23 @@ and last seen times are UTC, and `--since` compares with them in UTC.
 `executable_sql` and `url` can hold literal values from live requests. An empty
 or ACL-filtered list does not prove nothing is slow. `--limit` (1–200) and
 `--offset` page the list; JSON has `pagination.has_more` from one-row lookahead.
+
+```sh
+jsn perf explain <sys_id> --force
+jsn perf suggest-index <sys_id> --force
+```
+
+`perf explain` runs the platform's Explain Plan UI action
+(`GlideAQueryExplanation.explainPlan`) through a background script, then reads
+the plan rows back from `plan_execution` and its engine subclasses. It is a
+write — it creates plan rows — so a read-only profile refuses it and it asks for
+confirmation (or `--force`). `perf suggest-index` does the same through
+`SNC.IndexSuggestionAPI` and reads the `sys_index_suggestion` record back; it
+creates a suggestion, never an index, and the API is MySQL-only. A status that
+asks for fresh statistics, an engine that is not enabled, and a run that wrote
+no readable rows are all failures carrying the platform's message. Both commands
+are implemented from the platform's UI actions but have not been verified
+against a live instance yet.
 
 ## Work safely
 

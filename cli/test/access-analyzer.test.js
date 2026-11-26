@@ -134,7 +134,7 @@ test('real CLI supports read-only profile, JSON, --get, human rendering, strict 
   await once(server, 'listening');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-access-analyzer-'));
   fs.mkdirSync(path.join(dir, 'servicenow'));
-  fs.writeFileSync(path.join(dir, 'servicenow/config.json'), JSON.stringify({ default_profile: 'fixture', profiles: { fixture: { instance_url: `http://127.0.0.1:${server.address().port}`, auth_method: 'basic', read_only: true } } }));
+  fs.writeFileSync(path.join(dir, 'servicenow/config.json'), JSON.stringify({ default_profile: 'fixture', profiles: { fixture: { instance_url: `http://127.0.0.1:${server.address().port}`, auth_method: 'basic', read_only: true }, writer: { instance_url: `http://127.0.0.1:${server.address().port}`, auth_method: 'basic' } } }));
   const env = loopbackFixtureEnv({ HOME: dir, XDG_CONFIG_HOME: dir, XDG_CACHE_HOME: dir, JSN_DATA_HOME: path.join(dir, 'data'), SN_USERNAME: 'fixture', SN_PASSWORD: 'fixture-secret', JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_HEADER: '1', JSN_NO_PROMPTS: '1' });
   const cli = fileURLToPath(new URL('../bin/jsn.js', import.meta.url));
   const execute = promisify(execFile);
@@ -156,7 +156,25 @@ test('real CLI supports read-only profile, JSON, --get, human rendering, strict 
     }
     assert.equal(calls.length, before);
     const help = await run(['access-analyzer', '--help']);
-    for (const name of ['list', 'show', 'check']) assert.ok(help.stdout.includes(name));
+    for (const name of ['list', 'show', 'check', 'run']) assert.ok(help.stdout.includes(name));
+    const runHelp = await run(['access-analyzer', 'run', '--help']);
+    for (const flag of ['--user', '--table', '--record', '--operations', '--field', '--save']) assert.ok(runHelp.stdout.includes(flag), flag);
+    // `run` can persist with --save, so it is a write-class path: a read-only
+    // profile is refused before any request, exactly as for other mutations.
+    const beforeRun = calls.length;
+    const saved = await run(['access-analyzer', 'run', '--user', 'abel.tuter', '--table', 'incident', '--record', id(1), '--save', '--json']).catch(error => error);
+    assert.equal(JSON.parse(saved.stdout).code, 'read_only');
+    assert.match(JSON.parse(saved.stdout).error, /read-only/);
+    const plain = await run(['access-analyzer', 'run', '--user', 'abel.tuter', '--table', 'incident', '--record', id(1), '--json']).catch(error => error);
+    assert.equal(JSON.parse(plain.stdout).code, 'read_only');
+    assert.equal(calls.length, beforeRun, 'a read-only profile sends nothing for run');
+    // --save asks for confirmation before any request; unattended with no
+    // --force it must fail closed, not run and write.
+    const unconfirmed = await run(['access-analyzer', 'run', '--user', 'abel.tuter', '--table', 'incident', '--record', id(1), '--save', '--profile', 'writer', '--json']).catch(error => error);
+    assert.equal(JSON.parse(unconfirmed.stdout).code, 'confirmation_required');
+    assert.equal(calls.length, beforeRun, 'an unconfirmed --save sends nothing');
+    // Validation still rejects before any instance request on a write profile;
+    // these run against the read-only fixture, so the guard answers first.
     const discovery = await run(['access-analyzer', '--json']);
     assert.ok(discovery.stdout.includes('access-analyzer'));
     assert.ok(calls.filter(call => call.pathname.startsWith('/api/now/table/')).every(call => call.method === 'GET'));

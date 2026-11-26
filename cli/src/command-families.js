@@ -13,9 +13,17 @@ const require = createRequire(import.meta.url);
 
 export const accessAnalyzerCmdDefinition = {
   command: 'access-analyzer [subcommand]',
-  describe: 'Inspect saved Access Analyzer requests, outcomes and checks, or check a user\'s access live (read-only)',
+  describe: 'Inspect saved Access Analyzer requests, outcomes and checks, check a user\'s access live, or run a live evaluation (--save keeps it)',
 };
-declareCapabilities('access-analyzer', { queryTable: 'sn_access_analyzer_request', mutationSubcommands: [], noImpersonateSubcommands: ['check'] });
+declareCapabilities('access-analyzer', {
+  queryTable: 'sn_access_analyzer_request',
+  // `run` is the write class because it can persist with --save; the CLI's
+  // read/write class follows the path, never an option (command-verbs.test.js).
+  mutationSubcommands: ['run'],
+  // A saved analysis is operational data, not a customization/update-set write.
+  mutationContext: 'operational',
+  noImpersonateSubcommands: ['check', 'run'],
+});
 export const accessAnalyzerCmd = wrap => ({ ...accessAnalyzerCmdDefinition, load: () => require('./commands/access-analyzer.js').accessAnalyzerCmd(wrap) });
 
 export const flowsCmdDefinition = {
@@ -72,8 +80,12 @@ export const docsCmd = wrap => ({ ...docsCmdDefinition, load: () => require('./c
 export const perfCmdDefinition = {
   command: 'perf [subcommand]',
   aliases: ['performance'],
-  describe: 'Capture and compare performance summaries and rank slow pattern logs (read-only)',
+  describe: 'Capture and compare performance summaries, rank slow pattern logs, and explain a slow query',
 };
+// Capture, list, show, transactions and slow only read. explain and suggest-index
+// run the platform's own UI-action APIs, which write plan rows and a suggestion
+// record: operational data, not customization, so no update-set selection applies.
+declareCapabilities('perf', { mutationContext: 'operational', mutationSubcommands: ['explain', 'suggest-index'] });
 
 export const perfCmd = wrap => ({ ...perfCmdDefinition, load: () => require('./commands/perf.js').perfCmd(wrap) });
 
@@ -115,7 +127,7 @@ const deferredFamilies = {
   uipages: profileFamily("uipages", "./commands/_simple.js", "uiPagesCmd"),
   appmenu: profileFamily("appmenu", "./commands/_simple.js", "appMenuCmd"),
   acls: profileFamily("acls", "./commands/_simple.js", "aclsCmd"),
-  roles: profileFamily("roles", "./commands/_simple.js", "rolesCmd"),
+  roles: profileFamily("roles", "./commands/roles.js", "rolesCmd"),
   properties: profileFamily("properties", "./commands/_simple.js", "propertiesCmd"),
   relationships: profileFamily("relationships", "./commands/_simple.js", "relationshipsCmd"),
   appmodules: profileFamily("appmodules", "./commands/_simple.js", "appmodulesCmd"),
@@ -133,7 +145,20 @@ const deferredFamilies = {
   triggers: profileFamily("triggers", "./commands/_simple.js", "triggersCmd"),
   assignments: profileFamily("assignments", "./commands/_simple.js", "assignmentsCmd"),
   email: profileFamily("email", "./commands/_simple.js", "emailCmd"),
-  notifications: profileFamily("notifications", "./commands/_simple.js", "notificationsCmd"),
+  notifications: {
+    definition: {
+      command: "notifications [subcommand]",
+      aliases: ["notification"],
+      describe: "Inspect outbound email notifications: when they send, to whom, and why a user did or did not receive one",
+      summary: "Explain outbound notification delivery",
+    },
+    capabilities: {
+      table: "sysevent_email_action",
+      mutationContext: "operational",
+      mutationSubcommands: ["preview"],
+    },
+    module: "./commands/notifications.js", exportName: "notificationsCmd",
+  },
   uimacros: profileFamily("uimacros", "./commands/_simple.js", "uimacrosCmd"),
   uxlists: profileFamily("uxlists", "./commands/_simple.js", "uxlistsCmd"),
   uxapplicability: profileFamily("uxapplicability", "./commands/_simple.js", "uxapplicabilityCmd"),
@@ -483,9 +508,10 @@ const deferredFamilies = {
       describe: "Manage update sets. Global + Default mutations require approval (--force only after user approval); create/set remain available to select a dedicated capture set. Scope mismatches warn; completed capture sets block writes.",
     },
     capabilities: {
-      queryTable: argv => argv._?.[1] === "move" ? "sys_update_xml" : "sys_update_set",
-      mutationSubcommands: ["create", "set", "complete", "ignore", "parent", "import", "reopen", "preview", "commit", "move"],
-      mutationContextExemptSubcommands: ["create", "set", "import", "reopen", "preview", "commit", "move"],
+      queryTable: argv => argv._?.[1] === "move" ? "sys_update_xml"
+        : argv._?.[1] === "retrieve" ? "sys_remote_update_set" : "sys_update_set",
+      mutationSubcommands: ["create", "set", "complete", "ignore", "parent", "import", "reopen", "preview", "commit", "move", "retrieve"],
+      mutationContextExemptSubcommands: ["create", "set", "import", "reopen", "preview", "commit", "move", "retrieve"],
       skipContextHeaderSubcommands: ["diff"],
       noImpersonateSubcommands: ["diff"],
       localPreviewSubcommands: ["import"],
