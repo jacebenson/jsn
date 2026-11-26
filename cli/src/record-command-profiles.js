@@ -41,6 +41,8 @@ export default {
     options: { singular: 'script action', scopeValidation: true } },
   scheduledjobs: { table: 'sysauto_script', aliases: ['scheduledjob'], columns: ['name', 'active', 'run_type', 'sys_scope'],
     options: { singular: 'scheduled job', scopeValidation: true } },
+  fixscripts: { table: 'sys_script_fix', aliases: ['fixscript'], columns: ['name', 'record_for_rollback', 'unloadable', 'sys_scope'],
+    options: { singular: 'fix script', scopeValidation: true } },
   asyncrules: { table: 'sys_script', aliases: ['asyncrule'], columns: ['name', 'collection', 'active', 'order', 'sys_scope'],
     options: { singular: 'async business rule', scopeValidation: true, extraQuery: 'when=async' } },
   triggers: { table: 'sysevent_register', aliases: ['trigger'], columns: ['name', 'event_name', 'active', 'sys_scope'],

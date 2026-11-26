@@ -210,6 +210,22 @@ is an error naming the nearest. `spec` prints the API's OpenAPI 3 document as th
 it (`--json` wraps it in the envelope); a name several APIs match is refused with the candidates
 and their namespaces. Both are reads and work on read-only profiles.
 
+## Fix scripts
+
+```sh
+jsn fixscripts list --query "nameLIKEimpact"
+jsn fixscripts create -f name="Lower incident impact" -f script=@fix.js \
+  --expect-scope global --expect-update-set "Data fixes"
+jsn fixscripts show "Lower incident impact" --get data.script.value
+```
+
+A fix script (`sys_script_fix`) is a customization record, so `create`, `update`
+and `delete` need `--expect-scope` and `--expect-update-set` from the task, as
+other customization writes do, and the platform captures the record in that
+update set. `-f script=@fix.js` reads the body from a file. Creating a fix
+script does not run it; the platform runs one on its own only when an
+application that holds it is installed or upgraded.
+
 ## Choose output
 
 Use the default terminal view for people, `--csv` or `--tsv` for flat rows, and `--json` when scripts need pagination, context, or errors. CSV/TSV do not fetch more pages or preserve both reference IDs and labels. Pagination notices go to stderr only when more results are explicitly known; silence does not prove completeness. JSON retains reference objects only if the command has not already flattened them. See [output details](https://jsn.jace.pro/docs/output/).

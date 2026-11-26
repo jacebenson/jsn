@@ -426,6 +426,7 @@ export function buildCLI() {
     .command(deferredFamily('diff', wrap))
     .command(deferredFamily('graphql', wrap))
     .command(deferredFamily('eval', wrap))
+    .command(deferredFamily('fixscripts', wrap))
     .command(deferredFamily('rest', wrap))
     .command(skillCmd(wrap))
     .command(docsCmd(wrap))

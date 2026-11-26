@@ -124,6 +124,7 @@ export const catalogscriptsCmd = (wrap) => buildProfileCommand('catalogscripts',
 // ── Automation: Async ──
 export const scriptactionsCmd = (wrap) => buildProfileCommand('scriptactions', wrap);
 export const scheduledjobsCmd = (wrap) => buildProfileCommand('scheduledjobs', wrap);
+export const fixscriptsCmd = (wrap) => buildProfileCommand('fixscripts', wrap);
 export const asyncrulesCmd = (wrap) => buildProfileCommand('asyncrules', wrap);
 export const triggersCmd = (wrap) => buildProfileCommand('triggers', wrap);
 

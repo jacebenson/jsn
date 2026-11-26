@@ -1,22 +1,22 @@
 {
-  "commit": "d96e5ce5 + userroles registration",
-  "note": "Regenerated from actual CLI after the userroles registration in the ACCESS group; the help byte cap rose by the 10 bytes this needed (1976 + 918).",
+  "commit": "batch land: combined help recording",
+  "note": "Regenerated from the combined CLI after landing this batch; one recording covers what each PR recorded on its own.",
   "command": "piped (non-TTY) invocation from cli/, JSN_NO_VERSION_CHECK=1 JSN_NO_SKILL_CHECK=1, throwaway XDG_CONFIG_HOME",
   "bytes": {
-    "help": 2894,
-    "json": 74521,
-    "quiet": 2894,
-    "csv": 2894,
-    "markdown": 2894,
-    "get": 2894
+    "help": 2905,
+    "json": 80647,
+    "quiet": 2905,
+    "csv": 2905,
+    "markdown": 2905,
+    "get": 2905
   },
   "sha256": {
-    "help": "37cc0a0dcf8da9f3ad2419c61cf5132c81f3c45f8ea3eb42f38ba1f70c7a0908",
-    "json": "aa93a437990d5a7af7177cb6d8331d17cee46bd2d7c0bc1316faf18b9a291008",
-    "quiet": "37cc0a0dcf8da9f3ad2419c61cf5132c81f3c45f8ea3eb42f38ba1f70c7a0908",
-    "csv": "37cc0a0dcf8da9f3ad2419c61cf5132c81f3c45f8ea3eb42f38ba1f70c7a0908",
-    "markdown": "37cc0a0dcf8da9f3ad2419c61cf5132c81f3c45f8ea3eb42f38ba1f70c7a0908",
-    "get": "37cc0a0dcf8da9f3ad2419c61cf5132c81f3c45f8ea3eb42f38ba1f70c7a0908"
+    "help": "f8e40c5e3fc5e1dba5d802bade1c59152b39cd9ef90d9751b4cc646db2fe7e14",
+    "json": "3f25ecd8bb10c9bebb0e80e9a9456bdabe66e15495ae8e9d1e3d10a2c38f5c92",
+    "quiet": "f8e40c5e3fc5e1dba5d802bade1c59152b39cd9ef90d9751b4cc646db2fe7e14",
+    "csv": "f8e40c5e3fc5e1dba5d802bade1c59152b39cd9ef90d9751b4cc646db2fe7e14",
+    "markdown": "f8e40c5e3fc5e1dba5d802bade1c59152b39cd9ef90d9751b4cc646db2fe7e14",
+    "get": "f8e40c5e3fc5e1dba5d802bade1c59152b39cd9ef90d9751b4cc646db2fe7e14"
   },
   "json_command_count": 92
 }

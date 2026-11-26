@@ -225,11 +225,14 @@
     },
     "userroles": {
       "why": "userroles writes direct sys_user_has_role rows for chosen users; users roles only reads them, and grouproles grants through a group, which reaches every member rather than one user."
+    },
+    "fixscripts": {
+      "why": "fixscripts names sys_script_fix the way scheduledjobs names sysauto_script; eval runs code that is never saved, so it cannot say a fix script is a record that travels in an update set."
     }
   },
   "budgets": {
     "$comment": "Subcommand count per family. A budget is a ratchet, not a ban: when a new command earns its place, raise the number in the same diff and say why in the PR. Adding a family means adding its budget entry.",
-    "total": 437,
+    "total": 442,
     "families": {
       "access-analyzer": 3,
       "acls": 5,
@@ -323,7 +326,8 @@
       "version": 0,
       "views": 5,
       "workflows": 2,
-      "userroles": 3
+      "userroles": 3,
+      "fixscripts": 5
     }
   }
 }
