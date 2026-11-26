@@ -1208,6 +1208,9 @@ export class SDKClient {
    *     the instance through cancel_my_transaction.do in the same session, and
    *     the error says whether the platform confirmed it (error.cancel.status).
    *     A caller with neither keeps the client timeout and no cancel.
+   *   - finished (RegExp): what the script prints when it completes. When the
+   *     output matches, errors the platform logged on the way do not throw;
+   *     the caller reports them.
    * @returns {Promise<string>} The script's output text
    */
   async executeScript(script, scope, opts = {}) {
@@ -1259,7 +1262,8 @@ export class SDKClient {
     // The platform ended it (transaction quota, or an admin's kill) before it finished.
     if (cancelledByPlatform(output)) throw new Error(`Background script was cancelled on the instance before it finished: ${output}`);
     const scriptError = detectScriptError(output);
-    if (scriptError) throw new Error(`Background script failed: ${scriptError}`);
+    // opts.finished: the script printed this when it completed, so a logged error it ran past (a user criteria script that threw) is the caller's to report.
+    if (scriptError && !opts.finished?.test(output)) throw new Error(`Background script failed: ${scriptError}`);
     return { output, execution_id: html.match(/sys_script_execution_history\.do\?sys_id=([0-9a-f]{32})/)?.[1] || null };
   }
 
