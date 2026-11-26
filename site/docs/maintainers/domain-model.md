@@ -1055,6 +1055,10 @@ Dispatch is not success; log and artifact readback are required.
 
 ---
 
+## ATF results
+
+`src/atf-results.js` owns the step detail behind `atf results`. A `sys_atf_test_result` shows every `sys_atf_test_result_step` row joined on the raw `test_result`, ordered by `order`. A `sys_atf_test_suite_result` shows its direct child test results in `failure` or `error`, joined on the raw `parent`, and only their failed or errored steps; nested suites are not followed. `--logs` reads `sys_atf_test_result_item` rows whose own class is that base table, because the step table extends it and its own rows are the run's log lines, ordered by `recorded_at`. A fetched result must carry the sys_id asked for and every child row must point at a result this read asked for, or the read fails. A failed step keeps its whole output because the failing assertion is often the last line; other text is cut at 16 KB. A progress tracker whose run has no result yet returns the tracker with a warning and no steps.
+
 ## Release channel
 
 The installed package version determines the npm update channel: versions with

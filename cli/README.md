@@ -360,6 +360,25 @@ no readable rows are all failures carrying the platform's message. Both commands
 are implemented from the platform's UI actions but have not been verified
 against a live instance yet.
 
+## ATF results
+
+```sh
+jsn atf results <result_sys_id>
+jsn atf results <suite_result_sys_id> --json
+jsn atf results <result_sys_id> --logs
+```
+
+`atf results` takes the id `atf run` or `run-suite` printed, or a
+`sys_atf_test_result` or `sys_atf_test_suite_result` sys_id. A test result
+lists every step from `sys_atf_test_result_step` in order with its status and,
+under each failed step, the assertion and error lines from its output. A suite
+result lists its failed and errored tests with only their failed steps.
+`--logs` adds the run's log lines (`sys_atf_test_result_item`). A failed
+step's output is kept whole in JSON; other text is cut at 16 KB with
+`output_length` and `truncated`. Reads stop at 200 steps, 50 failed tests and
+200 log lines, and say when more exist. All reads are read-only and joined on
+raw sys_ids.
+
 ## Work safely
 
 Use `jsn auth modify <profile> --read-only` to block instance writes. ServiceNow roles and ACLs still decide what you can access. Help and discovery may show a compact command list for the connected account; this is not an access grant or an exhaustive capability check.
