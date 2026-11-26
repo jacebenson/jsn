@@ -111,7 +111,7 @@ describe('users basic-auth', () => {
     const entry = findCommand(commands, 'basic-auth');
     assert.ok(entry, 'basic-auth is registered');
     assert.equal(typeof entry.handler, 'function');
-    assert.deepEqual(commands.map(c => c.command).sort(), ['basic-auth', 'create', 'delete <identifier>', 'list', 'roles <identifier>', 'show <identifier>', 'update <identifier>']);
+    assert.deepEqual(commands.map(c => c.command).sort(), ['access <identifier>', 'basic-auth', 'create', 'delete <identifier>', 'list', 'roles <identifier>', 'show <identifier>', 'unlock <identifier>', 'update <identifier>']);
   });
 
   it('rejects an invalid limit before reading anything', async () => {

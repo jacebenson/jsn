@@ -1,7 +1,8 @@
-import { formatRecordForDisplay, getStringField, interactiveList, resolveFieldsParam, buildRecordPayload, quoteShellArg } from '../helpers.js';
+import { formatRecordForDisplay, getStringField, interactiveList, resolveFieldsParam, buildRecordPayload, quoteShellArg, buildRerunCommand } from '../helpers.js';
 import { deferredFamilyDefinition } from '../command-families.js';
 import { resolveRecord, resolveSysId } from '../resolve-record.js';
 import { listUserRoles, explainUserRoles, formatUserRoleWhy } from '../user-roles.js';
+import { explainUserAccess, formatUserAccess, userAccessSummary, unlockUser, formatUserUnlock, userUnlockSummary } from '../user-access.js';
 import { basicAuthReport, formatBasicAuthReport } from '../basic-auth-report.js';
 import { errUsage } from '../errors.js';
 
@@ -87,6 +88,30 @@ export function usersCmd(wrap) {
                 : `No visible role rows for ${who}; row ACLs can hide rows, so this does not prove the user lacks a role (--why asks the platform)`,
               breadcrumbs: [{ action: 'why', cmd: `jsn users roles ${quoteShellArg(id)} --why${argv.role ? ` --role ${quoteShellArg(argv.role)}` : ''}`, description: 'How each role is granted' }],
             });
+          }),
+        })
+        .command({
+          command: 'access <identifier>',
+          describe: 'Explain why a user cannot sign in (locked out, inactive, password reset, web services only) with recent login.failed events',
+          builder: (y) => y.strict().option('limit', { alias: 'l', type: 'number', default: 10, describe: 'Max login.failed events (1-100)' }),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const data = await explainUserAccess(app.sdk, argv.identifier, { limit: argv.limit });
+            Object.defineProperty(data, '_formatted', { value: formatUserAccess(data), enumerable: false });
+            app.ok(data, { summary: userAccessSummary(data) });
+          }),
+        })
+        .command({
+          command: 'unlock <identifier>',
+          describe: 'Unlock a locked-out user: clear locked_out and zero failed_attempts; previews without --yes',
+          builder: (y) => y.strict().option('yes', { type: 'boolean', default: false, describe: 'Write the change; without it, show what would change' })
+            .epilogue('Refuses a user who is not locked out, and leaves password_needs_reset as it is. After the write it reads the user back and exits nonzero unless both fields changed.'),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const data = await unlockUser(app.sdk, argv.identifier, { yes: argv.yes });
+            if (data.rerun) data.rerun = buildRerunCommand(argv, { rerun: data.rerun });
+            Object.defineProperty(data, '_formatted', { value: formatUserUnlock(data), enumerable: false });
+            app.ok(data, { summary: userUnlockSummary(data) });
           }),
         })
         .command({
@@ -181,6 +206,8 @@ export function usersCmd(wrap) {
       console.log('  list                  List users');
       console.log('  show <name or sys_id>  Show a user by user_name or sys_id');
       console.log('  roles <identifier>    List a user\'s roles; --why shows how each is granted');
+      console.log('  access <identifier>   Explain why a user cannot sign in');
+      console.log('  unlock <identifier>   Unlock a locked-out user (preview by default)');
       console.log('  basic-auth            Accounts recorded using Basic Auth and their enforcement verdict');
       console.log('  create                Create a new user');
       console.log('  update <identifier>   Update a user');

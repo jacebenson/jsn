@@ -808,6 +808,86 @@ summary says so.
   shows it and the string and attribute rows agree for that attribute. A
   failed write or a disagreeing re-read lists the writes made and exits 1.
 
+## REST message call log
+
+`src/restmessage-logs.js` is the layer behind
+`jsn restmessage logs <message> [--status 404|4xx] [--endpoint <text>]`. It
+resolves the message as `restmessage show` does, reads up to 100 of its
+`sys_rest_message_fn` rows (more is refused, and a row whose `rest_message` is
+not the message's raw sys_id is an error), then one bounded, newest-first page
+of `sys_outbound_http_log`.
+
+- **Matching is by URL.** A log row links only to the script that made the call
+  (`source_table`, `source_record`), never to the REST message. Each method's
+  endpoint, and the message's own while a method has none, cut at its first
+  `${variable}`, `?` or `#`, gives a host and a directory (the path up to its
+  last `/`, or the whole path when it has one segment, such as `/v1.0`). A
+  method copies the message's endpoint when it is created and keeps it after
+  the message's changes, so the message's is left out once every method has
+  its own. A call matches when its
+  `url` starts with one of the hosts and contains one of the directories
+  (`urlSTARTSWITH` ORed, then `urlLIKE` ORed); a directory of `/` drops the
+  directory condition. The directory, not the whole endpoint, is what a
+  `setEndpoint()` to a sibling resource still shares, and it keeps a near-named
+  `/payroll-legacy/` apart from `/payroll/`. A call sent to another host or
+  directory is not found. An endpoint whose host is a variable, that is not
+  http or https, or whose directory holds `^` is reported in
+  `unmatched_endpoints`; with no host left, the log is not read.
+- **Credentials never leave the layer.** `request_headers`, `response_headers`,
+  `request_query` and the query part of `url` have the value of any credential-named pair (authorization,
+  cookie, token, secret, password, a name ending in key, signature, session)
+  replaced with `[redacted]`, in line, Java map, JSON and query-string form, and
+  a `user:password@` in a URL becomes `[redacted]@`. Bodies are not in
+  `sysparm_fields`. There is no opt-out; `records list` reads the raw row.
+- **What a row holds depends on the method's HTTP log level.** Basic, the
+  default, writes no headers. Calls through a MID server name it in
+  `mid_server`; its `ecc_queue` rows are a breadcrumb, not read.
+## Scheduler health
+
+`src/scheduled-job-health.js` is the layer behind `jsn scheduledjobs health`
+and `jsn scheduledjobs why <job>`. Both make bounded GET reads only. Health reads
+`sys_cluster_state`, then five lists, each `--limit` rows with a lookahead row
+that marks it truncated:
+
+- **Overdue**: `sys_trigger` rows Ready or Queued whose next action is more
+  than 60 minutes past, leaving out Disabled and startup triggers and the
+  `ALL NODES`, `ACTIVE NODES` and `PRIMARY NODES` template rows.
+- **Erroring**: state Error or Permanent Error, or `error_count` above zero.
+- **Dead node**: a parent trigger (`parent` empty, not a startup trigger)
+  whose `system_id` names a node that `sys_cluster_state` does not show
+  online. Rows the server returns for a node group or a live node are dropped.
+- **Inactive Run as**: active `sysauto_script` rows whose `run_as` user is
+  inactive.
+- **Long runs**: `syslog_transaction` scheduler rows over 3,600,000 ms in the
+  last 7 days.
+
+An empty `sys_cluster_state` read is refused before any trigger is read: it is
+an ACL-filtered read, and judging nodes from it would call every pinned job dead.
+
+`why` takes a job name or sys_id. It finds the `sysauto_script` row (its child
+classes share the table), then its triggers by `document_key`, the job's raw
+sys_id, because a child class's trigger names the child table in `document`.
+With no job definition it falls back to a `sys_trigger` row by name or sys_id,
+which covers triggers with no document, such as PA Forecast Job Schedule on
+dev485581. It then reads the Run as `sys_user` by raw sys_id, the nodes, the
+newest windows of `sys_scheduler_job_history` by the trigger's
+`job_classification` (checked in `sys_db_object` first; the table keeps 7 days
+in 15-minute windows, times in ms), and scheduler rows over an hour in
+`syslog_transaction`. Every joined row is checked against the key it was read
+by.
+
+- **Findings**, by job: `job_inactive`; with no trigger, `on_demand`,
+  `ran_once` (the platform removes a run-once trigger after it runs) or
+  `no_trigger`. By trigger: `trigger_disabled`, `paused`, `error_state` or
+  `errors_recorded`, then `overdue` and `dead_node` with the same rules as
+  health. Then `inactive_run_as` or `run_as_missing`, `conditional` (the
+  condition script is not evaluated) and `long_run`.
+
+Not modelled: whether a conditional job's condition returns true, worker
+thread starvation, and jobs on `sysauto` classes outside `sysauto_script`
+(scheduled reports, PA jobs), which `why` reaches only through the trigger
+fallback.
+
 ## Flow inspection
 
 `src/flow-inspection.js` is the single deep module for `flows show` and the

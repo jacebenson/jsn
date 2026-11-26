@@ -3,7 +3,7 @@ import { buildDevCmd } from './_generic.js';
 import { getStringField, quoteShellArg } from '../helpers.js';
 import { errUsage } from '../errors.js';
 import { readImportFile, checkStagingTable, loadImportRows, loadRerun, formatLoad, activeTransformMaps, readImportSet, checkTransformable,
-  transformImportSet, transformResult } from '../import-sets.js';
+  transformImportSet, transformResult, readImportRuns, formatImportRuns } from '../import-sets.js';
 import { detailCount } from './_detail-count.js';
 
 export const importCmd = (wrap) => withWrites(buildDevCmd('import', 'sys_import_set', [],
@@ -12,7 +12,8 @@ export const importCmd = (wrap) => withWrites(buildDevCmd('import', 'sys_import_
     singular: 'import set',
     readOnly: true,
     extraSubcommands: [{ name: 'load', description: 'Load rows into a staging table and transform them' },
-      { name: 'transform', description: 'Rerun the transform maps on an existing import set' }],
+      { name: 'transform', description: 'Rerun the transform maps on an existing import set' },
+      { name: 'runs', description: 'Read-only transform history and the newest run\'s error rows' }],
     // sys_import_set identifies a run by number and names the target table in
     // table_name; `name` and `sys_target_table` are not fields on it.
     labelField: 'number',
@@ -42,6 +43,36 @@ function withWrites(base, wrap) {
   return {
     ...base,
     builder: y => base.builder(y)
+      .command({
+        command: 'runs <target>',
+        describe: 'Read-only transform history of an import set or data source, newest first, with the newest run\'s error rows and their messages',
+        discoveryTasks: [{
+          phrases: ['import errors', 'import set errors', 'transform history', 'why did my import fail', 'import rows failed', 'data source last run'],
+          args: ['--json'],
+          description: 'Show the transform runs of an import set or data source and the rows that failed',
+        }],
+        builder: yy => yy.strict()
+          .positional('target', { type: 'string', describe: 'Import set number (ISET0010001) or sys_id, or data source name or sys_id' })
+          .option('limit', { type: 'number', default: 10, describe: 'Runs to show, newest first (1-100)' })
+          .option('errors', { type: 'number', default: 20, describe: 'Error rows to show from the newest run\'s set (1-200)' })
+          .epilogue('Read-only: reads sys_import_set, sys_data_source, sys_import_set_run (Transform History), sys_import_set_row and\n'
+            + 'sys_import_set_row_error with GET requests. Rows keep the state their set\'s latest transform left, so error rows are\n'
+            + 'shown for the newest run only. Data source passwords, keys and connection strings are never read.'),
+        handler: wrap(async (argv, app) => {
+          app.requireInstance();
+          const data = await readImportRuns(app.sdk, argv.target, { limit: argv.limit, errors: argv.errors });
+          Object.defineProperty(data, '_formatted', { value: formatImportRuns(data), enumerable: false });
+          const newest = data.runs[0];
+          app.ok(data, {
+            summary: newest ? `Import runs for ${data.target.name}: ${data.runs.length} run(s), newest ${newest.number} ${newest.state} with ${newest.errors ?? '?'} error(s)`
+              : `Import runs for ${data.target.name}: no transform run is visible`,
+            breadcrumbs: newest ? [
+              { action: 'rows', cmd: `jsn records list --table sys_import_set_row --query "sys_import_set=${newest.import_set.sys_id}^sys_import_state=error" --limit 200`, description: `Every error row of ${newest.import_set.number}` },
+              { action: 'transform', cmd: `jsn import transform ${newest.import_set.number}`, description: 'Preview a rerun of the maps once the cause is fixed' },
+            ] : [],
+          });
+        }),
+      })
       .command({
         command: 'load <table>',
         describe: 'Load .json or .csv rows into a staging table through the Import Set API; preview by default',

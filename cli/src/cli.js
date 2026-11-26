@@ -220,8 +220,9 @@ export function buildCLI() {
       (argv) => {
         const cmd = (argv._[0] || '').toString();
         // Skip-list is derived from command capability declarations
-        // (noInstance: true), not a hand-maintained name list.
-        if (!cmd || noInstanceCommands().has(cmd)) {
+        // (noInstance: true), not a hand-maintained name list. A no-instance
+        // family's mutation (customizations revert) still needs this guard.
+        if (!cmd || (noInstanceCommands().has(cmd) && !isMutationCommand(argv))) {
           return;
         }
         if (isMutationCommand(argv)) {
@@ -366,6 +367,7 @@ export function buildCLI() {
     .command(deferredFamily('groups', wrap))
     .command(deferredFamily('groupmembers', wrap))
     .command(deferredFamily('grouproles', wrap))
+    .command(deferredFamily('userroles', wrap))
     .command(deferredFamily('users', wrap))
     // USER EXPERIENCE — Shared
     .command(deferredFamily('forms', wrap))
@@ -425,6 +427,7 @@ export function buildCLI() {
     .command(deferredFamily('diff', wrap))
     .command(deferredFamily('graphql', wrap))
     .command(deferredFamily('eval', wrap))
+    .command(deferredFamily('fixscripts', wrap))
     .command(deferredFamily('rest', wrap))
     .command(skillCmd(wrap))
     .command(docsCmd(wrap))

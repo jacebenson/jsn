@@ -3,7 +3,7 @@
 const BASIC_COMMANDS = new Set([
   'incidents', 'changes', 'requests', 'tasks', 'tickets', 'approvals', 'records',
   'knowledge',
-  'groups', 'groupmembers', 'grouproles', 'users', 'setup', 'auth', 'skill',
+  'groups', 'groupmembers', 'grouproles', 'userroles', 'users', 'setup', 'auth', 'skill',
   'cmdb',
   'version', 'upgrade', 'docs', 'history', 'discover',
   'catalogitems', 'cases',

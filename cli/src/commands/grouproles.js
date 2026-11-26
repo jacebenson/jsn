@@ -161,7 +161,7 @@ export function groupRolesCmd(wrap) {
         });
     },
     handler: () => {
-      console.log('Manage group roles in sys_user_has_role.');
+      console.log('Manage group roles in sys_group_has_role.');
       console.log('');
       console.log('Available subcommands:');
       console.log('  list                  List group roles');

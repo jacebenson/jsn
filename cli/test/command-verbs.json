@@ -220,13 +220,34 @@
     "revert": {
       "why": "records revert puts a record back to a saved sys_update_version through the platform's Revert to this version; update writes a payload the caller supplies, rollback undoes one eval run's own changes, and undelete restores a deleted copy."
     },
+    "access": {
+      "why": "users access says which sys_user flag or failed sign-in stops a user signing in; show prints the record without judging it, roles answers what a user may do once signed in, and check or status would not say that the subject is sign-in."
+    },
+    "userroles": {
+      "why": "userroles writes direct sys_user_has_role rows for chosen users; users roles only reads them, and grouproles grants through a group, which reaches every member rather than one user."
+    },
+    "fixscripts": {
+      "why": "fixscripts names sys_script_fix the way scheduledjobs names sysauto_script; eval runs code that is never saved, so it cannot say a fix script is a record that travels in an update set."
+    },
+    "find": {
+      "why": "records find names the table that holds one sys_id; get and show need the table first, and search suggests matching text across fields rather than one exact sys_id."
+    },
+    "runs": {
+      "why": "import runs lists sys_import_set_run records (TH numbers) with their counts; list already lists import sets, and history reads one record's trail in approvals history rather than a table of transform runs."
+    },
+    "why": {
+      "why": "why traces one scheduled job through its sys_trigger rows, node, Run as user and run history to the reason it did not run; show prints only the sysauto_script record, records inspect shows one record's audit history, rules and flows, and health lists every flagged trigger without tracing one job."
+    },
+    "move": {
+      "why": "updatesets move reassigns customer updates between sets; update would suggest editing the update payload, and parent links whole sets rather than moving their updates."
+    },
     "basic-auth": {
       "why": "users basic-auth gives one enforcement verdict per account the platform recorded using Basic Auth. list returns generic user records, show reads one user, and users roles lists role names, but none of them reports the Basic Auth decision or whether enforcement blocks the account."
     }
   },
   "budgets": {
     "$comment": "Subcommand count per family. A budget is a ratchet, not a ban: when a new command earns its place, raise the number in the same diff and say why in the PR. Adding a family means adding its budget entry.",
-    "total": 432,
+    "total": 451,
     "families": {
       "access-analyzer": 3,
       "acls": 5,
@@ -251,7 +272,7 @@
       "codesearch": 1,
       "columns": 5,
       "compare": 0,
-      "customizations": 5,
+      "customizations": 6,
       "decisiontables": 6,
       "diff": 1,
       "discover": 0,
@@ -266,7 +287,7 @@
       "groupmembers": 3,
       "grouproles": 3,
       "groups": 5,
-      "import": 4,
+      "import": 5,
       "incidents": 5,
       "includes": 5,
       "knowledge": 2,
@@ -278,17 +299,17 @@
       "perf": 8,
       "platform": 2,
       "plugins": 1,
-      "privileges": 5,
+      "privileges": 6,
       "properties": 5,
-      "records": 17,
+      "records": 18,
       "relationships": 5,
       "requests": 5,
       "rest": 0,
-      "restmessage": 5,
+      "restmessage": 6,
       "roles": 5,
       "rules": 5,
       "scan": 22,
-      "scheduledjobs": 5,
+      "scheduledjobs": 7,
       "scopes": 4,
       "scrapi": 5,
       "scriptactions": 5,
@@ -311,15 +332,17 @@
       "uimacros": 5,
       "uipages": 5,
       "uipolicies": 5,
-      "updatesets": 14,
+      "updatesets": 15,
       "upgrade": 1,
-      "users": 7,
+      "users": 9,
       "uxapplicability": 2,
       "uxlists": 2,
       "uxscripts": 5,
       "version": 0,
       "views": 5,
-      "workflows": 2
+      "workflows": 2,
+      "userroles": 3,
+      "fixscripts": 6
     }
   }
 }

@@ -14,7 +14,7 @@ Discover commands with `jsn --help`, `jsn discover "search words"`, and
 `jsn <command> --help`. Help is the reference; this file is the shortcuts.
 
 - Verify the intended instance and select it explicitly with `--profile <name>`.
-- `eval` is the last resort. Explain why it is needed and get approval; never
+- `eval` and `fixscripts run` are the last resort. Explain why and get approval; never
   bypass ServiceNow protections to get an answer.
 - Honor delete confirmations. Get approval for destructive work and Global +
   Default mutations; use `--force` only for the approved operation.
@@ -32,7 +32,7 @@ Discover commands with `jsn --help`, `jsn discover "search words"`, and
 | Stop auditing a field or deletes | `jsn tables audit exclude <table> <field>`, `audit deletes <table> off` |
 | Undo a delete | `jsn records deleted`, then `records undelete` |
 | Undo a background script | `jsn eval rollback <execution>` |
-| A record's versions, or revert to base | `jsn records versions <table> <sys_id>`, `records revert` |
+| A record's versions, or revert to base | `jsn records versions <table> <sys_id>`, `records revert`, `customizations revert` |
 | Watch a record or a query | `jsn records watch --table <t> --sys-id <id>` or `--query` |
 | Copy records between instances | `jsn records export`, then `jsn records import <file>` |
 | Load an import set | `jsn import load <table> --file rows.json\|csv` |
@@ -40,7 +40,7 @@ Discover commands with `jsn --help`, `jsn discover "search words"`, and
 | Why a user cannot reach a record | `jsn access-analyzer check --user <u> --table <t> --record <id>` |
 | Documentation | `jsn docs "query"` or `jsn docs --path <path>` |
 
-Every write in that table previews without `--yes`, and `--yes` on a delete needs
+Every write in that table previews first; `--yes` on a delete needs
 the count its preview printed. Cascade previews and impersonated writes are
 writes too: `--preview-cascade` creates and deletes one Data Management job, and
 writing as another user needs the human's approval plus `--impersonate-writes`.
