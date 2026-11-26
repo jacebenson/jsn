@@ -287,25 +287,35 @@ async function moveCandidates(app, identifier) {
   return records;
 }
 
+const ambiguousSets = (flag, name, records) => errUsage(`Multiple update sets named "${name}" (${records.length}); pass --${flag} as a sys_id:\n${records.map(r => `  ${rawReferenceId(r.sys_id)}  ${getStringField(r, 'application') || '?'}  [${rawState(r)}]`).join('\n')}`);
+
 /** Each scope has its own "Default", so a duplicate name is narrowed to the other set's application; still ambiguous refuses. */
-async function resolveMoveSets(app, from, to) {
-  for (const [flag, identifier] of [['from', from], ['to', to]]) {
+async function resolveMoveSets(app, from, to, toDefault) {
+  if ((to !== undefined) === Boolean(toDefault)) throw errUsage('Pass exactly one of --to or --to-default.');
+  for (const [flag, identifier] of [['from', from], ...(toDefault ? [] : [['to', to]])]) {
     if (!String(identifier ?? '').trim()) throw errUsage(`--${flag} must name an update set`);
     assertSafeExactMatch(identifier);
   }
-  const found = { from: await moveCandidates(app, from), to: await moveCandidates(app, to) };
   const appOf = record => rawReferenceId(record.application);
+  const found = { from: await moveCandidates(app, from) };
+  if (toDefault) {
+    if (found.from.length !== 1) throw ambiguousSets('from', from, found.from);
+    const appID = appOf(found.from[0]), appName = getStringField(found.from[0], 'application') || appID;
+    const defaults = (await app.sdk.listStrict('sys_update_set', new URLSearchParams({
+      sysparm_query: `application=${appID}^is_default=true`, sysparm_limit: '5',
+      sysparm_display_value: 'all', sysparm_fields: 'sys_id,name,state,application,is_default',
+    }))).filter(record => appOf(record) === appID && String(record.is_default?.value ?? record.is_default) === 'true');
+    if (defaults.length !== 1) throw errUsage(defaults.length ? `${defaults.length} Default update sets for ${appName}; pass --to as a sys_id.` : `No Default update set for ${appName}.`);
+    return { source: found.from[0], target: defaults[0] };
+  }
+  found.to = await moveCandidates(app, to);
   for (const [flag, other] of [['from', 'to'], ['to', 'from']]) {
     if (found[flag].length > 1 && found[other].length === 1) {
       const narrowed = found[flag].filter(record => appOf(record) === appOf(found[other][0]));
       if (narrowed.length === 1) found[flag] = narrowed;
     }
   }
-  for (const [flag, name] of [['from', from], ['to', to]]) {
-    if (found[flag].length !== 1) {
-      throw errUsage(`Multiple update sets named "${name}" (${found[flag].length}); pass --${flag} as a sys_id:\n${found[flag].map(r => `  ${rawReferenceId(r.sys_id)}  ${getStringField(r, 'application') || '?'}  [${rawState(r)}]`).join('\n')}`);
-    }
-  }
+  for (const [flag, name] of [['from', from], ['to', to]]) if (found[flag].length !== 1) throw ambiguousSets(flag, name, found[flag]);
   return { source: found.from[0], target: found.to[0] };
 }
 
@@ -866,7 +876,8 @@ export function updateSetsCmd(wrap) {
           describe: 'Move customer updates to another in-progress update set in the same application; preview by default',
           builder: y => y
             .option('from', { type: 'string', demandOption: true, describe: 'Source update set name or sys_id' })
-            .option('to', { type: 'string', demandOption: true, describe: 'Target update set name or sys_id (in progress, same application)' })
+            .option('to', { type: 'string', describe: 'Target update set name or sys_id (in progress, same application)' })
+            .option('to-default', { type: 'boolean', default: false, describe: "Target the Default update set of the source set's application (instead of --to)" })
             .option('query', { type: 'string', describe: 'Encoded sys_update_xml query to move only some updates (e.g. "target_nameINFooUtils,FooCheck"); default all' })
             .option('expect-count', { type: 'number', describe: 'Required with --yes: exact number of updates to move' })
             .option('yes', { type: 'boolean', default: false, describe: 'Move the updates (requires --expect-count)' })
@@ -879,10 +890,10 @@ export function updateSetsCmd(wrap) {
             if (/\^NQ/.test(filter)) throw errUsage('--query must not contain ^NQ: a new query would match updates outside the source set.');
             const expected = argv.expectCount;
             if (argv.yes && (!Number.isSafeInteger(expected) || expected < 0)) throw errUsage('Moving requires --expect-count as a nonnegative safe integer.');
-            const { source, target } = await resolveMoveSets(app, argv.from, argv.to);
+            const { source, target } = await resolveMoveSets(app, argv.from, argv.to, argv.toDefault);
             const [sourceID, targetID, appID] = [rawReferenceId(source.sys_id), rawReferenceId(target.sys_id), rawReferenceId(target.application)];
             const [sourceName, targetName] = [getStringField(source, 'name'), getStringField(target, 'name')];
-            if (sourceID === targetID) throw errUsage('--from and --to are the same update set; nothing to move.');
+            if (sourceID === targetID) throw errUsage(argv.toDefault ? `"${sourceName}" is already its application's Default update set; nothing to move.` : '--from and --to are the same update set; nothing to move.');
             if (rawState(source) !== 'in progress') throw errUsage(`Source update set "${sourceName}" is ${rawState(source) || 'in an unknown state'}; another instance may already have retrieved it. Reopen it first with jsn updatesets reopen.`);
             if (rawState(target) !== 'in progress') throw errUsage(`Target update set "${targetName}" is ${rawState(target) || 'in an unknown state'}; updates can only move into an in-progress set.`);
             if (!appID || rawReferenceId(source.application) !== appID) {
@@ -1177,7 +1188,7 @@ export function updateSetsCmd(wrap) {
         console.log('  problems <set> List preview problems (read-only; never resolves them)');
         console.log('  commit <set>   Commit a previewed retrieved set after problems are resolved');
         console.log('  reopen <name>  Explicitly return a closed set to in progress');
-        console.log('  move           Move customer updates to another set (--from, --to; preview first)');
+        console.log('  move           Move customer updates to another set (--from, --to or --to-default)');
         console.log('  set  [name]    Set the current update set (picker when run bare)');
         console.log('  create         Create a new update set (auto-sets as current)');
         console.log('  complete [name] Complete a named or current set with --notes (editor when omitted)');

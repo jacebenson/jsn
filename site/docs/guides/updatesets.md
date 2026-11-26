@@ -170,6 +170,9 @@ jsn updatesets move --from "Sprint 12" --to "Feature X" --query "target_nameINFo
 jsn updatesets move --from <sprint sys_id> --to <feature sys_id> --query "target_nameINFooUtils,FooCheck" --expect-count 2 --yes
 ```
 
+`--to-default` in place of `--to` targets the Default set of the source set's
+application, for updates that should not ship with any named set yet.
+
 Without `--yes` it previews the matching `sys_update_xml` rows and prints the
 rerun command with their count and both sets' sys_ids. `--query` narrows the
 source set's updates; without it every update moves. Both sets must be in

@@ -121,6 +121,40 @@ test('a duplicate set name is narrowed to the other set\'s application, never gu
   assert.deepEqual(g.writes, []);
 });
 
+test('--to-default moves the updates into the Default set of the source set\'s application', async () => {
+  const f = fixture();
+  const list = f.app.sdk.listStrict; // a row outside the application or not default is never taken as the Default set
+  f.app.sdk.listStrict = async (table, params) => [...await list(table, params), ...(params.get('sysparm_query').includes('is_default')
+    ? [{ sys_id: { value: id(5) }, application: { value: OTHER }, is_default: { value: 'true' } }, { sys_id: { value: id(2) }, application: { value: APP }, is_default: { value: 'false' } }] : [])];
+  await run(['--from', 'sprint', '--to-default'], f.app);
+  assert.equal(f.last.data.to.sys_id, id(4));
+  assert.match(f.last.data.rerun, new RegExp(`--to ${id(4)} .*--expect-count 3 .*--yes`));
+  assert.ok(f.reads.some(r => r.table === 'sys_update_set' && r.query === `application=${APP}^is_default=true`));
+  await run(['--from', 'sprint', '--to-default', '--expect-count', '3', '--yes'], f.app);
+  assert.equal(f.writes.length, 3);
+  assert.ok(f.writes.every(w => w.data.update_set === id(4)));
+  assert.equal(f.last.data.verified, true);
+});
+
+test('--to-default refuses when the target is not exactly one Default set, before any write', async () => {
+  const cases = [
+    [f => f, ['--from', 'sprint', '--to', 'feature', '--to-default'], /exactly one of --to or --to-default/, true],
+    [f => f, ['--from', 'sprint'], /exactly one of --to or --to-default/, true],
+    [f => { f.sets[3].is_default = 'false'; }, ['--from', 'sprint', '--to-default'], /No Default update set for Feature App/],
+    [f => { f.sets.push({ sys_id: id(8), name: 'Default 2', state: 'in progress', application: APP, is_default: 'true' }); }, ['--from', 'sprint', '--to-default'], /2 Default update sets for Feature App/],
+    [f => { f.sets[3].state = 'complete'; }, ['--from', 'sprint', '--to-default'], /Target update set "Default" is complete/],
+    [f => f, ['--from', id(4), '--to-default'], /"Default" is already its application's Default update set/],
+    [f => f, ['--from', 'Default', '--to-default'], /Multiple update sets named "Default"/],
+  ];
+  for (const [mutate, args, error, noReads] of cases) {
+    const f = fixture();
+    mutate(f);
+    await assert.rejects(run(args, f.app), error, args.join(' '));
+    assert.deepEqual(f.writes, [], args.join(' '));
+    if (noReads) assert.deepEqual(f.reads, [], args.join(' '));
+  }
+});
+
 test('every refusal happens before the first write', async () => {
   const cases = [
     [['--from', 'sprint', '--to', 'shipped'], /is complete; updates can only move into an in-progress set/],
@@ -216,5 +250,5 @@ test('move is a mutation outside the capture-context guard, and validates --quer
     env: { ...process.env, JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1' },
   });
   assert.equal(result.status, 0, result.stderr);
-  for (const flag of ['--from', '--to', '--query', '--expect-count', '--yes', '--limit']) assert.ok(result.stdout.includes(flag), flag);
+  for (const flag of ['--from', '--to', '--to-default', '--query', '--expect-count', '--yes', '--limit']) assert.ok(result.stdout.includes(flag), flag);
 });
