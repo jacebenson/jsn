@@ -235,6 +235,9 @@
     "move": {
       "why": "updatesets move reassigns customer updates between sets; update would suggest editing the update payload, and parent links whole sets rather than moving their updates."
     },
+    "pipeline": {
+      "why": "records pipeline lays out every artifact for one save in execution order; inspect shows one record's history and list only returns rows, so neither orders the artifacts nor tests their conditions."
+    },
     "queue": {
       "why": "list reads one table's newest page and show reads one record; neither aggregates a backlog over a window, so queue names the read that answers how much is stuck and for how long."
     },
@@ -248,12 +251,12 @@
       "why": "userroles writes direct sys_user_has_role rows for chosen users; users roles only reads them, and grouproles grants through a group, which reaches every member rather than one user."
     },
     "why": {
-      "why": "why traces one scheduled job through its sys_trigger rows, node, Run as user and run history to the reason it did not run; show prints only the sysauto_script record, records inspect shows one record's audit history, rules and flows, and health lists every flagged trigger without tracing one job."
+      "why": "why traces one artifact to the reason it did not run or apply: for a scheduled job it walks sys_trigger rows, node, Run as user and run history; for a flow or field it explains why that record did or did not apply. show prints the configuration record, status reports without testing one record, and inspect reads history rather than explaining cause."
     }
   },
   "budgets": {
     "$comment": "Subcommand count per family. A budget is a ratchet, not a ban: when a new command earns its place, raise the number in the same diff and say why in the PR. Adding a family means adding its budget entry.",
-    "total": 455,
+    "total": 458,
     "families": {
       "access-analyzer": 3,
       "acls": 5,
@@ -276,7 +279,7 @@
       "clientscripts": 5,
       "cmdb": 4,
       "codesearch": 1,
-      "columns": 5,
+      "columns": 6,
       "compare": 0,
       "customizations": 6,
       "decisiontables": 6,
@@ -288,7 +291,7 @@
       "email": 7,
       "eval": 1,
       "fixscripts": 6,
-      "flows": 17,
+      "flows": 18,
       "forms": 2,
       "graphql": 0,
       "groupmembers": 3,
@@ -308,7 +311,7 @@
       "plugins": 1,
       "privileges": 6,
       "properties": 5,
-      "records": 18,
+      "records": 19,
       "relationships": 5,
       "requests": 5,
       "rest": 0,

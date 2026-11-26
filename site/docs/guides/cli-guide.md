@@ -1020,6 +1020,32 @@ Auth and setup prompts show **Esc to cancel**, as does every other prompt. Press
 
 ## Additional command workflows
 
+### Why an artifact did not run
+
+Three read-only commands answer per-record configuration questions without
+evaluating scripts or executing flows:
+
+```bash
+jsn flows why <flow> --record incident:INC0010001 --json
+jsn records pipeline incident INC0010001 --op update --json
+jsn columns why incident.caller_id --record INC0010001 --json
+```
+
+`flows why` combines the flow runnability checks with the trigger table,
+operations, `run_on_extended` coverage, the trigger condition and any
+`sys_flow_context` rows for that record. `records pipeline` reuses `tables
+behavior` (inherited and global artifacts included) and lays business rules,
+engines, flow record triggers, notifications and async rules out in documented
+execution order. `columns why` reports dictionary and override values, UI and
+data policy field actions, write ACLs and client-script candidates.
+
+Each encoded-query condition is tested by the Table API with
+`sys_id=<id>^<condition>`, one `^NQ` group at a time. Script conditions and
+`CHANGESTO`/`CHANGESFROM`/`VALCHANGES` are reported as untested. Client scripts
+are never executed and ACL rows are configuration evidence, not proof of a
+user's effective access; `columns why --user` says so explicitly until the
+access-analyzer check is available.
+
 ### Knowledge search
 
 Use `jsn knowledge search "VPN setup" --profile work` (alias `kb`) to search
