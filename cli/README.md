@@ -259,6 +259,21 @@ run with a rollback context `jsn eval rollback <execution>` undoes it. It does
 not start the platform's Run Fix Script worker, so no progress worker or fix
 script log is written, and it ignores the record's Unloadable setting:
 customizations the script writes are captured in the intended update set.
+## Outbound REST calls
+
+```sh
+jsn restmessage logs "Payroll API"
+jsn restmessage logs "Payroll API" --status 5xx --limit 50
+jsn restmessage logs <sys_id> --endpoint /employees --json
+```
+
+`logs` reads `sys_outbound_http_log`, newest first. A log row names the script that made the call,
+not the REST message, so calls are matched by URL: it starts with the host of one of the endpoints
+of the message and its methods, and contains the directory of one of them, the path up to its last
+`/` before any `${variable}`. A call that `setEndpoint()` sent to another host or directory is not
+found, and an endpoint whose host is a variable is listed as not matched. Basic logging, the
+default, records no headers. Credential headers and query values are redacted and bodies are never
+read. It is a read and works on read-only profiles.
 
 ## Choose output
 
