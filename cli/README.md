@@ -45,6 +45,23 @@ to each role: a direct grant, a chain of contained roles, or a group. Groups
 appear by the name the platform prints; the API returns no sys_ids. A missing,
 denied or malformed reply is an error, never an empty answer.
 
+## Why a user cannot sign in
+
+```sh
+jsn users access <user>
+jsn users access <user> --limit 50 --json
+jsn users access <user> --get data.sign_in
+```
+
+`users access` reads the user's `active`, `locked_out`, `password_needs_reset`,
+`failed_attempts`, `last_login_time`, `web_service_access_only` and
+`internal_integration_user`, says which of them block sign-in, and lists the
+newest `login.failed` events for the user name (`--limit` 1–100, default 10).
+Event rows rotate out after a few days, and a locked-out user's attempts write
+none, so an empty list proves nothing. A password reset on its own lets the UI
+ask for a new password and refuses API calls. The password, SSO, MFA and IP
+rules are not checked. Read-only.
+
 ## Record version history
 
 ```sh

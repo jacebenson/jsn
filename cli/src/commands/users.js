@@ -2,6 +2,7 @@ import { formatRecordForDisplay, getStringField, interactiveList, resolveFieldsP
 import { deferredFamilyDefinition } from '../command-families.js';
 import { resolveRecord, resolveSysId } from '../resolve-record.js';
 import { listUserRoles, explainUserRoles, formatUserRoleWhy } from '../user-roles.js';
+import { explainUserAccess, formatUserAccess, userAccessSummary } from '../user-access.js';
 import { errUsage } from '../errors.js';
 
 export function usersCmd(wrap) {
@@ -89,6 +90,17 @@ export function usersCmd(wrap) {
           }),
         })
         .command({
+          command: 'access <identifier>',
+          describe: 'Explain why a user cannot sign in (locked out, inactive, password reset, web services only) with recent login.failed events',
+          builder: (y) => y.strict().option('limit', { alias: 'l', type: 'number', default: 10, describe: 'Max login.failed events (1-100)' }),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const data = await explainUserAccess(app.sdk, argv.identifier, { limit: argv.limit });
+            Object.defineProperty(data, '_formatted', { value: formatUserAccess(data), enumerable: false });
+            app.ok(data, { summary: userAccessSummary(data) });
+          }),
+        })
+        .command({
           command: 'create',
           describe: 'Create a new user',
           builder: (y) => y
@@ -157,6 +169,7 @@ export function usersCmd(wrap) {
       console.log('  list                  List users');
       console.log('  show <name or sys_id>  Show a user by user_name or sys_id');
       console.log('  roles <identifier>    List a user\'s roles; --why shows how each is granted');
+      console.log('  access <identifier>   Explain why a user cannot sign in');
       console.log('  create                Create a new user');
       console.log('  update <identifier>   Update a user');
       console.log('  delete <identifier>   Delete a user');

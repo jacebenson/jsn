@@ -25,7 +25,7 @@ describe('Users command', () => {
     assert.equal(command.command, 'users [subcommand]');
     assert.deepEqual(command.aliases, ['user']);
     assert.equal(typeof command.builder, 'function');
-    assert.deepEqual(commands.map(c => c.command).sort(), ['create', 'delete <identifier>', 'list', 'roles <identifier>', 'show <identifier>', 'update <identifier>']);
+    assert.deepEqual(commands.map(c => c.command).sort(), ['access <identifier>', 'create', 'delete <identifier>', 'list', 'roles <identifier>', 'show <identifier>', 'update <identifier>']);
     assert.deepEqual(findCommand(commands, 'list').aliases, ['ls']);
     assert.deepEqual(findCommand(commands, 'show').aliases, ['get']);
     for (const c of commands) assert.equal(typeof c.handler, 'function');
