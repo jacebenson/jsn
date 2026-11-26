@@ -35,7 +35,7 @@ function filter(rows, query) {
 }
 
 function fixture({ apps = [{ sys_id: APP, scope: 'sn_demo', name: 'Demo', sys_class_name: 'sys_store_app' }], updates = [si(1), si(1), si(2), si(3), si(4), si(5), si(6)].map(update),
-  metadata = [meta(1), meta(2), meta(3), meta(4), meta(6)], fail = [], ui = {} } = {}) {
+  metadata = [meta(1), meta(2), meta(3), meta(4), meta(6)], fail = [], ui = {}, cursor = true } = {}) {
   const commands = [];
   const builder = { command(c) { commands.push(c); return this; }, epilogue() { return this; } };
   customizationsCmd(fn => fn, { canUsePicker: () => false, confirm: async () => { throw new Error('unexpected prompt'); }, ...ui }).builder(builder);
@@ -49,7 +49,7 @@ function fixture({ apps = [{ sys_id: APP, scope: 'sn_demo', name: 'Demo', sys_cl
     const query = params.get('sysparm_query');
     reads.push({ table, query, fields: params.get('sysparm_fields'), limit: params.get('sysparm_limit') });
     if (table === 'sys_scope') return apps;
-    if (table === 'sys_update_xml') { const after = query.match(/\^name>([^^]+)/)?.[1]; return updates.filter(row => after === undefined || row.name > after).slice(0, Number(params.get('sysparm_limit'))); }
+    if (table === 'sys_update_xml') { const after = query.match(/\^name>([^^]+)/)?.[1]; return updates.filter(row => !cursor || after === undefined || row.name > after).slice(0, Number(params.get('sysparm_limit'))); }
     if (table === 'sys_metadata') return metadata.filter(row => query.slice(17).split(',').includes(row.sys_update_name));
     if (table === 'sys_update_version') return filter(versions, query).slice(0, Number(params.get('sysparm_limit')));
     const ids = query.replace(/^sys_id(IN|=)/, '').split(',');
@@ -206,6 +206,18 @@ test('customizations revert takes 100 files a run and says more remain', async (
   await next.run({ after: names[99] });
   assert.equal(next.reads.find(r => r.table === 'sys_update_xml').query, `application=${APP}^replace_on_upgrade=false^name>${names[99]}^ORDERBYname`);
   assert.deepEqual([next.data.refused.map(row => row.update_name), next.data.more, next.data.next_after], [[names[100]], false, null]);
+  // An instance that dropped the name> term would return the same batch forever.
+  const ignored = fixture({ updates: names.map(update), metadata: [], cursor: false });
+  await assert.rejects(ignored.run({ after: names[99] }), /ignored --after/);
+  assert.deepEqual(ignored.reads.map(r => r.table), ['sys_scope', 'sys_update_xml']);
+});
+
+test('customizations revert keeps --after in the preview\'s rerun line', async () => {
+  const f = fixture();
+  await f.run({ after: si(1) });
+  assert.deepEqual(f.data.plans.map(plan => plan.update_name), [si(2)]);
+  assert.equal(f.outputs.at(-1).opts.summary, `Preview: 1 file(s) to revert; nothing reverted. Rerun with --after ${si(1)} --confirm ${f.data.confirmation_token}`);
+  assert.deepEqual(f.scripts, []);
 });
 
 test('customizations revert is registered as a mutation and its help lists its flags', () => {

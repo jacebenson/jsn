@@ -26,6 +26,8 @@ export async function previewAppRevert(sdk, { scope, after, instance = '' } = {}
   // An upgrade skips a file whose update has replace_on_upgrade=false: those are the customised files.
   const updates = await read(sdk, 'sys_update_xml', `application=${application.sys_id}^replace_on_upgrade=false${after === undefined ? '' : `^name>${after}`}^ORDERBYname`, 'name,application,replace_on_upgrade', ROWS + 1, 'false');
   if (updates.some(row => raw(row.application) !== application.sys_id || raw(row.replace_on_upgrade) !== 'false')) throw malformed('sys_update_xml returned an update outside the application\'s customised files.');
+  // An instance that dropped name>after would hand back the same batch forever.
+  if (after !== undefined && updates.some(row => raw(row.name) === after)) throw malformed('sys_update_xml ignored --after and returned the update it names.');
   const names = [...new Set(updates.slice(0, ROWS).map(row => raw(row.name)))];
   const more = names.length > BATCH || updates.length > ROWS;
   const plans = [], added = [], at_base = [], refused = [];
