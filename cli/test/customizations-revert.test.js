@@ -122,7 +122,7 @@ test('customizations revert previews by default: it sorts the files, writes noth
   assert.match(data.refused[0].reason, /No record has this update name/);
   assert.match(data.confirmation_token, /^[0-9a-f]{64}$/);
   assert.equal(data.writes_performed, false);
-  assert.match(f.outputs.at(-1).opts.summary, /nothing reverted\. Rerun with --confirm [0-9a-f]{64}/);
+  assert.match(f.outputs.at(-1).opts.summary, /nothing reverted\. Rerun: jsn customizations revert --scope sn_demo --confirm [0-9a-f]{64}/);
   assert.match(data._formatted, /Added on this instance, left as they are \(jsn never deletes them\)/);
 });
 
@@ -231,7 +231,8 @@ test('customizations revert takes 100 files a run and says more remain', async (
   assert.equal(f.data.refused.length, 100);
   assert.deepEqual([f.data.more, f.data.next_after], [true, names[99]]);
   assert.match(f.data._formatted, new RegExp(`run again with --after ${names[99]} for the rest\\.\\nNothing to revert in this batch\\.`));
-  assert.equal(f.outputs.at(-1).opts.summary, `Nothing to revert in this batch; more customised files remain: rerun with --after ${names[99]}`);
+  // The hint is the command that actually works: it carries the scope the run needs.
+  assert.equal(f.outputs.at(-1).opts.summary, `Nothing to revert in this batch; more customised files remain: jsn customizations revert --scope sn_demo --after ${names[99]}`);
   // Files a run leaves unreverted keep their mark, so only the cursor moves the next run on.
   const next = fixture({ updates: names.map(update), metadata: [] });
   await next.run({ after: names[99] });
@@ -247,7 +248,7 @@ test('customizations revert keeps --after in the preview\'s rerun line', async (
   const f = fixture();
   await f.run({ after: si(1) });
   assert.deepEqual(f.data.plans.map(plan => plan.update_name), [si(2)]);
-  assert.equal(f.outputs.at(-1).opts.summary, `Preview: 1 file(s) to revert; nothing reverted. Rerun with --after ${si(1)} --confirm ${f.data.confirmation_token}`);
+  assert.equal(f.outputs.at(-1).opts.summary, `Preview: 1 file(s) to revert; nothing reverted. Rerun: jsn customizations revert --scope sn_demo --after ${si(1)} --confirm ${f.data.confirmation_token}`);
   assert.deepEqual(f.scripts, []);
 });
 

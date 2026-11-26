@@ -187,6 +187,20 @@ for (const [label, args, env, code, message, readsNothing] of [
   });
 }
 
+test('a Global fix script (empty sys_scope) runs in the verified global scope', async () => {
+  // Global records store an empty sys_scope; comparing '' to 'global' refused every one.
+  let handler;
+  fixscriptsCmd(fn => fn).builder({ command(definition) { if (definition.command?.startsWith('run ')) handler = definition.handler; return this; } });
+  const seen = [];
+  const app = { requireInstance() {}, mutationContext: { verified: true, application_id: 'global' }, config: {}, session: {},
+    ok(data) { seen.push(data); },
+    sdk: { list: async () => [{ sys_id: 'c'.repeat(32), name: 'Lower impact', script: stored, record_for_rollback: 'false', sys_scope: '' }],
+      runBackgroundScript: async (script, scope, options) => { seen.push({ scope, options }); return { output: 'done', execution_id: 'e'.repeat(32) }; } } };
+  await handler({ identifier: 'Lower impact', yes: true, timeout: 30 }, app);
+  assert.equal(seen[0].scope, 'global');
+  assert.equal(seen.at(-1).name, 'Lower impact');
+});
+
 test('Ctrl-C while a fix script runs aborts the signal given to the instance call, and the handler is removed after', async () => {
   let handler;
   fixscriptsCmd(fn => fn).builder({ command(definition) { if (definition.command?.startsWith('run ')) handler = definition.handler; return this; } });

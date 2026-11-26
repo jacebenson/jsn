@@ -96,8 +96,12 @@ export async function readSchedulerHealth(sdk, { limit = 20, now = Date.now() } 
   if (!Number.isInteger(limit) || limit < 1 || limit > 500) throw errUsage('--limit must be an integer from 1 to 500.');
   const nodes = await readNodes(sdk);
   const live = liveNodes(nodes);
+  // Grouped as two ^NQ branches: the platform reads a bare ^OR as a new branch, so
+  // `term^term^term^ORsystem_idISEMPTY` would match every trigger with no node and
+  // skip the state, time and type filters entirely.
+  const overdueFilter = `stateIN0,2^next_action<javascript:gs.minutesAgoStart(${OVERDUE_MINUTES})^trigger_typeNOT IN${DISABLED},${STARTUP}`;
   const overdue = await bounded(sdk, 'sys_trigger',
-    `stateIN0,2^next_action<javascript:gs.minutesAgoStart(${OVERDUE_MINUTES})^trigger_typeNOT IN${DISABLED},${STARTUP}^system_idNOT IN${NODE_GROUPS.join(',')}^ORsystem_idISEMPTY^ORDERBYnext_action`,
+    `${overdueFilter}^system_idNOT IN${NODE_GROUPS.join(',')}^NQ${overdueFilter}^system_idISEMPTY^ORDERBYnext_action`,
     TRIGGER_FIELDS, limit, row => ({ ...trigger(row), late_minutes: minutesSince(raw(row, 'next_action'), now) }));
   const erroring = await bounded(sdk, 'sys_trigger', 'stateIN-1,-2^ORerror_count>0^ORDERBYDESCsys_updated_on', TRIGGER_FIELDS, limit, trigger);
   const dead = await bounded(sdk, 'sys_trigger',

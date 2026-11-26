@@ -260,6 +260,7 @@ export async function readImportRuns(sdk, target, { limit = 10, errors = 20 } = 
   const id = target.trim();
   const byId = /^[0-9a-f]{32}$/i.test(id);
   const notes = [];
+  let unprovenRuns = [];
   const [set] = await readMatching(sdk, 'sys_import_set', byId ? 'sys_id' : 'number', id, SET_FIELDS);
   let source = null;
   if (set && raw(set.data_source)) {
@@ -284,8 +285,15 @@ export async function readImportRuns(sdk, target, { limit = 10, errors = 20 } = 
     const ids = [...new Set(runs.map(r => r.import_set.sys_id).filter(Boolean))];
     const owners = new Map((ids.length ? await readRows(sdk, 'sys_import_set', `sys_idIN${ids.join(',')}`, SET_FIELDS, ids.length) : [])
       .map(s => [raw(s.sys_id), raw(s.data_source)]));
-    const stray = runs.find(r => owners.get(r.import_set.sys_id) !== raw(source.sys_id));
+    // An unreadable set (ACL) is not a foreign one: owners.get() is undefined for
+    // both, and failing the whole read would hide the runs the caller can see.
+    const unreadable = runs.filter(r => r.import_set.sys_id && !owners.has(r.import_set.sys_id));
+    const stray = runs.find(r => owners.has(r.import_set.sys_id) && owners.get(r.import_set.sys_id) !== raw(source.sys_id));
     if (stray) throw new Error(`Run ${stray.number} does not belong to data source ${raw(source.name)}.`);
+    if (unreadable.length) {
+      unprovenRuns = unreadable.map(r => r.number);
+      notes.push(`${unreadable.length} run(s) belong to an import set this identity cannot read, so their data source is unproven: ${unprovenRuns.slice(0, 5).join(', ')}.`);
+    }
   }
   let errorRows = null;
   const newest = runs[0];
@@ -315,6 +323,7 @@ export async function readImportRuns(sdk, target, { limit = 10, errors = 20 } = 
       import_set_table: raw(source.import_set_table_name), file_retrieval_method: raw(source.file_retrieval_method),
       last_run: raw(source.last_run_datetime), last_success: raw(source.last_success_import_time) },
     runs, runs_has_more: runRows.length > limit, error_rows: errorRows, notes,
+    ...(unprovenRuns.length ? { unproven_runs: unprovenRuns } : {}),
   };
 }
 
