@@ -237,11 +237,14 @@
     },
     "why": {
       "why": "why traces one scheduled job through its sys_trigger rows, node, Run as user and run history to the reason it did not run; show prints only the sysauto_script record, records inspect shows one record's audit history, rules and flows, and health lists every flagged trigger without tracing one job."
+    },
+    "move": {
+      "why": "updatesets move reassigns customer updates between sets; update would suggest editing the update payload, and parent links whole sets rather than moving their updates."
     }
   },
   "budgets": {
     "$comment": "Subcommand count per family. A budget is a ratchet, not a ban: when a new command earns its place, raise the number in the same diff and say why in the PR. Adding a family means adding its budget entry.",
-    "total": 449,
+    "total": 450,
     "families": {
       "access-analyzer": 3,
       "acls": 5,
@@ -326,7 +329,7 @@
       "uimacros": 5,
       "uipages": 5,
       "uipolicies": 5,
-      "updatesets": 14,
+      "updatesets": 15,
       "upgrade": 1,
       "users": 8,
       "uxapplicability": 2,
