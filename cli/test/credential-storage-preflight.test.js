@@ -13,7 +13,10 @@ import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const storePath = path.join(root, 'src/auth/credential-store.js');
-const posix = process.platform !== 'win32';
+const linux = process.platform === 'linux';
+// The libsecret/secret-tool expectations are Linux-only: Windows has Credential
+// Manager and macOS has the Keychain, each with their own probe and guidance.
+const posix = linux;
 
 /** Run a snippet in a child so PATH/env experiments cannot leak into the suite. */
 function inChild(source, env = {}) {
