@@ -14,7 +14,7 @@ Discover commands with `jsn --help`, `jsn discover "search words"`, and
 `jsn <command> --help`. Help is the reference; this file is the shortcuts.
 
 - Verify the intended instance and select it explicitly with `--profile <name>`.
-- `eval` is the last resort. Explain why it is needed and get approval; never
+- `eval` and `fixscripts run` are the last resort. Explain why and get approval; never
   bypass ServiceNow protections to get an answer.
 - Honor delete confirmations. Get approval for destructive work and Global +
   Default mutations; use `--force` only for the approved operation.

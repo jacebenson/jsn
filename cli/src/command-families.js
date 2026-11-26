@@ -128,7 +128,7 @@ const deferredFamilies = {
   uipolicies: profileFamily("uipolicies", "./commands/_simple.js", "uipoliciesCmd"),
   scriptactions: profileFamily("scriptactions", "./commands/_simple.js", "scriptactionsCmd"),
   scheduledjobs: profileFamily("scheduledjobs", "./commands/_simple.js", "scheduledjobsCmd"),
-  fixscripts: profileFamily("fixscripts", "./commands/_simple.js", "fixscriptsCmd"),
+  fixscripts: profileFamily("fixscripts", "./commands/_simple.js", "fixscriptsCmd", { mutationSubcommands: ["run"] }),
   asyncrules: profileFamily("asyncrules", "./commands/_simple.js", "asyncrulesCmd"),
   triggers: profileFamily("triggers", "./commands/_simple.js", "triggersCmd"),
   assignments: profileFamily("assignments", "./commands/_simple.js", "assignmentsCmd"),

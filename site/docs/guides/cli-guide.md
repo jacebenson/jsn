@@ -343,6 +343,10 @@ jsn eval --sandbox --script "new GlideRecord('incident').insert()"   # refused: 
 jsn eval rollback <execution>
 jsn eval rollback <execution> --yes
 
+# Run a stored fix script now, in its own scope, through the same path: preview
+# first, then --yes. --timeout and Ctrl-C cancel it as they do for jsn eval.
+jsn fixscripts run "Lower incident impact" --expect-scope global --expect-update-set "Data fixes"
+
 # Now GraphQL (documents may contain mutations; read-only profiles are blocked)
 jsn graphql --query '{ GlideRecord_Query { incident(pagination: {limit: 2}) { _results { number { value } } } } }'
 cat incident.graphql | jsn graphql --stdin --variables '{"limit":2}'
