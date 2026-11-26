@@ -29,11 +29,15 @@ function throwawayKeychain(t, prefix, run = security) {
   let original = null;
   try { [original = null] = keychains(run(['default-keychain', '-d', 'user'])); } catch { /* none */ }
   const searchList = keychains(run(['list-keychains', '-d', 'user']));
+  // A restore that fails fails the test rather than leaving the user's keychains changed in silence.
   t.after(() => {
-    try { run(['list-keychains', '-d', 'user', '-s', ...searchList]); } catch { /* best effort */ }
-    if (original) { try { run(['default-keychain', '-d', 'user', '-s', original]); } catch { /* best effort */ } }
-    try { run(['delete-keychain', keychain]); } catch { /* already gone */ }
-    fs.rmSync(dir, { recursive: true, force: true });
+    try {
+      run(['list-keychains', '-d', 'user', '-s', ...searchList]);
+      if (original) run(['default-keychain', '-d', 'user', '-s', original]);
+    } finally {
+      try { run(['delete-keychain', keychain]); } catch { /* already gone */ }
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
   run(['create-keychain', '-p', password, keychain]);
   run(['unlock-keychain', '-p', password, keychain]);
@@ -87,8 +91,8 @@ test('the Keychain item is discoverable by the documented service and account', 
 // CI runner's keychains are thrown away with the runner.
 test('the throwaway keychain puts back the default keychain and search list it found', async (t) => {
   const login = '/Users/fixture/Library/Keychains/login.keychain-db';
-  const system = '/Library/Keychains/System.keychain';
-  const replies = { 'default-keychain -d user': `    "${login}"\n`, 'list-keychains -d user': `    "${login}"\n    "${system}"\n` };
+  const work = '/Users/fixture/Library/Keychains/work.keychain-db';
+  const replies = { 'default-keychain -d user': `    "${login}"\n`, 'list-keychains -d user': `    "${login}"\n    "${work}"\n` };
   const calls = [];
   const run = (args) => { calls.push(args.join(' ')); return replies[args.join(' ')] ?? ''; };
   let keychain;
@@ -98,9 +102,9 @@ test('the throwaway keychain puts back the default keychain and search list it f
     'list-keychains -d user',
     `create-keychain -p jsn-test-keychain ${keychain}`,
     `unlock-keychain -p jsn-test-keychain ${keychain}`,
-    `list-keychains -d user -s ${keychain} ${login} ${system}`,
+    `list-keychains -d user -s ${keychain} ${login} ${work}`,
     `default-keychain -d user -s ${keychain}`,
-    `list-keychains -d user -s ${login} ${system}`,
+    `list-keychains -d user -s ${login} ${work}`,
     `default-keychain -d user -s ${login}`,
     `delete-keychain ${keychain}`,
   ]);
