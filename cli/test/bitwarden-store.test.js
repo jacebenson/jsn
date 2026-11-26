@@ -3,6 +3,11 @@
 // item/encode) against a JSON file, and the adapter is exercised through it.
 
 import { test } from 'node:test';
+
+// The shim is a shebang script, which Windows cannot execute; the adapter itself
+// is shell-backed like the libsecret path, so this contract is POSIX-only just
+// like the keyring tests it mirrors.
+const posixOnly = process.platform === 'win32' ? 'Needs a shebang-executable shim; POSIX only' : false;
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -29,7 +34,7 @@ const { bitwardenCredentialStore, bitwardenItemName, bitwardenStatus, parseCrede
 const instance = 'https://example.service-now.com';
 const creds = { auth_method: 'oauth', access_token: 'a1', refresh_token: 'r1', expires_at: 99 };
 
-test('without BW_SESSION the store refuses instead of hanging on a prompt', (t) => {
+test('without BW_SESSION the store refuses instead of hanging on a prompt', { skip: posixOnly }, (t) => {
   const saved = process.env.BW_SESSION;
   delete process.env.BW_SESSION;
   t.after(() => { if (saved !== undefined) process.env.BW_SESSION = saved; });
@@ -39,7 +44,7 @@ test('without BW_SESSION the store refuses instead of hanging on a prompt', (t) 
   assert.match(status.detail, /bw unlock --raw/);
 });
 
-test('save, load, overwrite and delete round trip through the vault', (t) => {
+test('save, load, overwrite and delete round trip through the vault', { skip: posixOnly }, (t) => {
   process.env.BW_SESSION = 'session-token';
   t.after(() => { delete process.env.BW_SESSION; });
 
@@ -61,19 +66,19 @@ test('save, load, overwrite and delete round trip through the vault', (t) => {
   assert.equal(bitwardenCredentialStore.load(instance, 'other').access_token, 'b1', 'deletion is per identity');
 });
 
-test('an item without a usable notes document reads as missing, not as garbage', () => {
+test('an item without a usable notes document reads as missing, not as garbage', { skip: posixOnly }, () => {
   assert.equal(parseCredentialNotes({ notes: '' }), null);
   assert.equal(parseCredentialNotes({ notes: 'not json' }), null);
   assert.equal(parseCredentialNotes({ notes: '["array"]' }), null);
   assert.deepEqual(parseCredentialNotes({ notes: '{"a":1}' }), { a: 1 });
 });
 
-test('the item name is stable and prefixed', () => {
+test('the item name is stable and prefixed', { skip: posixOnly }, () => {
   assert.equal(bitwardenItemName('https://x.service-now.com/', 'me'), 'servicenow-cli:me@https://x.service-now.com');
   assert.equal(bitwardenItemName('https://x.service-now.com', null), 'servicenow-cli:https://x.service-now.com');
 });
 
-test('a profile selects the store, and an unknown name is a configuration error', async () => {
+test('a profile selects the store, and an unknown name is a configuration error', { skip: posixOnly }, async () => {
   const { credentialStoreFor } = await import('../src/auth.js');
   const { defaultCredentialStore } = await import('../src/auth/credential-store.js');
   assert.equal(credentialStoreFor(undefined), defaultCredentialStore, 'no field means the OS keyring');
