@@ -3,7 +3,7 @@ import { resolveRecord, unwrapSysId } from '../resolve-record.js';
 import { diffPayloads, formatChanges, malformed, parsePayload, raw, read } from './versions.js';
 
 const VERSION = 'sys_update_version';
-const FIELDS = 'sys_id,name,state,source_table,source,reverted_from,sys_recorded_at,payload';
+const FIELDS = 'sys_id,name,state,source_table,source,reverted_from,sys_created_on,payload';
 const BASE_TABLES = ['sys_upgrade_history', 'sys_store_app'];
 const ID = /^[0-9a-f]{32}$/;
 // Update names and table names go into a background script; nothing outside this set does.
@@ -49,13 +49,13 @@ export async function planRevert(sdk, { table, identifier, identifierField, vers
   const expected = Object.fromEntries(changed.filter(field => !field.startsWith('sys_')).map(field => [field, raw(main.fields[field])]));
   return {
     table: recordTable, sys_id: sysId, update_name: name, base, from_version: raw(current.sys_id), to_version: raw(target.sys_id),
-    to_source: { source_table: raw(target.source_table), source: raw(target.source), recorded_at: raw(target.sys_recorded_at) },
+    to_source: { source_table: raw(target.source_table), source: raw(target.source), created_on: raw(target.sys_created_on) },
     changes, changed_fields: changed, expected,
   };
 }
 
 export function revertQuestion(plan) {
-  const to = plan.base ? `its base system version ${plan.to_version} (${plan.to_source.source_table})` : `version ${plan.to_version} (${plan.to_source.source_table}, recorded ${plan.to_source.recorded_at})`;
+  const to = plan.base ? `its base system version ${plan.to_version} (${plan.to_source.source_table})` : `version ${plan.to_version} (${plan.to_source.source_table}, recorded ${plan.to_source.created_on})`;
   const others = plan.changes.filter(change => change.sys_id !== plan.sys_id).length;
   return `Revert ${plan.table} ${plan.update_name} to ${to}; changes ${plan.changed_fields.join(', ') || 'no fields of the record itself'}${others ? ` and ${others} other record(s) in the update` : ''}`;
 }

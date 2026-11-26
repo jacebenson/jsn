@@ -13,7 +13,7 @@ const SET = id(51);
 const xml = (script, active = 'true') => `<?xml version="1.0" encoding="UTF-8"?><record_update table="sys_script_include"><sys_script_include action="INSERT_OR_UPDATE"><active>${active}</active><name>SynthUtil</name><script><![CDATA[${script}]]></script><sys_id>${ID}</sys_id><sys_updated_on>2026-01-01 10:00:00</sys_updated_on></sys_script_include></record_update>`;
 const BASE = 'var base = 1;';
 const version = (n, state, source_table, script, extra = {}) => ({ sys_id: id(n), name: KEY, state, source_table, source: source_table === 'sys_update_set' ? SET : UPGRADE,
-  reverted_from: '', sys_recorded_at: String(n), payload: xml(script), ...extra });
+  reverted_from: '', sys_recorded_at: String(n), sys_created_on: `2026-11-${n} 10:00:00`, payload: xml(script), ...extra });
 const VERSIONS = () => [version(13, 'current', 'sys_update_set', 'var custom = 2;', { payload: xml('var custom = 2;', 'false') }), version(12, 'previous', 'sys_update_set', 'var custom = 1;'), version(11, 'history', 'sys_upgrade_history', BASE)];
 
 // Exact-condition filter over fixture rows; ORDERBY terms are asserted by tests and applied here as sys_recorded_at descending.
@@ -212,6 +212,7 @@ test('revert to an explicit earlier version uses that version', async () => {
   assert.match(f.scripts[0].script, new RegExp(`revert\\('${id(12)}'\\)`));
   assert.equal(f.data.base, false);
   assert.equal(f.data.to_version, id(12));
+  assert.equal(f.data.to_source.created_on, '2026-11-12 10:00:00');
 });
 
 test('revert reports an unknown or refused outcome from the script, never success', async () => {
