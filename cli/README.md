@@ -71,6 +71,21 @@ runs the platform's Revert to this version in a background script after a
 confirmation that names the fields it changes, then reads back the new current
 version and the live record. Records created on the instance have no base.
 
+## Group membership
+
+```sh
+jsn groupmembers list --query "group.name=Service Desk"
+jsn groupmembers add --group "Service Desk" --user abel.tuter,beth.anglin    # preview
+jsn groupmembers add --group "Service Desk" --user abel.tuter --yes
+jsn groupmembers remove --group "Service Desk" --user abel.tuter --expect-count 1 --yes
+```
+
+`add` creates one `sys_user_grmember` row per user and skips users already in
+the group; `remove` deletes every row for the users, and `--yes` needs the
+`--expect-count` its preview printed. Both match the group and users exactly,
+preview without `--yes`, take up to 100 users, read the rows back, and exit
+nonzero unless every change is there.
+
 ## Saved Access Analyzer evidence
 
 ```sh
