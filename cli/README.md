@@ -79,6 +79,8 @@ jsn access-analyzer show <request-id> --json
 jsn access-analyzer show <result-id> --format styled
 jsn access-analyzer show <request-id> --get data.request.user.value
 jsn access-analyzer check --user abel.tuter --table incident --record <sys_id>
+jsn access-analyzer run --user abel.tuter --table incident --record <sys_id> --operations read,write
+jsn access-analyzer run --user abel.tuter --table incident --record <sys_id> --field state --save
 ```
 
 `list` and `show` read saved `sn_access_analyzer_request`,
@@ -108,6 +110,24 @@ and impersonate, and each run leaves an impersonation entry in the instance's lo
 Raw reference values and display labels are retained in JSON; joins use raw IDs.
 Passed, Blocked, Skipped and Undefined remain distinct. A record-availability
 failure with Business Rule evidence is not automatically an ACL failure.
+
+`run` performs the same live evaluation but prints what the provider checked:
+one line per ACL and business rule with its path, sys_id, status and the
+provider's return code and display value, then an overall allowed/blocked
+verdict per operation. `--field` evaluates that field's ACLs and paths instead
+of the record-level ones. It sends `shouldPersistResult: false` and writes
+nothing. The script uses `CrossScopeGetDebugLogsAPI().getDebugLogs` where the
+installed release publishes it and `CrossScopeEvaluateAccessAPI().evaluateAccess`
+otherwise; if the instance has no public evaluation API, or the caller scope is
+not a registered extension point, the provider's refusal is reported as a
+failure — `run` never falls back to a weaker local check.
+
+`--save` also persists the analysis through the provider. It is a mutation: a
+read-only profile is refused, and the command asks for confirmation. After the
+evaluation it reads `sn_access_analyzer_request` for this identity and target
+and reports only a request that appeared during the run; if none appeared, the
+command fails rather than pointing at an older saved analysis. Because `run` can
+persist, the whole subcommand is declared write-class for read-only profiles.
 
 ## Outbound email notifications
 
