@@ -219,11 +219,14 @@
     },
     "revert": {
       "why": "records revert puts a record back to a saved sys_update_version through the platform's Revert to this version; update writes a payload the caller supplies, rollback undoes one eval run's own changes, and undelete restores a deleted copy."
+    },
+    "why": {
+      "why": "why traces one scheduled job through its sys_trigger rows, node, Run as user and run history to the reason it did not run; show prints only the sysauto_script record, records inspect shows one record's audit history, rules and flows, and health lists every flagged trigger without tracing one job."
     }
   },
   "budgets": {
     "$comment": "Subcommand count per family. A budget is a ratchet, not a ban: when a new command earns its place, raise the number in the same diff and say why in the PR. Adding a family means adding its budget entry.",
-    "total": 431,
+    "total": 433,
     "families": {
       "access-analyzer": 3,
       "acls": 5,
@@ -285,7 +288,7 @@
       "roles": 5,
       "rules": 5,
       "scan": 22,
-      "scheduledjobs": 5,
+      "scheduledjobs": 7,
       "scopes": 4,
       "scrapi": 5,
       "scriptactions": 5,

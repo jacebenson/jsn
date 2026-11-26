@@ -808,6 +808,52 @@ summary says so.
   shows it and the string and attribute rows agree for that attribute. A
   failed write or a disagreeing re-read lists the writes made and exits 1.
 
+## Scheduler health
+
+`src/scheduled-job-health.js` is the layer behind `jsn scheduledjobs health`
+and `jsn scheduledjobs why <job>`. Both make bounded GET reads only. Health reads
+`sys_cluster_state`, then five lists, each `--limit` rows with a lookahead row
+that marks it truncated:
+
+- **Overdue**: `sys_trigger` rows Ready or Queued whose next action is more
+  than 60 minutes past, leaving out Disabled and startup triggers and the
+  `ALL NODES`, `ACTIVE NODES` and `PRIMARY NODES` template rows.
+- **Erroring**: state Error or Permanent Error, or `error_count` above zero.
+- **Dead node**: a parent trigger (`parent` empty, not a startup trigger)
+  whose `system_id` names a node that `sys_cluster_state` does not show
+  online. Rows the server returns for a node group or a live node are dropped.
+- **Inactive Run as**: active `sysauto_script` rows whose `run_as` user is
+  inactive.
+- **Long runs**: `syslog_transaction` scheduler rows over 3,600,000 ms in the
+  last 7 days.
+
+An empty `sys_cluster_state` read is refused before any trigger is read: it is
+an ACL-filtered read, and judging nodes from it would call every pinned job dead.
+
+`why` takes a job name or sys_id. It finds the `sysauto_script` row (its child
+classes share the table), then its triggers by `document_key`, the job's raw
+sys_id, because a child class's trigger names the child table in `document`.
+With no job definition it falls back to a `sys_trigger` row by name or sys_id,
+which covers triggers with no document, such as PA Forecast Job Schedule on
+dev485581. It then reads the Run as `sys_user` by raw sys_id, the nodes, the
+newest windows of `sys_scheduler_job_history` by the trigger's
+`job_classification` (checked in `sys_db_object` first; the table keeps 7 days
+in 15-minute windows, times in ms), and scheduler rows over an hour in
+`syslog_transaction`. Every joined row is checked against the key it was read
+by.
+
+- **Findings**, by job: `job_inactive`; with no trigger, `on_demand`,
+  `ran_once` (the platform removes a run-once trigger after it runs) or
+  `no_trigger`. By trigger: `trigger_disabled`, `paused`, `error_state` or
+  `errors_recorded`, then `overdue` and `dead_node` with the same rules as
+  health. Then `inactive_run_as` or `run_as_missing`, `conditional` (the
+  condition script is not evaluated) and `long_run`.
+
+Not modelled: whether a conditional job's condition returns true, worker
+thread starvation, and jobs on `sysauto` classes outside `sysauto_script`
+(scheduled reports, PA jobs), which `why` reaches only through the trigger
+fallback.
+
 ## Flow inspection
 
 `src/flow-inspection.js` is the single deep module for `flows show` and the
