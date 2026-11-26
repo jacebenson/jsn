@@ -228,11 +228,14 @@
     },
     "fixscripts": {
       "why": "fixscripts names sys_script_fix the way scheduledjobs names sysauto_script; eval runs code that is never saved, so it cannot say a fix script is a record that travels in an update set."
+    },
+    "find": {
+      "why": "records find names the table that holds one sys_id; get and show need the table first, and search suggests matching text across fields rather than one exact sys_id."
     }
   },
   "budgets": {
     "$comment": "Subcommand count per family. A budget is a ratchet, not a ban: when a new command earns its place, raise the number in the same diff and say why in the PR. Adding a family means adding its budget entry.",
-    "total": 444,
+    "total": 445,
     "families": {
       "access-analyzer": 3,
       "acls": 5,
@@ -286,7 +289,7 @@
       "plugins": 1,
       "privileges": 6,
       "properties": 5,
-      "records": 17,
+      "records": 18,
       "relationships": 5,
       "requests": 5,
       "rest": 0,
