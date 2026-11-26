@@ -199,58 +199,61 @@
     "workflows"
   ],
   "approved": {
-    "enable": {
-      "why": "audit enable is the state-changing counterpart of the audit read; list/show only read saved evidence, and update would hide which table attribute changes."
-    },
-    "disable": {
-      "why": "audit disable mirrors audit enable; delete would suggest removing the table, and update would hide the switch from a read-only profile's blocked paths."
-    },
-    "exclude": {
-      "why": "audit exclude stops auditing one field; update writes a record payload, while this edits a dictionary attribute and needs its own path to be refused on read-only profiles."
-    },
-    "include": {
-      "why": "audit include reverses audit exclude; create would imply a new dictionary row, which it never makes."
-    },
-    "deletes": {
-      "why": "audit deletes toggles no_audit_delete; update would blur it with the table Audit tick that audit enable and audit disable already own."
-    },
-    "deleted": {
-      "why": "records deleted reads Deleted Records and joins each entry to its own table and its delete recovery by raw sys_id; list reads one table's rows and cannot say whether a deleted record is back."
-    },
-    "revert": {
-      "why": "records revert puts a record back to a saved sys_update_version through the platform's Revert to this version; update writes a payload the caller supplies, rollback undoes one eval run's own changes, and undelete restores a deleted copy."
-    },
     "access": {
       "why": "users access says which sys_user flag or failed sign-in stops a user signing in; show prints the record without judging it, roles answers what a user may do once signed in, and check or status would not say that the subject is sign-in."
-    },
-    "userroles": {
-      "why": "userroles writes direct sys_user_has_role rows for chosen users; users roles only reads them, and grouproles grants through a group, which reaches every member rather than one user."
-    },
-    "fixscripts": {
-      "why": "fixscripts names sys_script_fix the way scheduledjobs names sysauto_script; eval runs code that is never saved, so it cannot say a fix script is a record that travels in an update set."
-    },
-    "find": {
-      "why": "records find names the table that holds one sys_id; get and show need the table first, and search suggests matching text across fields rather than one exact sys_id."
-    },
-    "runs": {
-      "why": "import runs lists sys_import_set_run records (TH numbers) with their counts; list already lists import sets, and history reads one record's trail in approvals history rather than a table of transform runs."
-    },
-    "why": {
-      "why": "why traces one scheduled job through its sys_trigger rows, node, Run as user and run history to the reason it did not run; show prints only the sysauto_script record, records inspect shows one record's audit history, rules and flows, and health lists every flagged trigger without tracing one job."
-    },
-    "move": {
-      "why": "updatesets move reassigns customer updates between sets; update would suggest editing the update payload, and parent links whole sets rather than moving their updates."
     },
     "basic-auth": {
       "why": "users basic-auth gives one enforcement verdict per account the platform recorded using Basic Auth. list returns generic user records, show reads one user, and users roles lists role names, but none of them reports the Basic Auth decision or whether enforcement blocks the account."
     },
+    "deleted": {
+      "why": "records deleted reads Deleted Records and joins each entry to its own table and its delete recovery by raw sys_id; list reads one table's rows and cannot say whether a deleted record is back."
+    },
+    "deletes": {
+      "why": "audit deletes toggles no_audit_delete; update would blur it with the table Audit tick that audit enable and audit disable already own."
+    },
+    "disable": {
+      "why": "audit disable mirrors audit enable; delete would suggest removing the table, and update would hide the switch from a read-only profile's blocked paths."
+    },
+    "enable": {
+      "why": "audit enable is the state-changing counterpart of the audit read; list/show only read saved evidence, and update would hide which table attribute changes."
+    },
+    "exclude": {
+      "why": "audit exclude stops auditing one field; update writes a record payload, while this edits a dictionary attribute and needs its own path to be refused on read-only profiles."
+    },
+    "find": {
+      "why": "records find names the table that holds one sys_id; get and show need the table first, and search suggests matching text across fields rather than one exact sys_id."
+    },
+    "fixscripts": {
+      "why": "fixscripts names sys_script_fix the way scheduledjobs names sysauto_script; eval runs code that is never saved, so it cannot say a fix script is a record that travels in an update set."
+    },
+    "holders": {
+      "why": "roles holders answers the reverse of users roles: who holds one role and how many distinct users that is. list returns generic role records, show reads one role, and users roles starts from a user, so none of them can count holders."
+    },
+    "include": {
+      "why": "audit include reverses audit exclude; create would imply a new dictionary row, which it never makes."
+    },
+    "move": {
+      "why": "updatesets move reassigns customer updates between sets; update would suggest editing the update payload, and parent links whole sets rather than moving their updates."
+    },
     "queue": {
       "why": "list reads one table's newest page and show reads one record; neither aggregates a backlog over a window, so queue names the read that answers how much is stuck and for how long."
+    },
+    "revert": {
+      "why": "records revert puts a record back to a saved sys_update_version through the platform's Revert to this version; update writes a payload the caller supplies, rollback undoes one eval run's own changes, and undelete restores a deleted copy."
+    },
+    "runs": {
+      "why": "import runs lists sys_import_set_run records (TH numbers) with their counts; list already lists import sets, and history reads one record's trail in approvals history rather than a table of transform runs."
+    },
+    "userroles": {
+      "why": "userroles writes direct sys_user_has_role rows for chosen users; users roles only reads them, and grouproles grants through a group, which reaches every member rather than one user."
+    },
+    "why": {
+      "why": "why traces one scheduled job through its sys_trigger rows, node, Run as user and run history to the reason it did not run; show prints only the sysauto_script record, records inspect shows one record's audit history, rules and flows, and health lists every flagged trigger without tracing one job."
     }
   },
   "budgets": {
     "$comment": "Subcommand count per family. A budget is a ratchet, not a ban: when a new command earns its place, raise the number in the same diff and say why in the PR. Adding a family means adding its budget entry.",
-    "total": 454,
+    "total": 455,
     "families": {
       "access-analyzer": 3,
       "acls": 5,
@@ -284,6 +287,7 @@
       "domains": 8,
       "email": 7,
       "eval": 1,
+      "fixscripts": 6,
       "flows": 17,
       "forms": 2,
       "graphql": 0,
@@ -309,7 +313,7 @@
       "requests": 5,
       "rest": 0,
       "restmessage": 6,
-      "roles": 5,
+      "roles": 6,
       "rules": 5,
       "scan": 22,
       "scheduledjobs": 7,
@@ -337,15 +341,14 @@
       "uipolicies": 5,
       "updatesets": 15,
       "upgrade": 1,
+      "userroles": 3,
       "users": 9,
       "uxapplicability": 2,
       "uxlists": 2,
       "uxscripts": 5,
       "version": 0,
       "views": 5,
-      "workflows": 2,
-      "userroles": 3,
-      "fixscripts": 6
+      "workflows": 2
     }
   }
 }
