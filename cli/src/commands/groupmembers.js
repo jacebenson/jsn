@@ -1,8 +1,28 @@
-import { formatRecordForDisplay, getStringField, resolveFieldsParam, assertSafeExactMatch, confirmDelete, quoteShellArg } from '../helpers.js';
+import { formatRecordForDisplay, resolveFieldsParam, buildRerunCommand } from '../helpers.js';
 import { deferredFamilyDefinition } from '../command-families.js';
+import { errUsage } from '../errors.js';
+import { addGroupMembers, removeGroupMembers, formatGroupMembers, groupMembersSummary } from '../group-memberships.js';
 
 // add/remove write sys_user_grmember; the mutation guard (instance +
-// read-only profile) and the delete confirmation both key off this.
+// read-only profile) keys off the family's mutationSubcommands.
+
+const targetOptions = (y) => y.strict()
+  .option('group', { alias: 'g', type: 'string', demandOption: true, describe: 'Group name or sys_id (required)' })
+  .option('user', { alias: 'u', type: 'string', array: true, demandOption: true, describe: 'User name or sys_id; repeat or comma-separate, up to 100 (required)' })
+  .option('yes', { type: 'boolean', default: false, describe: 'Write the change; without it, show what would change' });
+
+function writeHandler(wrap, op, run) {
+  return wrap(async (argv, app) => {
+    // remove used to delete with --force; refuse it so such a script fails instead of only previewing.
+    if (op === 'remove' && argv.force) throw errUsage('remove does not take --force: run it without --yes to preview, then rerun with the --yes --expect-count it prints. Nothing removed.');
+    app.requireInstance();
+    const data = await run(app.sdk, { group: argv.group, user: argv.user, yes: argv.yes, expectCount: argv.expectCount });
+    if (data.rerun) data.rerun = buildRerunCommand(argv, { rerun: data.rerun });
+    Object.defineProperty(data, '_formatted', { value: formatGroupMembers(data, op), enumerable: false });
+    app.ok(data, { summary: groupMembersSummary(data, op) });
+    if (data.verified === false) process.exitCode = 1;
+  });
+}
 
 export function groupMembersCmd(wrap) {
   return {
@@ -37,127 +57,17 @@ export function groupMembersCmd(wrap) {
         })
         .command({
           command: 'add',
-          describe: 'Add a user to a group',
-          builder: (y) => y
-            .option('group', { alias: 'g', type: 'string', demandOption: true, describe: 'Group name or sys_id (required)' })
-            .option('user', { alias: 'u', type: 'string', demandOption: true, describe: 'Username or sys_id (required)' }),
-          handler: wrap(async (argv, app) => {
-            const groupName = argv.group;
-            const userName = argv.user;
-            assertSafeExactMatch(groupName);
-            assertSafeExactMatch(userName);
-
-            // Resolve group sys_id
-            const isGroupSysID = groupName.length === 32 && /^[0-9a-fA-F]+$/.test(groupName);
-            const groupParams = new URLSearchParams();
-            groupParams.set('sysparm_query', isGroupSysID ? `sys_id=${groupName}` : `name=${groupName}`);
-            groupParams.set('sysparm_limit', '1');
-            groupParams.set('sysparm_fields', 'sys_id');
-            const groupRecords = await app.sdk.list('sys_user_group', groupParams);
-            if (groupRecords.length === 0) {
-              throw new Error(`Group not found: ${groupName}`);
-            }
-            const groupSysID = getStringField(groupRecords[0], 'sys_id');
-
-            // Resolve user sys_id
-            const isUserSysID = userName.length === 32 && /^[0-9a-fA-F]+$/.test(userName);
-            const userParams = new URLSearchParams();
-            userParams.set('sysparm_query', isUserSysID ? `sys_id=${userName}` : `user_name=${userName}`);
-            userParams.set('sysparm_limit', '1');
-            userParams.set('sysparm_fields', 'sys_id');
-            const userRecords = await app.sdk.list('sys_user', userParams);
-            if (userRecords.length === 0) {
-              throw new Error(`User not found: ${userName}`);
-            }
-            const userSysID = getStringField(userRecords[0], 'sys_id');
-
-            // Check if membership already exists
-            const checkParams = new URLSearchParams();
-            checkParams.set('sysparm_query', `group=${groupSysID}^user=${userSysID}`);
-            checkParams.set('sysparm_limit', '1');
-            checkParams.set('sysparm_fields', 'sys_id');
-            const existing = await app.sdk.list('sys_user_grmember', checkParams);
-            if (existing.length > 0) {
-              throw new Error(`User ${userName} is already a member of group ${groupName}`);
-            }
-
-            // Create the membership
-            const record = await app.sdk.create('sys_user_grmember', {
-              group: groupSysID,
-              user: userSysID,
-            });
-            app.ok(record, {
-              summary: `Added ${userName} to ${groupName}`,
-              breadcrumbs: [
-                { action: 'list', cmd: `jsn groupmembers list --query "group.name=${groupName}"`, description: 'List group members' },
-                { action: 'remove', cmd: `jsn groupmembers remove --group ${quoteShellArg(groupName)} --user ${quoteShellArg(userName)}`, description: 'Remove this member' },
-              ],
-            });
-          }),
+          describe: 'Add users to a group, skipping any already in it; previews without --yes',
+          builder: (y) => targetOptions(y).epilogue('Creates one sys_user_grmember row per user, then reads them back and exits nonzero unless every membership is there.'),
+          handler: writeHandler(wrap, 'add', addGroupMembers),
         })
         .command({
           command: 'remove',
-          describe: 'Remove a user from a group',
-          builder: (y) => y
-            .option('group', { alias: 'g', type: 'string', demandOption: true, describe: 'Group name or sys_id (required)' })
-            .option('user', { alias: 'u', type: 'string', demandOption: true, describe: 'Username or sys_id (required)' })
-            .option('force', { type: 'boolean', describe: 'Skip the confirmation prompt (removal)' }),
-          handler: wrap(async (argv, app) => {
-            const groupName = argv.group;
-            const userName = argv.user;
-            assertSafeExactMatch(groupName);
-            assertSafeExactMatch(userName);
-            // Confirm before any lookup: a refused confirmation must not
-            // touch the instance at all.
-            await confirmDelete(app, argv, `Remove ${userName} from group ${groupName}`, {
-              rerun: ['groupmembers', 'remove', '--group', groupName, '--user', userName],
-            });
-
-            // Resolve group sys_id
-            const isGroupSysID = groupName.length === 32 && /^[0-9a-fA-F]+$/.test(groupName);
-            const groupParams = new URLSearchParams();
-            groupParams.set('sysparm_query', isGroupSysID ? `sys_id=${groupName}` : `name=${groupName}`);
-            groupParams.set('sysparm_limit', '1');
-            groupParams.set('sysparm_fields', 'sys_id');
-            const groupRecords = await app.sdk.list('sys_user_group', groupParams);
-            if (groupRecords.length === 0) {
-              throw new Error(`Group not found: ${groupName}`);
-            }
-            const groupSysID = getStringField(groupRecords[0], 'sys_id');
-
-            // Resolve user sys_id
-            const isUserSysID = userName.length === 32 && /^[0-9a-fA-F]+$/.test(userName);
-            const userParams = new URLSearchParams();
-            userParams.set('sysparm_query', isUserSysID ? `sys_id=${userName}` : `user_name=${userName}`);
-            userParams.set('sysparm_limit', '1');
-            userParams.set('sysparm_fields', 'sys_id');
-            const userRecords = await app.sdk.list('sys_user', userParams);
-            if (userRecords.length === 0) {
-              throw new Error(`User not found: ${userName}`);
-            }
-            const userSysID = getStringField(userRecords[0], 'sys_id');
-
-            // Find the membership record
-            const findParams = new URLSearchParams();
-            findParams.set('sysparm_query', `group=${groupSysID}^user=${userSysID}`);
-            findParams.set('sysparm_limit', '1');
-            findParams.set('sysparm_fields', 'sys_id');
-            const membershipRecords = await app.sdk.list('sys_user_grmember', findParams);
-            if (membershipRecords.length === 0) {
-              throw new Error(`User ${userName} is not a member of group ${groupName}`);
-            }
-            const membershipSysID = getStringField(membershipRecords[0], 'sys_id');
-
-            // Delete the membership
-            await app.sdk.delete('sys_user_grmember', membershipSysID);
-            app.ok({ user: userName, group: groupName }, {
-              summary: `Removed ${userName} from ${groupName}`,
-              breadcrumbs: [
-                { action: 'list', cmd: `jsn groupmembers list --query "group.name=${groupName}"`, description: 'List group members' },
-                { action: 'add', cmd: `jsn groupmembers add --group ${quoteShellArg(groupName)} --user ${quoteShellArg(userName)}`, description: 'Add user back to group' },
-              ],
-            });
-          }),
+          describe: 'Remove users from a group; previews without --yes',
+          builder: (y) => targetOptions(y)
+            .option('expect-count', { type: 'number', describe: 'Required with --yes: the number of membership rows the preview listed' })
+            .epilogue('Deletes the listed sys_user_grmember rows only when their count equals --expect-count, then reads them back and exits nonzero if any is still there.'),
+          handler: writeHandler(wrap, 'remove', removeGroupMembers),
         });
     },
     handler: () => {
@@ -165,8 +75,8 @@ export function groupMembersCmd(wrap) {
       console.log('');
       console.log('Available subcommands:');
       console.log('  list                  List group members');
-      console.log('  add                   Add a user to a group');
-      console.log('  remove                Remove a user from a group');
+      console.log('  add                   Add users to a group (previews without --yes)');
+      console.log('  remove                Remove users from a group (previews without --yes)');
       console.log('');
       console.log('Run "jsn groupmembers <command> --help" for details.');
     },
