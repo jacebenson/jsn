@@ -41,7 +41,8 @@ export async function readAtfSteps(sdk, test, { full = false } = {}) {
   assertTestRef(test);
   const byId = SYS_ID.test(test);
   const tests = await read(sdk, 'sys_atf_test', byId ? `sys_id=${test}` : `name=${test}`, 2);
-  if (tests.some(row => (byId ? raw(row.sys_id) : raw(row.name)) !== test)) throw new Error('sys_atf_test returned a different record identity.');
+  // The instance matches names and sys_ids without regard to case, as atf run does.
+  if (tests.some(row => (byId ? raw(row.sys_id) : raw(row.name)).toLowerCase() !== test.toLowerCase())) throw new Error('sys_atf_test returned a different record identity.');
   if (tests.length > 1) throw errUsage(`More than one ATF test is named "${test}" (${tests.map(row => raw(row.sys_id)).join(', ')}). Pass the sys_id.`);
   if (!tests.length) return null;
   const id = raw(tests[0].sys_id);
@@ -77,6 +78,7 @@ export function formatAtfSteps(data) {
       if (input.truncated) lines.push(`           (${input.value_length - input.value.length} more character(s)${input.type.startsWith('script') ? ', --full for the whole script' : ''})`);
     }
   }
+  if (data.steps.count && !data.input_values.count) lines.push('', 'No input values were readable: every input is at its default, or ACLs hide them.');
   if (data.steps.has_more) lines.push('', `More steps exist than the ${data.steps.count} read.`);
   if (data.input_values.has_more) lines.push('', `More input values exist than the ${data.input_values.count} read; later steps may show none.`);
   return lines.join('\n');

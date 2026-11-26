@@ -78,6 +78,9 @@ test('--full keeps a script whole, by sys_id, and a test with no steps says so',
   const notes = Array.from({ length: 25 }, (_, i) => `row ${i}`).join('\n');
   const plain = await readAtfSteps(fixtureSdk({ sys_variable_value: [value(32, id(10), 'field_values', 'template_value', notes, 100)] }), id(1));
   assert.deepEqual([plain.steps.records[0].inputs[0].value, plain.steps.records[0].inputs[0].truncated], [notes, false]);
+  assert.doesNotMatch(formatAtfSteps(plain), /No input values/);
+  const defaults = formatAtfSteps(await readAtfSteps(fixtureSdk({ sys_variable_value: [] }), id(1)));
+  assert.match(defaults, / {4}3 {2}Impersonate \(inactive\)\n\nNo input values were readable: every input is at its default, or ACLs hide them\.$/);
   const long = 'x'.repeat(20000);
   const capped = await readAtfSteps(fixtureSdk({ sys_variable_value: [value(30, id(10), 'field_values', 'template_value', long, 100), value(31, id(11), 'script', 'script', long, 200)] }), id(1), { full: true });
   assert.deepEqual(capped.steps.records.map(s => s.inputs.map(i => [i.value.length, i.truncated])), [[[16384, true]], [[20000, false]], []]);
@@ -85,7 +88,7 @@ test('--full keeps a script whole, by sys_id, and a test with no steps says so',
   const sdkEmpty = fixtureSdk({ sys_atf_step: [] });
   const empty = await readAtfSteps(sdkEmpty, id(1));
   assert.deepEqual(queries(sdkEmpty).map(q => q[0]), ['sys_atf_test', 'sys_atf_step']);
-  assert.match(formatAtfSteps(empty), /No steps were readable: the test has none, or ACLs hide them\./);
+  assert.match(formatAtfSteps(empty), /No steps were readable: the test has none, or ACLs hide them\.$/);
 });
 
 test('long reads say more exist', async () => {
@@ -119,7 +122,11 @@ test('an unknown test is no data, and mismatched, denied or malformed reads are 
   assert.equal(await readAtfSteps(fixtureSdk(), id(99)), null);
   assert.equal(await readAtfSteps(fixtureSdk(), 'No such test'), null);
   await assert.rejects(readAtfSteps(answering('sys_atf_test', [{ ...tables.sys_atf_test[0], sys_id: field(id(98)) }]), id(1)), /different record/);
-  await assert.rejects(readAtfSteps(answering('sys_atf_test', [{ ...tables.sys_atf_test[0], name: field('Synthetic LOGIN') }]), 'Synthetic login'), /different record/);
+  await assert.rejects(readAtfSteps(answering('sys_atf_test', [{ ...tables.sys_atf_test[0], name: field('Synthetic logout') }]), 'Synthetic login'), /different record/);
+  const otherCase = await readAtfSteps(answering('sys_atf_test', [{ ...tables.sys_atf_test[0], name: field('Synthetic LOGIN') }]), 'Synthetic login');
+  assert.deepEqual([otherCase.test.sys_id, otherCase.test.name, otherCase.steps.count], [id(1), 'Synthetic LOGIN', 3]);
+  const upper = await readAtfSteps(answering('sys_atf_test', [{ ...tables.sys_atf_test[0], sys_id: field(id(0xabc)) }]), id(0xabc).toUpperCase());
+  assert.deepEqual([upper.test.sys_id, upper.steps.count], [id(0xabc), 0]);
   await assert.rejects(readAtfSteps(answering('sys_atf_step', [{ ...tables.sys_atf_step[0], test: field(id(98), id(1)) }]), id(1)), /another test/);
   await assert.rejects(readAtfSteps(answering('sys_variable_value', [{ ...tables.sys_variable_value[0], document_key: field(id(98), id(10)) }]), id(1)), /another record/);
   await assert.rejects(readAtfSteps(answering('sys_variable_value', [{ ...tables.sys_variable_value[0], document: field('sys_atf_test') }]), id(1)), /another record/);

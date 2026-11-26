@@ -702,7 +702,7 @@ const deferredFamilies = {
   "atf": {
     definition: {
       command: "atf [subcommand]",
-      describe: "Automated Test Framework (list, suites, run, results)",
+      describe: "Automated Test Framework (list, suites, run, results, steps)",
     },
     capabilities: {
       queryTable: argv => argv._?.[1] === 'suites' ? 'sys_atf_test_suite' : 'sys_atf_test',
