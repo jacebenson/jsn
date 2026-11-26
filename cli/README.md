@@ -140,6 +140,22 @@ is an error naming the nearest. `spec` prints the API's OpenAPI 3 document as th
 it (`--json` wraps it in the envelope); a name several APIs match is refused with the candidates
 and their namespaces. Both are reads and work on read-only profiles.
 
+## Outbound REST calls
+
+```sh
+jsn restmessage logs "Payroll API"
+jsn restmessage logs "Payroll API" --status 5xx --limit 50
+jsn restmessage logs <sys_id> --endpoint /employees --json
+```
+
+`logs` reads `sys_outbound_http_log`, newest first. A log row names the script that made the call,
+not the REST message, so calls are matched by URL: it starts with the host of one of the endpoints
+of the message and its methods, and contains the directory of one of them, the path up to its last
+`/` before any `${variable}`. A call that `setEndpoint()` sent to another host or directory is not
+found, and an endpoint whose host is a variable is listed as not matched. Basic logging, the
+default, records no headers. Credential headers and query values are redacted and bodies are never
+read. It is a read and works on read-only profiles.
+
 ## Choose output
 
 Use the default terminal view for people, `--csv` or `--tsv` for flat rows, and `--json` when scripts need pagination, context, or errors. CSV/TSV do not fetch more pages or preserve both reference IDs and labels. Pagination notices go to stderr only when more results are explicitly known; silence does not prove completeness. JSON retains reference objects only if the command has not already flattened them. See [output details](https://jsn.jace.pro/docs/output/).

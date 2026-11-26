@@ -808,6 +808,41 @@ summary says so.
   shows it and the string and attribute rows agree for that attribute. A
   failed write or a disagreeing re-read lists the writes made and exits 1.
 
+## REST message call log
+
+`src/restmessage-logs.js` is the layer behind
+`jsn restmessage logs <message> [--status 404|4xx] [--endpoint <text>]`. It
+resolves the message as `restmessage show` does, reads up to 100 of its
+`sys_rest_message_fn` rows (more is refused, and a row whose `rest_message` is
+not the message's raw sys_id is an error), then one bounded, newest-first page
+of `sys_outbound_http_log`.
+
+- **Matching is by URL.** A log row links only to the script that made the call
+  (`source_table`, `source_record`), never to the REST message. Each method's
+  endpoint, and the message's own while a method has none, cut at its first
+  `${variable}`, `?` or `#`, gives a host and a directory (the path up to its
+  last `/`, or the whole path when it has one segment, such as `/v1.0`). A
+  method copies the message's endpoint when it is created and keeps it after
+  the message's changes, so the message's is left out once every method has
+  its own. A call matches when its
+  `url` starts with one of the hosts and contains one of the directories
+  (`urlSTARTSWITH` ORed, then `urlLIKE` ORed); a directory of `/` drops the
+  directory condition. The directory, not the whole endpoint, is what a
+  `setEndpoint()` to a sibling resource still shares, and it keeps a near-named
+  `/payroll-legacy/` apart from `/payroll/`. A call sent to another host or
+  directory is not found. An endpoint whose host is a variable, that is not
+  http or https, or whose directory holds `^` is reported in
+  `unmatched_endpoints`; with no host left, the log is not read.
+- **Credentials never leave the layer.** `request_headers`, `response_headers`,
+  `request_query` and the query part of `url` have the value of any credential-named pair (authorization,
+  cookie, token, secret, password, a name ending in key, signature, session)
+  replaced with `[redacted]`, in line, Java map, JSON and query-string form, and
+  a `user:password@` in a URL becomes `[redacted]@`. Bodies are not in
+  `sysparm_fields`. There is no opt-out; `records list` reads the raw row.
+- **What a row holds depends on the method's HTTP log level.** Basic, the
+  default, writes no headers. Calls through a MID server name it in
+  `mid_server`; its `ecc_queue` rows are a breadcrumb, not read.
+
 ## Flow inspection
 
 `src/flow-inspection.js` is the single deep module for `flows show` and the
