@@ -45,6 +45,10 @@ to each role: a direct grant, a chain of contained roles, or a group. Groups
 appear by the name the platform prints; the API returns no sys_ids. A missing,
 denied or malformed reply is an error, never an empty answer.
 
+`jsn roles show <role>` also lists the roles that role directly contains, read
+from `sys_user_role_contains` on the role's raw sys_id (first 100, with
+`has_more`). Nested contains are not expanded; `--no-essential` skips the read.
+
 ## Why a user cannot sign in
 
 ```sh
