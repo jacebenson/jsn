@@ -11,6 +11,9 @@ function terminal() {
   return { input: stream, output };
 }
 const tick = () => new Promise(resolve => setTimeout(resolve, 20));
+// Search-as-you-type is debounced, so a term needs to outlive the debounce
+// window before its request can be observed.
+const settle = () => new Promise(resolve => setTimeout(resolve, 260));
 
 test('text preserves punctuation, uppercase and Unicode', async () => {
   const io = terminal();
@@ -77,11 +80,11 @@ test('newer search wins before an old uncooperative source resolves', async () =
     if (term === 'a') return new Promise(resolve => { release = resolve; });
     return [{ name: 'Fresh', value: term || 'initial' }];
   } }, io);
-  await tick();
+  await settle();
   io.input.write('a');
-  await tick();
+  await settle();
   io.input.write('b');
-  await tick();
+  await settle();
   release([{ name: 'Old', value: 'wrong' }]);
   await tick();
   io.input.write('\r');
