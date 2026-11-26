@@ -20,12 +20,14 @@ const definitions = [
   { sys_id: id('1'), name: 'incident', super_class: id('2') },
   { sys_id: id('2'), name: 'task', super_class: '' },
   { sys_id: id('3'), name: 'sys_user', super_class: '' },
+  { sys_id: id('5'), name: 'sys_update_xml', super_class: '' },
 ];
 const dictionary = [
   ...['sys_id', 'name', 'active', 'short_description'].map(element => ({ sys_id: element, name: 'task', element, internal_type: 'string', reference: '' })),
   { sys_id: 'number', name: 'incident', element: 'number', internal_type: 'string', reference: '' },
   { sys_id: 'caller', name: 'incident', element: 'caller_id', internal_type: 'reference', reference: 'sys_user' },
   ...['sys_id', 'name', 'nameINTERNAL', 'user_name', 'email'].map(element => ({ sys_id: `user-${element}`, name: 'sys_user', element, internal_type: 'string', reference: '' })),
+  ...['sys_id', 'name', 'target_name', 'update_set'].map(element => ({ sys_id: `xml-${element}`, name: 'sys_update_xml', element, internal_type: 'string', reference: '' })),
 ];
 let rows;
 const requests = [];
@@ -90,6 +92,7 @@ try {
 
     { name: 'operator typo read', args: ['records', 'list', '--table', 'incident', '--query', 'nameSTARTWITHfixture', '--no-count'], rejected: true, zeroWrites: true },
     { name: 'unknown later OR/NQ term bulk mutation', args: ['records', 'bulk', '--table', 'incident', '--query', 'nameSTARTSWITHfixture^ORbogus=1^NQactive=true', '-f', 'short_description=changed', '--execute', '--force', '--limit', '1'], rejected: true, zeroWrites: true },
+    { name: 'unknown field update set move', args: ['updatesets', 'move', '--from', id('6'), '--to', id('7'), '--query', 'target_nmae=FooUtils', '--expect-count', '1', '--yes'], rejected: true, zeroWrites: true },
     { name: 'operator typo delete mutation', args: ['records', 'delete-many', '--table', 'incident', '--query', 'nameSTARTWITHfixture', '--yes', '--expect-count', '1', '--limit', '1'], rejected: true, zeroWrites: true },
     { name: 'unresolved table mutation with accessible suggestions', args: ['records', 'bulk', '--table', 'incidnet', '--query', 'name=fixture', '-f', 'active=false', '--execute', '--force'], rejected: true, zeroWrites: true },
     { name: 'unsupported platform mutation', args: ['records', 'bulk', '--table', 'incident', '--query', 'nameONtoday', '-f', 'active=false', '--execute', '--force'], rejected: true, zeroWrites: true },

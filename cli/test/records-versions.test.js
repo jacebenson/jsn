@@ -24,7 +24,7 @@ const version = (n, state) => ({ sys_id: field(id(n)), name: field(KEY), record_
 const tables = {
   sys_script_include: [{ sys_id: field(id(1)), name: field('SynthUtil'), sys_update_name: field(KEY), sys_class_name: field('sys_script_include', 'Script Include') }],
   sys_update_version: [version(13, 'current'), version(12, 'previous'), version(11, 'history')],
-  sys_update_xml: [{ sys_id: field(id(41)), name: field(KEY), update_set: field(''), remote_update_set: field(id(32), 'Retrieved preview'), action: field('INSERT_OR_UPDATE'), sys_updated_on: field('2026-01-04 10:00:00'), sys_updated_by: field('admin') }, { sys_id: field(id(40)), name: field(KEY), update_set: field(id(31), 'Synthetic moved set'), action: field('INSERT_OR_UPDATE'), sys_updated_on: field('2026-01-03 10:00:00'), sys_updated_by: field('admin') }],
+  sys_update_xml: [{ sys_id: field(id(41)), name: field(KEY), update_set: field(''), remote_update_set: field(id(32), 'Retrieved preview'), action: field('INSERT_OR_UPDATE'), sys_updated_on: field('2026-01-04 10:00:00'), sys_updated_by: field('admin') }, { sys_id: field(id(40)), name: field(KEY), update_set: field(id(31), 'Synthetic moved set'), 'update_set.state': field('in progress', 'In progress'), action: field('INSERT_OR_UPDATE'), sys_updated_on: field('2026-01-03 10:00:00'), sys_updated_by: field('admin') }, { sys_id: field(id(42)), name: field(KEY), update_set: field(id(33), 'Older sprint'), 'update_set.state': field('complete', 'Complete'), action: field('INSERT_OR_UPDATE'), sys_updated_on: field('2026-01-02 10:00:00'), sys_updated_by: field('admin') }],
 };
 
 // Exact-condition filter over the fixture tables; ORDERBY terms are asserted by tests, not applied.
@@ -56,14 +56,28 @@ test('lists versions newest first by the record update name, with bounded lookah
   assert.equal(sdk.calls[1].params.get('sysparm_limit'), '3');
   assert.doesNotMatch(sdk.calls[1].params.get('sysparm_fields'), /payload,|payload$/);
   assert.equal(sdk.calls[2].params.get('sysparm_query'), `name=${KEY}^update_setISNOTEMPTY^ORDERBYDESCsys_updated_on^ORDERBYDESCsys_id`);
+  assert.equal(sdk.calls[2].params.get('sysparm_limit'), '3');
+  assert.match(sdk.calls[2].params.get('sysparm_fields'), /(^|,)update_set\.state(,|$)/);
+  assert.deepEqual(data.updates.map(row => [row.update_set.value, row.update_set_state.value]), [[id(31), 'in progress'], [id(33), 'complete']]);
+  assert.deepEqual(data.updates_pagination, { limit: 2, has_more: false });
   assert.deepEqual(data.versions.map(row => [row.number, row.state.value]), [[1, 'current'], [2, 'previous']]);
   assert.deepEqual(data.pagination, { limit: 2, has_more: true });
   assert.deepEqual(data.latest_update.update_set, field(id(31), 'Synthetic moved set'));
   assert.equal(data.record.update_name, KEY);
   const human = formatVersions(data);
-  assert.match(human, /Synthetic moved set.*0{30}1f/);
+  assert.match(human, /2 {2}previous[\s\S]*\n\n2 captured update\(s\), latest first:\n {2}\* "Synthetic moved set" \[in progress\].*0{30}1f.*\n {4}"Older sprint" \[complete\]/);
   assert.match(human, /1 {2}current[\s\S]*2 {2}previous/);
   assert.match(human, /raise --limit/);
+});
+
+test('captures past --limit are reported as more, not dropped silently', async () => {
+  const data = await recordVersions(fixtureSdk(), { table: 'sys_script_include', identifier: id(1), limit: 1 });
+  assert.deepEqual(data.updates.map(row => row.sys_id.value), [id(40)]);
+  assert.deepEqual(data.updates_pagination, { limit: 1, has_more: true });
+  assert.equal(data.latest_update.sys_id.value, id(40));
+  assert.match(formatVersions(data), /More captured updates exist; raise --limit/);
+  const many = Array.from({ length: 201 }, (_, i) => ({ sys_id: field(id(300 + i)), name: field(KEY), update_set: field(id(500 + i), `Set ${i}`) }));
+  assert.match(formatVersions(await recordVersions(fixtureSdk({ sys_update_xml: many }), { table: 'sys_script_include', identifier: id(1), limit: 200 })), /only the newest 200 are listed/);
 });
 
 test('--diff compares version N to the current version on raw values and diffs scripts by line', async () => {
@@ -97,6 +111,7 @@ test('a record without a readable update name falls back to class and sys_id and
   assert.equal(sdk.calls[1].params.get('sysparm_query'), `name=incident_${id(2)}^ORDERBYDESCsys_recorded_at^ORDERBYDESCsys_id`);
   assert.equal(data.count, 0);
   assert.equal(data.latest_update, null);
+  assert.deepEqual(data.updates, []);
   const human = formatVersions(data);
   assert.match(human, /looked up as incident_/);
   assert.match(human, /glide\.update\.suppress_update_version/);
@@ -193,6 +208,8 @@ test('real CLI reads only with GETs on a read-only profile, renders human and JS
     assert.match(human.stdout, /\+2: var b = 2;/);
     const get = await run(['records', 'versions', 'sys_script_include', id(1), '--get', 'data.latest_update.update_set.value']);
     assert.ok(get.stdout.includes(id(31)));
+    const state = await run(['records', 'versions', 'sys_script_include', id(1), '--get', 'data.latest_update.update_set_state.value']);
+    assert.equal(JSON.parse(state.stdout), 'in progress');
     const before = calls.length;
     for (const args of [[id(1), '--diff', '0'], [id(1), '--limit', '500'], [`${id(1)}^NQ`], ['*']]) {
       await assert.rejects(run(['records', 'versions', 'sys_script_include', ...args, '--json']), undefined, JSON.stringify(args));

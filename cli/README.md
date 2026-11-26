@@ -45,16 +45,86 @@ to each role: a direct grant, a chain of contained roles, or a group. Groups
 appear by the name the platform prints; the API returns no sys_ids. A missing,
 denied or malformed reply is an error, never an empty answer.
 
+## Why a user cannot sign in
+
+```sh
+jsn users access <user>
+jsn users access <user> --limit 50 --json
+jsn users access <user> --get data.sign_in
+jsn users unlock <user>          # preview
+jsn users unlock <user> --yes
+```
+
+`users access` reads the user's `active`, `locked_out`, `password_needs_reset`,
+`failed_attempts`, `last_login_time`, `web_service_access_only` and
+`internal_integration_user`, says which of them block sign-in, and lists the
+newest `login.failed` events for the user name (`--limit` 1–100, default 10).
+Event rows rotate out after a few days, and a locked-out user's attempts write
+none, so an empty list proves nothing. A password reset on its own lets the UI
+ask for a new password and refuses API calls. The password, SSO, MFA and IP
+rules are not checked. Read-only.
+## Grant a role directly
+
+```sh
+jsn userroles list --query "user.user_name=abel.tuter^inherited=false"
+jsn userroles add --role itil --user abel.tuter,beth.anglin    # preview
+jsn userroles add --role itil --user abel.tuter --yes
+jsn userroles remove --role itil --user abel.tuter --expect-count 1 --yes
+```
+
+`add` creates one `sys_user_has_role` row per user and skips users who already
+hold the role directly; a user who holds it only through a group still gets a
+direct row. `remove` deletes only rows with `inherited=false`, so a role held
+through a group or a containing role stays, and `--yes` needs the
+`--expect-count` its preview printed. Both preview without `--yes`, take up to
+100 users, read the rows back, and exit nonzero unless every change is there.
+
+`users unlock` refuses a user who is not locked out. With `--yes` it sets
+`locked_out` to false and `failed_attempts` to 0, reads the user back, and exits
+nonzero unless both changed. It leaves `password_needs_reset` alone, since an
+admin may have forced it, and then says what still blocks.
+## Blocked cross-scope calls
+
+```sh
+jsn privileges requests                                  # requested, denied, invalidated
+jsn privileges requests --target-scope x_acme_core --status all
+jsn privileges requests --source-scope "Payroll Sync" --json
+```
+
+A call that Restricted Caller Access blocks files a `sys_restricted_caller_access`
+row, which stays at Requested until the target application's admin allows it.
+`privileges requests` lists those rows newest first, with the calling scope and
+script, the target and the status (`--limit` 1–1000, default 20, with
+`pagination.has_more`). They are separate from the `sys_scope_privilege` rows
+that `privileges list` reads, so allowing a privilege leaves the request
+blocked. Scopes match by scope, name or sys_id and filter on raw sys_ids.
+ACLs can hide rows, so an empty list means no readable rows, not none.
+## Which table holds a sys_id
+
+```sh
+jsn records find <sys_id>
+jsn records find <sys_id> --get data.table
+```
+
+Tries `sys_metadata` and `task` through the Table API, then background scripts
+of up to 20 seconds each query the base tables that have a sys_id field
+(children included), skipping remote and virtual tables. `--max-tables` and `--time-limit` bound the
+search; a limit reached is reported as not found within the bound, and a miss
+exits 1. The scripts write no records of their own, but they run server-side code
+as `jsn eval` does, so read-only profiles refuse `find` and it needs a user who
+may run background scripts.
+
 ## Record version history
 
 ```sh
 jsn records versions sys_script_include <sys_id>
 jsn records versions sys_script_include MyUtil --identifier-field name --diff 2
-jsn records versions sys_script <sys_id> --get data.latest_update.update_set.value
+jsn records versions sys_script <sys_id> --get data.latest_update.update_set_state.value
 ```
 
 Lists a record's `sys_update_version` history newest first (1 is the newest),
-and the newest `sys_update_xml` capture with its update set. `--diff N` compares
+and every `sys_update_xml` capture with its update set and that set's state,
+newest first and bounded by `--limit`. `--diff N` compares
 version N to the current version on raw values, line by line for scripts. Current
 means the version in state current, as the platform's Compare to Current uses; the
 live record is not read. Read-only. No versions does not mean unchanged: only
@@ -70,6 +140,29 @@ upgrade or Store app version), or with `--version` to any earlier version. It
 runs the platform's Revert to this version in a background script after a
 confirmation that names the fields it changes, then reads back the new current
 version and the live record. Records created on the instance have no base.
+
+## Group membership
+
+```sh
+jsn groupmembers list --query "group.name=Service Desk"
+jsn groupmembers add --group "Service Desk" --user abel.tuter,beth.anglin    # preview
+jsn groupmembers add --group "Service Desk" --user abel.tuter --yes
+jsn groupmembers remove --group "Service Desk" --user abel.tuter --expect-count 1 --yes
+```
+
+`add` creates one `sys_user_grmember` row per user and skips users already in
+the group; `remove` deletes every row for the users, and `--yes` needs the
+`--expect-count` its preview printed. Both match the group and users exactly,
+preview without `--yes`, take up to 100 users, read the rows back, and exit
+nonzero unless every change is there.
+```sh
+jsn customizations revert --scope sn_hr_core
+jsn customizations revert --scope sn_hr_core --confirm <token>
+```
+
+`customizations revert` does the same for every customised file of a Store or
+repository application, 100 files a run, after a preview and its token. Files
+added on the instance are listed, never deleted.
 
 ## Saved Access Analyzer evidence
 
@@ -139,6 +232,48 @@ APIs alike; every word must appear, in any case, in the API name, route or descr
 is an error naming the nearest. `spec` prints the API's OpenAPI 3 document as the instance gives
 it (`--json` wraps it in the envelope); a name several APIs match is refused with the candidates
 and their namespaces. Both are reads and work on read-only profiles.
+
+## Fix scripts
+
+```sh
+jsn fixscripts list --query "nameLIKEimpact"
+jsn fixscripts create -f name="Lower incident impact" -f script=@fix.js \
+  --expect-scope global --expect-update-set "Data fixes"
+jsn fixscripts show "Lower incident impact" --get data.script.value
+jsn fixscripts run "Lower incident impact" \
+  --expect-scope global --expect-update-set "Data fixes" --yes
+```
+
+A fix script (`sys_script_fix`) is a customization record, so `create`, `update`
+and `delete` need `--expect-scope` and `--expect-update-set` from the task, as
+other customization writes do, and the platform captures the record in that
+update set. `-f script=@fix.js` reads the body from a file. Creating a fix
+script does not run it; the platform runs one on its own only when an
+application that holds it is installed or upgraded.
+
+`run` previews unless `--yes`, then runs the stored script unchanged as a
+background script in the fix script's own scope, which must be the intended
+scope, with a rollback context when Record for rollback is ticked. It is the
+`jsn eval` path: `--timeout` and Ctrl-C cancel it on the instance, and after a
+run with a rollback context `jsn eval rollback <execution>` undoes it. It does
+not start the platform's Run Fix Script worker, so no progress worker or fix
+script log is written, and it ignores the record's Unloadable setting:
+customizations the script writes are captured in the intended update set.
+## Outbound REST calls
+
+```sh
+jsn restmessage logs "Payroll API"
+jsn restmessage logs "Payroll API" --status 5xx --limit 50
+jsn restmessage logs <sys_id> --endpoint /employees --json
+```
+
+`logs` reads `sys_outbound_http_log`, newest first. A log row names the script that made the call,
+not the REST message, so calls are matched by URL: it starts with the host of one of the endpoints
+of the message and its methods, and contains the directory of one of them, the path up to its last
+`/` before any `${variable}`. A call that `setEndpoint()` sent to another host or directory is not
+found, and an endpoint whose host is a variable is listed as not matched. Basic logging, the
+default, records no headers. Credential headers and query values are redacted and bodies are never
+read. It is a read and works on read-only profiles.
 
 ## Choose output
 
