@@ -5,6 +5,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { execFileSync } from 'node:child_process';
 import { globalConfigDir } from '../config.js';
 import { windowsCredentialOperation, windowsCredentialRead, invalidateWindowsCredential, legacyWindowsKey, STORAGE_CLASSIFICATIONS, STORAGE_RECOVERY } from './windows-credential-store.js';
+import { keychainDelete, keychainRead, keychainStore } from './darwin-keychain.js';
 
 // ─── Credential key helpers ───
 
@@ -71,7 +72,9 @@ function warnPlaintext() {
 function refusal(classification = 'secure_storage_unavailable') {
   const repair = process.platform === 'win32'
     ? 'Windows Credential Manager requires Windows PowerShell 5.1 or PowerShell 7+ with FullLanguage/Add-Type and native API access allowed by policy.'
-    : 'Unlock/install secret-tool and retry. On Debian/Ubuntu (including WSL), run: sudo apt install libsecret-tools gnome-keyring. If already installed, ensure a running, unlocked keyring is available in your D-Bus session.';
+    : process.platform === 'darwin'
+      ? 'Unlock the login keychain (Keychain Access, or `security unlock-keychain`) and retry.'
+      : 'Unlock/install secret-tool and retry. On Debian/Ubuntu (including WSL), run: sudo apt install libsecret-tools gnome-keyring. If already installed, ensure a running, unlocked keyring is available in your D-Bus session.';
   return storageError(`Secure credential storage unavailable or readback failed. ${repair} Existing plaintext credentials are preserved. No plaintext fallback is enabled automatically. To explicitly allow unencrypted credential files, set ${PLAINTEXT_ENV}=1 in the environment of each jsn process that needs them. Only do this if your security policy permits it; backups can expose credentials.`, classification);
 }
 
@@ -231,6 +234,23 @@ export function credentialStorageStatus({ platform = process.platform } = {}) {
     }
   }
 
+  if (platform === 'darwin') {
+    const value = JSON.stringify({ probe: `probe-${crypto.randomBytes(8).toString('hex')}` });
+    try {
+      keychainStore(key, value);
+    } catch {
+      return result(false, 'keychain_unavailable');
+    }
+    try {
+      const readback = keychainRead(key);
+      return readback === value ? result(true) : result(false, 'keychain_readback_mismatch');
+    } catch {
+      return result(false, 'keychain_readback_failed');
+    } finally {
+      try { keychainDelete(key); } catch { /* best effort */ }
+    }
+  }
+
   try {
     execFileSync('secret-tool',
       ['store', `--label=JSN storage probe on '${KEYRING_SERVICE}'`,
@@ -270,9 +290,13 @@ export function storageRepair(platform = process.platform, reason = '') {
     'alpine': 'sudo apk add libsecret gnome-keyring',
   }[distro] || 'install libsecret (the secret-tool binary) with your package manager';
   const notes = [];
-  if (reason === 'secret_tool_missing') notes.push('secret-tool is not on PATH.');
-  else notes.push('secret-tool is installed but the keyring did not accept a write in this session (no D-Bus session, or the keyring is locked).');
-  if (platform === 'darwin') notes.push('macOS Keychain support is not implemented yet (issue #571); this build shells out to secret-tool.');
+  if (platform === 'darwin') {
+    notes.push('The login keychain did not accept a write: unlock it (Keychain Access, or `security unlock-keychain`), or run jsn in a session that can reach it.');
+  } else if (reason === 'secret_tool_missing') {
+    notes.push('secret-tool is not on PATH.');
+  } else {
+    notes.push('secret-tool is installed but the keyring did not accept a write in this session (no D-Bus session, or the keyring is locked).');
+  }
   notes.push('A headless host usually has no unlocked keyring: run jsn inside a session that can unlock one, or opt into plaintext storage for this profile.');
   return { install, notes, distro };
 }
@@ -302,15 +326,17 @@ function keyringLookup(key, legacyKey) {
     // break out into command injection (issue #143 finding #2).
     result = process.platform === 'win32'
       ? windowsLookup(key, legacyKey)
-      : execFileSync(
+      : process.platform === 'darwin'
+        ? keychainRead(key)
+        : execFileSync(
         'secret-tool',
         ['lookup', KEYRING_ATTR_SERVICE, KEYRING_SERVICE, KEYRING_ATTR_USERNAME, key],
         { stdio: ['ignore', 'pipe', 'ignore'], encoding: 'utf-8' }
       );
   } catch (error) {
     // Preserve the existing process-local plaintext opt-in. Without it, a
-    // Windows backend failure is a refusal, not a missing entry.
-    if (process.platform === 'win32' && !plaintextAllowed()) {
+    // platform backend failure is a refusal, not a missing entry.
+    if (['win32', 'darwin'].includes(process.platform) && !plaintextAllowed()) {
       throw error?.code === 'credential_storage_error' ? error : refusal();
     }
     return null;
@@ -364,6 +390,14 @@ export function primeCredentialReads(identities = [], run) {
 }
 
 function keyringStore(key, creds) {
+  if (process.platform === 'darwin') {
+    try {
+      keychainStore(key, JSON.stringify(creds));
+      return true;
+    } catch {
+      return false;
+    }
+  }
   try {
     execFileSync(
       'secret-tool',
@@ -395,6 +429,15 @@ function storeVerified(key, creds) {
     invalidateWindowsCredential(key);
     return 'readback_failed';
   }
+  if (process.platform === 'darwin') {
+    const value = JSON.stringify(creds);
+    if (!keyringStore(key, creds)) return 'unavailable';
+    let readback;
+    try { readback = keychainRead(key); } catch { throw refusal(); }
+    try {
+      return readback && isDeepStrictEqual(JSON.parse(readback), JSON.parse(value)) ? 'ok' : 'readback_failed';
+    } catch { return 'readback_failed'; }
+  }
   if (!keyringStore(key, creds)) return 'unavailable';
   try {
     const value = execFileSync('secret-tool',
@@ -408,6 +451,11 @@ function keyringDelete(key) {
   if (process.platform === 'win32') {
     windowsCredentialOperation('delete', key);
     if (windowsCredentialOperation('read', key) !== null) throw refusal();
+    return;
+  }
+  if (process.platform === 'darwin') {
+    keychainDelete(key);
+    if (keychainRead(key) !== null) throw refusal();
     return;
   }
   try {

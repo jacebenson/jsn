@@ -13,7 +13,10 @@ function validate(w) {
   const ci = w.ci;
   assert.equal(ci.concurrency.group, 'ci-${{ github.event.pull_request.number || github.run_id }}');
   assert.equal(ci.concurrency['cancel-in-progress'], "${{ github.event_name == 'pull_request' }}");
-  assert.deepEqual(ci.jobs.cli.strategy.matrix.os, ['ubuntu-latest', 'windows-2022']);
+  // macOS is covered because the keychain backend (#571) can only be verified
+  // against a real /usr/bin/security. The repository is public, so the macOS
+  // runner is free.
+  assert.deepEqual(ci.jobs.cli.strategy.matrix.os, ['ubuntu-latest', 'windows-2022', 'macos-latest']);
   assert.equal(ci.jobs.site.uses, './.github/workflows/docs-site.yml');
   assert.equal(ci.jobs.site.needs, 'changes');
   assert.equal(ci.jobs.site.if, "needs.changes.outputs.site == 'true'");
