@@ -219,11 +219,14 @@
     },
     "revert": {
       "why": "records revert puts a record back to a saved sys_update_version through the platform's Revert to this version; update writes a payload the caller supplies, rollback undoes one eval run's own changes, and undelete restores a deleted copy."
+    },
+    "why": {
+      "why": "notifications why explains one record-and-user delivery decision from event, email and recipient-log evidence; show describes one notification's configuration, while logs and records read their own sources and cannot attribute a non-delivery to this user."
     }
   },
   "budgets": {
     "$comment": "Subcommand count per family. A budget is a ratchet, not a ban: when a new command earns its place, raise the number in the same diff and say why in the PR. Adding a family means adding its budget entry.",
-    "total": 431,
+    "total": 433,
     "families": {
       "access-analyzer": 3,
       "acls": 5,
@@ -271,7 +274,7 @@
       "lists": 2,
       "logs": 3,
       "midservers": 12,
-      "notifications": 2,
+      "notifications": 4,
       "perf": 8,
       "platform": 2,
       "plugins": 1,

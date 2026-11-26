@@ -1,7 +1,6 @@
 import { buildProfileCommand } from '../record-profiles.js';
 import { getStringField } from '../helpers.js';
 import { withTableBehavior } from './table-behavior.js';
-import { describeNotification, deliverySummary } from '../notifications.js';
 import { withTableAudit } from './table-audit.js';
 // Simple table-based commands — singular names passed for grammar
 // Default columns and aliases match the Go version exactly
@@ -132,10 +131,8 @@ export const assignmentsCmd = (wrap) => buildProfileCommand('assignments', wrap)
 export const emailCmd = (wrap) => buildProfileCommand('email', wrap);
 
 // ── Automation: Outbound ──
-export const notificationsCmd = (wrap) => buildProfileCommand('notifications', wrap, {
-  async onShow(record, app, argv) { record._delivery = await describeNotification(app.sdk, record, argv); },
-  showSummary: deliverySummary,
-});
+// notifications is a hand-written family (list/show/why/preview) in
+// ./notifications.js, registered through command-families.js.
 export { restmessageCmd } from './restmessage.js';
 export { soapmessagesCmd } from './soapmessages.js';
 
