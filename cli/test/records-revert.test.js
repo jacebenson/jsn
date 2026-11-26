@@ -25,7 +25,7 @@ function filter(rows, query) {
   })).sort((a, b) => Number(b.sys_recorded_at) - Number(a.sys_recorded_at));
 }
 
-function fixture({ versions = VERSIONS(), output = 'JSN_REVERT:true', after, updateName = KEY } = {}) {
+function fixture({ versions = VERSIONS(), output = 'JSN_REVERT:true', after, updateName = KEY, recordId = ID, recordClass = 'sys_script_include', others = {} } = {}) {
   const commands = [];
   const builder = { command(c) { commands.push(c); return this; } };
   recordsCmd(fn => fn).builder(builder);
@@ -33,12 +33,15 @@ function fixture({ versions = VERSIONS(), output = 'JSN_REVERT:true', after, upd
   const reads = [];
   const scripts = [];
   let rows = versions;
-  let live = { sys_id: ID, active: 'false', script: 'var custom = 2;', name: 'SynthUtil' };
+  let live = { sys_id: recordId, active: 'false', script: 'var custom = 2;', name: 'SynthUtil' };
   let data;
   const read = async (table, params) => {
     reads.push({ table, ...Object.fromEntries(params) });
-    if (table === 'sys_update_version') return filter(rows, params.get('sysparm_query')).slice(0, Number(params.get('sysparm_limit')));
-    if (params.get('sysparm_query') === `sys_id=${ID}`) return [{ ...live, sys_update_name: updateName, sys_class_name: 'sys_script_include' }];
+    const query = params.get('sysparm_query');
+    if (table === 'sys_update_version') return filter(rows, query).slice(0, Number(params.get('sysparm_limit')));
+    if (query === `sys_id=${recordId}`) return [{ ...live, sys_update_name: updateName, sys_class_name: recordClass }];
+    if (query === `sys_idIN${recordId}`) return live ? [live] : [];
+    if (query.startsWith('sys_idIN')) return (others[table] || []).filter(row => query.slice(8).split(',').includes(row.sys_id));
     return [];
   };
   const app = {
@@ -50,8 +53,8 @@ function fixture({ versions = VERSIONS(), output = 'JSN_REVERT:true', after, upd
       executeScript: async (script, scope) => {
         scripts.push({ script, scope });
         if (String(output).includes('JSN_REVERT:true')) {
-          const done = after ? after(rows, live) : null;
-          if (done) ({ rows, live } = done);
+          const done = after ? after(rows, live, others) : null;
+          if (done) ({ rows, live, others = others } = done);
           else {
             rows = [version(14, 'current', 'sys_update_set', BASE, { reverted_from: id(11) }), ...rows.map(row => row.state === 'current' ? { ...row, state: 'previous' } : row)];
             live = { ...live, active: 'true', script: BASE };
@@ -172,7 +175,7 @@ test('revert runs one guarded global script and verifies the new version and the
   assert.match(script, new RegExp(`new GlideappUpdateVersion\\(\\)\\.revert\\('${id(11)}'\\)`));
   const live = f.reads.at(-1);
   assert.deepEqual({ table: live.table, query: live.sysparm_query, fields: live.sysparm_fields, display: live.sysparm_display_value },
-    { table: 'sys_script_include', query: `sys_id=${ID}`, fields: 'sys_id,active,script', display: 'false' });
+    { table: 'sys_script_include', query: `sys_idIN${ID}`, fields: 'sys_id,active,script', display: 'false' });
   assert.equal(f.data.reverted, true);
   assert.equal(f.data.base, true);
   assert.equal(f.data.from_version, id(13));
@@ -230,7 +233,7 @@ test('revert never reports success when the readback does not show the revert', 
     [(rows, live) => ({ rows: [version(14, 'current', 'sys_update_set', BASE, { reverted_from: id(12) }), ...rows.filter(row => row.state !== 'current')], live }), /not a revert of/],
     [(rows, live) => ({ rows: [version(14, 'current', 'sys_update_set', BASE, { reverted_from: id(11) }), ...rows.filter(row => row.state !== 'current')], live: { ...live, active: 'true' } }), /still differs .* script/],
     [(rows) => ({ rows: [version(14, 'current', 'sys_update_set', BASE, { reverted_from: id(11) }), ...rows.filter(row => row.state !== 'current')], live: { sys_id: ID, active: 'true' } }), /could not read script/],
-    [(rows) => ({ rows: [version(14, 'current', 'sys_update_set', BASE, { reverted_from: id(11) }), ...rows.filter(row => row.state !== 'current')], live: null }), /could not be read after the revert/],
+    [(rows) => ({ rows: [version(14, 'current', 'sys_update_set', BASE, { reverted_from: id(11) }), ...rows.filter(row => row.state !== 'current')], live: null }), /could not be read/],
   ];
   for (const [after, message] of cases) {
     const f = fixture({ after });
@@ -245,6 +248,58 @@ test('revert never reports success when the readback does not show the revert', 
   };
   await assert.rejects(denied.run(), /Forbidden/);
   assert.equal(denied.data, undefined);
+});
+
+const SET_ID = id(2);
+const LIST_KEY = 'sys_choice_incident_u_size';
+// A choice list update holds a wrapper, the list's own row, then one row per choice.
+const choices = list => `<?xml version="1.0" encoding="UTF-8"?><record_update table="sys_choice"><sys_choice_set action="INSERT_OR_UPDATE" field="u_size" table="incident"><sys_choice_set action="INSERT_OR_UPDATE"><element>u_size</element><name>incident</name><sys_id>${SET_ID}</sys_id></sys_choice_set>${list.map(([n, label]) => `<sys_choice action="INSERT_OR_UPDATE"><element>u_size</element><label>${label}</label><name>incident</name><sys_id>${id(n)}</sys_id><value>v${n}</value></sys_choice>`).join('')}</sys_choice_set></record_update>`;
+const listVersion = (n, state, source_table, list, extra = {}) => version(n, state, source_table, '', { name: LIST_KEY, payload: choices(list), ...extra });
+const choiceRow = (n, label) => ({ sys_id: id(n), label });
+// Base: 21 Small, 22 Medium. Current: 21 renamed, 22 deleted, 23 added.
+function listFixture(afterOthers) {
+  return fixture({
+    updateName: LIST_KEY, recordId: SET_ID, recordClass: 'sys_choice_set',
+    versions: [listVersion(13, 'current', 'sys_update_set', [[21, 'Tiny'], [23, 'Huge']]), listVersion(11, 'history', 'sys_upgrade_history', [[21, 'Small'], [22, 'Medium']])],
+    others: { sys_choice: [choiceRow(21, 'Tiny'), choiceRow(23, 'Huge')] },
+    after: (rows, live) => ({ rows: [listVersion(14, 'current', 'sys_update_set', [[21, 'Small'], [22, 'Medium']], { reverted_from: id(11) }), ...rows.filter(row => row.state !== 'current')], live, others: { sys_choice: afterOthers } }),
+  });
+}
+
+test('revert refuses a single choice before any request and points to its choice list', async () => {
+  const f = fixture();
+  await assert.rejects(f.run({ table: 'sys_choice' }), /revert the list instead: jsn records revert sys_choice_set/);
+  assert.deepEqual([f.reads, f.scripts], [[], []]);
+});
+
+test('a choice list revert checks every choice it touches in one bounded read', async () => {
+  const f = listFixture([choiceRow(21, 'Small'), choiceRow(22, 'Medium')]);
+  await f.run({ table: 'sys_choice_set', identifier: SET_ID });
+  const choiceRead = f.reads.filter(r => r.table === 'sys_choice');
+  assert.deepEqual(choiceRead.map(r => [r.sysparm_query, r.sysparm_fields, r.sysparm_limit]), [[`sys_idIN${id(21)},${id(22)},${id(23)}`, 'sys_id,label', '3']]);
+  assert.deepEqual(f.data.changes.map(change => [change.sys_id, change.status]), [[id(21), 'changed'], [id(22), 'added'], [id(23), 'removed']]);
+  assert.equal(f.data.reverted, true);
+});
+
+test('a choice list revert never reports success while a choice is not back as the version holds it', async () => {
+  for (const [after, message] of [
+    [[choiceRow(21, 'Tiny'), choiceRow(22, 'Medium')], new RegExp(`sys_choice ${id(21)} still differs in: label`)],
+    [[choiceRow(21, 'Small')], new RegExp(`sys_choice ${id(22)} could not be read`)],
+    [[choiceRow(21, 'Small'), choiceRow(22, 'Medium'), choiceRow(23, 'Huge')], new RegExp(`sys_choice ${id(23)} is still there`)],
+  ]) {
+    const f = listFixture(after);
+    await assert.rejects(f.run({ table: 'sys_choice_set', identifier: SET_ID }), message);
+    assert.equal(f.data, undefined);
+  }
+});
+
+test('revert refuses before the script when the version holds a row jsn cannot read back', async () => {
+  for (const bad of [choices([[21, 'Small']]).replace(`<sys_id>${id(21)}`, '<sys_id>not-an-id'), choices([[21, 'Small']]).replaceAll('sys_choice action', 'bad:table action').replace('</sys_choice></sys_choice_set></record', '</bad:table></sys_choice_set></record')]) {
+    const f = fixture({ updateName: LIST_KEY, recordId: SET_ID, recordClass: 'sys_choice_set',
+      versions: [listVersion(13, 'current', 'sys_update_set', [[21, 'Tiny']]), listVersion(11, 'history', 'sys_upgrade_history', [], { payload: bad })] });
+    await assert.rejects(f.run({ table: 'sys_choice_set', identifier: SET_ID }), /cannot read back/);
+    assert.deepEqual(f.scripts, []);
+  }
 });
 
 test('revert holds a verified capture context to the record\'s own scope', async () => {

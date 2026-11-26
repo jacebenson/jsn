@@ -280,9 +280,13 @@ jsn records revert sys_script_include <sys_id> --version <sys_update_version sys
 - A global background script checks admin, the target's name, and that the
   current version is still the one previewed, then calls
   `GlideappUpdateVersion.revert`. Success is reported only when the new current
-  version is `reverted_from` the target and the live record's changed fields
-  read back with the target's values. The output names the version before the
-  revert, so the revert can itself be reverted.
+  version is `reverted_from` the target and every row it touches reads back as
+  the target holds it. The output names the version before the revert, so the
+  revert can itself be reverted.
+- A choice list reverts as one file through its `sys_choice_set` record: each
+  choice comes back, and choices added since are gone. A single `sys_choice` is
+  refused. An ACL's roles are files of their own (`sys_security_acl_role`), so
+  reverting the ACL leaves them as they are.
 
 ## Records engine compatibility contract
 
