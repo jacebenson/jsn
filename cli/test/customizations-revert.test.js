@@ -36,14 +36,14 @@ function filter(rows, query) {
 }
 
 function fixture({ apps = [{ sys_id: APP, scope: 'sn_demo', name: 'Demo', sys_class_name: 'sys_store_app' }], updates = [si(1), si(1), si(2), si(3), si(4), si(5), si(6)].map(update),
-  metadata = [meta(1), meta(2), meta(3), meta(4), meta(6)], fail = [], ui = {}, cursor = true } = {}) {
+  metadata = [meta(1), meta(2), meta(3), meta(4), meta(6)], fail = [], ui = {}, cursor = true, stray = [], versions: start = VERSIONS(), brokenVersions = false } = {}) {
   const commands = [];
   const builder = { command(c) { commands.push(c); return this; }, epilogue() { return this; } };
   customizationsCmd(fn => fn, { canUsePicker: () => false, confirm: async () => { throw new Error('unexpected prompt'); }, ...ui }).builder(builder);
   const handler = commands.find(c => c.command === 'revert').handler;
   const reads = [];
   const scripts = [];
-  let versions = VERSIONS();
+  let versions = start;
   const live = Object.fromEntries([1, 2, 3, 4, 6].map(n => [id(n), { sys_id: id(n), name: `Util${n}`, script: n === 4 || n === 6 ? `base ${n}` : `custom ${n}` }]));
   const outputs = [];
   const read = async (table, params) => {
@@ -51,8 +51,8 @@ function fixture({ apps = [{ sys_id: APP, scope: 'sn_demo', name: 'Demo', sys_cl
     reads.push({ table, query, fields: params.get('sysparm_fields'), limit: params.get('sysparm_limit') });
     if (table === 'sys_scope') return apps;
     if (table === 'sys_update_xml') { const after = query.match(/\^name>([^^]+)/)?.[1]; return updates.filter(row => !cursor || after === undefined || row.name > after).slice(0, Number(params.get('sysparm_limit'))); }
-    if (table === 'sys_metadata') return metadata.filter(row => query.slice(17).split(',').includes(row.sys_update_name));
-    if (table === 'sys_update_version') return filter(versions, query).slice(0, Number(params.get('sysparm_limit')));
+    if (table === 'sys_metadata') return [...metadata.filter(row => query.slice(17).split(',').includes(row.sys_update_name)), ...stray];
+    if (table === 'sys_update_version') return brokenVersions ? ['x'] : filter(versions, query).slice(0, Number(params.get('sysparm_limit')));
     const ids = query.replace(/^sys_id(IN|=)/, '').split(',');
     return ids.filter(sysId => live[sysId]).map(sysId => ({ ...live[sysId], sys_update_name: `sys_script_include_${sysId}`, sys_class_name: 'sys_script_include' }));
   };
@@ -97,6 +97,7 @@ test('customizations revert refuses an application built on the instance, or a s
     [[], /No application has the scope sn_demo/],
     [[{ sys_id: APP, scope: 'sn_demo', sys_class_name: 'sys_store_app' }, { sys_id: id(903), scope: 'sn_demo', sys_class_name: 'sys_store_app' }], /More than one application/],
     [[{ sys_id: APP, scope: 'sn_other', sys_class_name: 'sys_store_app' }], /other than sn_demo/],
+    [[{ sys_id: 'not-a-sys-id', scope: 'sn_demo', sys_class_name: 'sys_store_app' }], /no readable sys_id/],
   ]) {
     const f = fixture({ apps });
     await assert.rejects(f.run(), message);
@@ -155,6 +156,12 @@ test('customizations revert refuses a token that does not match the files now, w
     await assert.rejects(f.run({ confirm }), /changed since the preview, or the token does not match; nothing was reverted/);
     assert.deepEqual(f.scripts, []);
   }
+  // A file edited again after the preview has another current version, so the preview's token no longer matches.
+  const preview = fixture();
+  await preview.run();
+  const edited = fixture({ versions: VERSIONS().map(row => row.sys_id === id(12) ? { ...row, sys_id: id(13), sys_recorded_at: '13' } : row) });
+  await assert.rejects(edited.run({ confirm: preview.data.confirmation_token }), /changed since the preview/);
+  assert.deepEqual(edited.scripts, []);
 });
 
 test('customizations revert reports a failed file, carries on with the rest and exits nonzero', async () => {
@@ -195,6 +202,22 @@ test('customizations revert refuses a file now in another scope and never trusts
     const f = fixture(options);
     await assert.rejects(f.run(), message);
     assert.deepEqual(f.scripts, []);
+  }
+});
+
+test('customizations revert refuses an unsafe or doubled update name and stops on a response it cannot trust', async () => {
+  const f = fixture({ updates: [si(1), 'sys_x^ORname!=y', si(2)].map(update), metadata: [meta(1), { ...meta(1), sys_id: id(7) }, meta(2)] });
+  await f.run();
+  assert.deepEqual(f.data.refused.map(row => [row.update_name, row.reason]), [['sys_x^ORname!=y', 'The update name holds characters jsn will not put into a query.'], [si(1), 'More than one record has this update name.']]);
+  assert.deepEqual(f.data.plans.map(plan => plan.update_name), [si(2)]);
+  assert.equal(f.reads.find(r => r.table === 'sys_metadata').query, `sys_update_nameIN${si(1)},${si(2)}`);
+  for (const [options, message] of [
+    [{ stray: [meta(7)] }, /did not ask for/],
+    [{ brokenVersions: true }, /Malformed table response for sys_update_version/],
+  ]) {
+    const g = fixture(options);
+    await assert.rejects(g.run(), message);
+    assert.deepEqual(g.scripts, []);
   }
 });
 
