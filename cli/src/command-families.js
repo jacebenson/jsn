@@ -238,7 +238,7 @@ const deferredFamilies = {
     capabilities: {
       queryTable: "sys_user",
       mutationContext: "operational",
-      mutationSubcommands: ["create", "update", "delete"],
+      mutationSubcommands: ["create", "update", "delete", "unlock"],
     },
     module: "./commands/users.js", exportName: "usersCmd",
   },

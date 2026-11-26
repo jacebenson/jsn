@@ -1,5 +1,5 @@
-import { errUsage } from './errors.js';
-import { assertSafeExactMatch } from './helpers.js';
+import { errAPI, errUsage, errUsageHint } from './errors.js';
+import { assertSafeExactMatch, quoteShellArg } from './helpers.js';
 import { resolveRecord, unwrapSysId } from './resolve-record.js';
 
 const FLAGS = ['active', 'locked_out', 'password_needs_reset', 'failed_attempts', 'last_login_time', 'web_service_access_only', 'internal_integration_user'];
@@ -19,16 +19,17 @@ const NOT_CHECKED = ['password', 'SSO', 'MFA', 'IP access rules'];
 const HEADS = { blocked: 'cannot sign in', web_services_only: 'can sign in to web services only, not the UI',
   new_password_required: 'must set a new password at the next UI sign-in; API calls are refused until then' };
 
-export async function explainUserAccess(sdk, identifier, { limit = 10 } = {}) {
-  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw errUsage('--limit must be an integer from 1 to 100.');
+async function readUser(sdk, identifier) {
   const record = await resolveRecord(sdk, { table: 'sys_user', identifier, matchField: 'user_name', resource: 'User', fields: ['user_name', 'name', ...FLAGS] });
   const missing = FLAGS.filter(f => record[f] === undefined);
   // A flag the reply leaves out is unknown, never "not set".
   if (missing.length) throw malformed('sys_user', `no ${missing.join(', ')} in the reply`);
+  if (!unwrapSysId(record)) throw malformed('sys_user', 'no sys_id in the reply');
   const fields = Object.fromEntries(FLAGS.map(f => [f, raw(record[f])]));
-  const userName = raw(record.user_name);
-  // An empty name would join every login.failed row with a blank parm1 to this user.
-  if (!userName || !unwrapSysId(record)) throw malformed('sys_user', 'no user_name or sys_id in the reply');
+  return { user: { sys_id: unwrapSysId(record), user_name: raw(record.user_name), name: raw(record.name) }, fields };
+}
+
+function assess(fields) {
   const findings = CHECKS.filter(([f, value]) => fields[f] === value).map(([field, , effect, label, message]) => ({ field, effect, label, message }));
   const attempts = Number(fields.failed_attempts) || 0;
   if (attempts > 0 && fields.locked_out !== 'true') {
@@ -36,7 +37,16 @@ export async function explainUserAccess(sdk, identifier, { limit = 10 } = {}) {
   }
   const effects = new Set(findings.map(f => f.effect));
   const ui = !effects.has('blocks') && !effects.has('blocks_ui'), api = !effects.has('blocks') && !effects.has('blocks_api');
-  const sign_in = ui && api ? 'not_blocked' : ui ? 'new_password_required' : api ? 'web_services_only' : 'blocked';
+  return { sign_in: ui && api ? 'not_blocked' : ui ? 'new_password_required' : api ? 'web_services_only' : 'blocked', findings };
+}
+
+export async function explainUserAccess(sdk, identifier, { limit = 10 } = {}) {
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw errUsage('--limit must be an integer from 1 to 100.');
+  const { user, fields } = await readUser(sdk, identifier);
+  const userName = user.user_name;
+  // An empty name would join every login.failed row with a blank parm1 to this user.
+  if (!userName) throw malformed('sys_user', 'no user_name in the reply');
+  const { sign_in, findings } = assess(fields);
   // login.failed rows carry the name as typed in parm1 and no user sys_id, so the name is the only join.
   assertSafeExactMatch(userName);
   const rows = await sdk.listStrict('sysevent', new URLSearchParams({ sysparm_query: `name=login.failed^parm1=${userName}^ORDERBYDESCsys_created_on`,
@@ -45,9 +55,41 @@ export async function explainUserAccess(sdk, identifier, { limit = 10 } = {}) {
     throw malformed('sysevent', 'a row is not a login.failed event for this user');
   }
   const records = rows.slice(0, limit).map(row => ({ created: raw(row.sys_created_on), source: raw(row.parm2), sys_id: unwrapSysId(row) }));
-  return { user: { sys_id: unwrapSysId(record), user_name: userName, name: raw(record.name) }, sign_in, findings, fields, not_checked: NOT_CHECKED,
+  return { user, sign_in, findings, fields, not_checked: NOT_CHECKED,
     login_failures: { table: 'sysevent', event: 'login.failed', count: records.length, records, pagination: { limit, has_more: rows.length > limit },
       coverage: 'retained_visible_rows_only', visibility: "Event rows rotate out after a few days, a locked-out user's attempts write none, and row ACLs can hide rows, so an empty list does not prove there were no failures." } };
+}
+
+// password_needs_reset is left alone: an admin may have forced it, and the result below says it is still pending.
+const UNLOCK = { locked_out: 'false', failed_attempts: '0' };
+
+export async function unlockUser(sdk, identifier, { yes = false } = {}) {
+  const before = await readUser(sdk, identifier);
+  const who = before.user.user_name || before.user.sys_id;
+  if (before.fields.locked_out !== 'true') throw errUsageHint(`${who} is not locked out, so there is nothing to unlock.`, `jsn users access ${quoteShellArg(who)} says what else stops sign-in.`);
+  const change = Object.fromEntries(Object.entries(UNLOCK).map(([f, to]) => [f, { from: before.fields[f], to }]));
+  if (!yes) return { user: before.user, change, dry_run: true, rerun: ['users', 'unlock', who, '--yes'] };
+  await sdk.update('sys_user', before.user.sys_id, UNLOCK);
+  const after = await readUser(sdk, before.user.sys_id);
+  if (after.user.sys_id !== before.user.sys_id) throw malformed('sys_user', 'the read-back returned another user');
+  const left = Object.keys(UNLOCK).filter(f => after.fields[f] !== UNLOCK[f]);
+  if (left.length) throw errAPI(200, `Unlock of ${who} not confirmed: after the write, ${left.map(f => `${f} is ${after.fields[f] || 'empty'}`).join(', ')}. Run jsn users access ${quoteShellArg(who)} before retrying.`);
+  return { user: after.user, change, dry_run: false, unlocked: true, fields: after.fields, ...assess(after.fields) };
+}
+
+export function formatUserUnlock(data) {
+  const who = `${data.user.user_name || data.user.sys_id}${data.user.name ? ` (${data.user.name})` : ''}`;
+  const changes = Object.entries(data.change).map(([f, c]) => `  ${f.padEnd(20)} ${c.from || '-'} -> ${c.to}`);
+  if (data.dry_run) return [`Would unlock ${who}:`, ...changes, '', `Run: ${data.rerun}`].join('\n');
+  const rest = data.sign_in === 'not_blocked' ? [] : [`Still ${HEADS[data.sign_in]}:`, ...data.findings.filter(f => f.effect !== 'info').map(f => `  ${f.message}`)];
+  return [`Unlocked ${who}.`, ...changes, ...(rest.length ? ['', ...rest] : [])].join('\n');
+}
+
+export function userUnlockSummary(data) {
+  const who = data.user.user_name || data.user.sys_id;
+  if (data.dry_run) return `Dry run: would unlock ${who}; nothing written`;
+  const blocks = data.findings.filter(f => f.effect !== 'info').map(f => f.label);
+  return blocks.length ? `Unlocked ${who}; still blocked: ${blocks.join(', ')}` : `Unlocked ${who}`;
 }
 
 export function userAccessSummary(data) {

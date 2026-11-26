@@ -1,8 +1,8 @@
-import { formatRecordForDisplay, getStringField, interactiveList, resolveFieldsParam, buildRecordPayload, quoteShellArg } from '../helpers.js';
+import { formatRecordForDisplay, getStringField, interactiveList, resolveFieldsParam, buildRecordPayload, quoteShellArg, buildRerunCommand } from '../helpers.js';
 import { deferredFamilyDefinition } from '../command-families.js';
 import { resolveRecord, resolveSysId } from '../resolve-record.js';
 import { listUserRoles, explainUserRoles, formatUserRoleWhy } from '../user-roles.js';
-import { explainUserAccess, formatUserAccess, userAccessSummary } from '../user-access.js';
+import { explainUserAccess, formatUserAccess, userAccessSummary, unlockUser, formatUserUnlock, userUnlockSummary } from '../user-access.js';
 import { errUsage } from '../errors.js';
 
 export function usersCmd(wrap) {
@@ -101,6 +101,19 @@ export function usersCmd(wrap) {
           }),
         })
         .command({
+          command: 'unlock <identifier>',
+          describe: 'Unlock a locked-out user: clear locked_out and zero failed_attempts; previews without --yes',
+          builder: (y) => y.strict().option('yes', { type: 'boolean', default: false, describe: 'Write the change; without it, show what would change' })
+            .epilogue('Refuses a user who is not locked out, and leaves password_needs_reset as it is. After the write it reads the user back and exits nonzero unless both fields changed.'),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const data = await unlockUser(app.sdk, argv.identifier, { yes: argv.yes });
+            if (data.rerun) data.rerun = buildRerunCommand(argv, { rerun: data.rerun });
+            Object.defineProperty(data, '_formatted', { value: formatUserUnlock(data), enumerable: false });
+            app.ok(data, { summary: userUnlockSummary(data) });
+          }),
+        })
+        .command({
           command: 'create',
           describe: 'Create a new user',
           builder: (y) => y
@@ -170,6 +183,7 @@ export function usersCmd(wrap) {
       console.log('  show <name or sys_id>  Show a user by user_name or sys_id');
       console.log('  roles <identifier>    List a user\'s roles; --why shows how each is granted');
       console.log('  access <identifier>   Explain why a user cannot sign in');
+      console.log('  unlock <identifier>   Unlock a locked-out user (preview by default)');
       console.log('  create                Create a new user');
       console.log('  update <identifier>   Update a user');
       console.log('  delete <identifier>   Delete a user');

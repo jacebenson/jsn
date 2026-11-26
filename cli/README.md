@@ -51,6 +51,8 @@ denied or malformed reply is an error, never an empty answer.
 jsn users access <user>
 jsn users access <user> --limit 50 --json
 jsn users access <user> --get data.sign_in
+jsn users unlock <user>          # preview
+jsn users unlock <user> --yes
 ```
 
 `users access` reads the user's `active`, `locked_out`, `password_needs_reset`,
@@ -61,6 +63,11 @@ Event rows rotate out after a few days, and a locked-out user's attempts write
 none, so an empty list proves nothing. A password reset on its own lets the UI
 ask for a new password and refuses API calls. The password, SSO, MFA and IP
 rules are not checked. Read-only.
+
+`users unlock` refuses a user who is not locked out. With `--yes` it sets
+`locked_out` to false and `failed_attempts` to 0, reads the user back, and exits
+nonzero unless both changed. It leaves `password_needs_reset` alone, since an
+admin may have forced it, and then says what still blocks.
 
 ## Record version history
 
