@@ -217,13 +217,19 @@
     "deleted": {
       "why": "records deleted reads Deleted Records and joins each entry to its own table and its delete recovery by raw sys_id; list reads one table's rows and cannot say whether a deleted record is back."
     },
+    "backlog": {
+      "why": "events backlog answers which ready events are overdue versus scheduled and which sys_trigger job drains each queue; list returns rows without queue/state counts or processor next actions, and aggregate counts groups but cannot say which ready event has a passed process_on."
+    },
+    "reprocess": {
+      "why": "events reprocess queues a copy of a recorded event again through the platform's own UI action script; update would write a payload the caller supplies to the existing row, and create would invent a new event instead of replaying the recorded one."
+    },
     "revert": {
       "why": "records revert puts a record back to a saved sys_update_version through the platform's Revert to this version; update writes a payload the caller supplies, rollback undoes one eval run's own changes, and undelete restores a deleted copy."
     }
   },
   "budgets": {
     "$comment": "Subcommand count per family. A budget is a ratchet, not a ban: when a new command earns its place, raise the number in the same diff and say why in the PR. Adding a family means adding its budget entry.",
-    "total": 431,
+    "total": 435,
     "families": {
       "access-analyzer": 3,
       "acls": 5,
@@ -256,6 +262,7 @@
       "document": 1,
       "domains": 8,
       "email": 5,
+      "events": 4,
       "eval": 1,
       "flows": 17,
       "forms": 2,

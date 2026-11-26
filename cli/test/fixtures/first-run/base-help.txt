@@ -16,9 +16,9 @@ COMMON COMMANDS
 ALL COMMANDS BY GROUP
 jsn --all-commands --help for details
   CORE             knowledge incidents changes requests tasks tickets approvals
-  AUTOMATION       flows actions scriptactions scheduledjobs triggers asyncrules
-                   rules decisiontables assignments scrapi email notifications
-                   restmessage soapmessages
+  AUTOMATION       flows actions scriptactions scheduledjobs triggers events
+                   asyncrules rules decisiontables assignments scrapi email
+                   notifications restmessage soapmessages
   ACCESS           access-analyzer acls b4rules roles privileges aliases groups
                    groupmembers grouproles users
   USER EXPERIENCE  forms lists clientscripts uipolicies uiactions views

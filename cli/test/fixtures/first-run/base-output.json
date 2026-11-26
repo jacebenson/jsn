@@ -1,22 +1,22 @@
 {
-  "commit": "c05f58455efc413f8adb5f1507f9155cadbd7b99 + notifications registration",
-  "note": "Regenerated from actual CLI after read-only notifications registration in the AUTOMATION Outbound group; the help byte cap rose by the 8 bytes this needed (1976 + 908).",
+  "commit": "ec41bed + events registration",
+  "note": "Regenerated from actual CLI after the read-only events family was added to the AUTOMATION group; the help byte cap rose by the 7 bytes this needed (1976 + 915).",
   "command": "piped (non-TTY) invocation from cli/, JSN_NO_VERSION_CHECK=1 JSN_NO_SKILL_CHECK=1, throwaway XDG_CONFIG_HOME",
   "bytes": {
-    "help": 2884,
-    "json": 74521,
-    "quiet": 2884,
-    "csv": 2884,
-    "markdown": 2884,
-    "get": 2884
+    "help": 2891,
+    "json": 79135,
+    "quiet": 2891,
+    "csv": 2891,
+    "markdown": 2891,
+    "get": 2891
   },
   "sha256": {
-    "help": "307cb57c10e1fb405c83165b4d8941378f1ac9740dc43458cc0e534b665cac7c",
-    "json": "aa93a437990d5a7af7177cb6d8331d17cee46bd2d7c0bc1316faf18b9a291008",
-    "quiet": "307cb57c10e1fb405c83165b4d8941378f1ac9740dc43458cc0e534b665cac7c",
-    "csv": "307cb57c10e1fb405c83165b4d8941378f1ac9740dc43458cc0e534b665cac7c",
-    "markdown": "307cb57c10e1fb405c83165b4d8941378f1ac9740dc43458cc0e534b665cac7c",
-    "get": "307cb57c10e1fb405c83165b4d8941378f1ac9740dc43458cc0e534b665cac7c"
+    "help": "434fec22aa65b9f7d20442eb125bf2127327c604a53c9ea80fa11e2398b1a6e7",
+    "json": "783a3aefe105d1067b999257e930e00e40c8e0912833cf6fb7e2cce9b7252038",
+    "quiet": "434fec22aa65b9f7d20442eb125bf2127327c604a53c9ea80fa11e2398b1a6e7",
+    "csv": "434fec22aa65b9f7d20442eb125bf2127327c604a53c9ea80fa11e2398b1a6e7",
+    "markdown": "434fec22aa65b9f7d20442eb125bf2127327c604a53c9ea80fa11e2398b1a6e7",
+    "get": "434fec22aa65b9f7d20442eb125bf2127327c604a53c9ea80fa11e2398b1a6e7"
   },
-  "json_command_count": 91
+  "json_command_count": 92
 }
