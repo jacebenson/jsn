@@ -29,6 +29,25 @@ jsn auth modify <profile>
 
 [Read the full authentication feature](/features/servicenow-cli-auth-setup/).
 
+## Headless or locked keyring
+
+Setup and login probe credential storage *before* the first question: they write a throwaway probe value, read it back, and delete it. A binary that is installed but cannot reach an unlocked keyring fails that probe, so a server with no D-Bus session no longer accepts a full set of answers and then refuses to store the credential.
+
+When the probe fails, an interactive run asks one question instead:
+
+- **Install / start the keyring now** — runs the package-manager line for the detected distribution (`apt-get`, `dnf`, `pacman`, `apk`) with your own terminal, then re-checks. Installing does not create a session keyring; a headless host usually still needs one unlocked.
+- **Store credentials in plaintext for this profile** — enables `JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE` for the run, then offers to add the export line to your shell profile behind a removable marker. This is the documented explicit opt-in, not a silent fallback; `jsn auth status` reports the storage mode.
+- **Cancel** — nothing is stored and no instance is contacted.
+
+Non-interactive runs (`--json`, CI, agents) never prompt. They exit before authenticating with the repair command and the plaintext alternative in the error's hint:
+
+```
+Error (auth): Secure credential storage is not usable on this host, so the credential could not be stored.
+Hint: Repair: sudo apt-get install -y libsecret-tools gnome-keyring Plaintext alternative ...
+```
+
+`--print-url` without `--wait-file` only prints the authorization URL, so it is never blocked by storage.
+
 ## Authentication lifecycle review
 
 This document records the issue #209 auth lifecycle contract. It describes the current implementation and the boundaries that regression tests must preserve.

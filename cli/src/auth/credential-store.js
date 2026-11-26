@@ -39,7 +39,9 @@ const KEYRING_ATTR_SERVICE = 'service';
 const KEYRING_ATTR_USERNAME = 'username';
 
 // Only this process environment can authorize portable plaintext storage.
-const PLAINTEXT_ENV = 'JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE';
+export const PLAINTEXT_ENV = 'JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE';
+// A probe must never hang a login behind a wedged keyring daemon.
+const PROBE_TIMEOUT_MS = 5000;
 function plaintextAllowed() { return process.env[PLAINTEXT_ENV] === '1'; }
 function storageError(message, classification = 'secure_storage_unavailable') {
   const safe = STORAGE_CLASSIFICATIONS.includes(classification) ? classification : 'secure_storage_unavailable';
@@ -188,6 +190,101 @@ export function removePrivateState(kind, key) {
 }
 
 // ─── Keyring via secret-tool (libsecret, same backend as Go's go-keyring) ───
+
+/**
+ * Preflight: can this process store a credential right now?
+ *
+ * Setup and login used to collect six answers and finish the network login
+ * before discovering that a headless host has no reachable keyring. The probe
+ * runs a real store/readback/clear round trip on a throwaway key, so "looks
+ * installed" is never mistaken for "works in this session" (a locked keyring
+ * and a missing D-Bus session both pass a binary-existence check).
+ *
+ * @param {{platform?: string}} [options]
+ * @returns {{available: boolean, platform: string, reason?: string,
+ *   plaintext_allowed: boolean, repair?: object}}
+ */
+export function credentialStorageStatus({ platform = process.platform } = {}) {
+  const plaintext_allowed = plaintextAllowed();
+  const key = `jsn-storage-probe-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
+  // The probe payload is the shape the store actually writes, so a stand-in
+  // store that parses JSON behaves exactly like the real one.
+  const payload = JSON.stringify({ probe: `probe-${crypto.randomBytes(8).toString('hex')}` });
+  const result = (available, reason) => ({ available, platform, reason, plaintext_allowed, repair: available ? null : storageRepair(platform, reason) });
+  // An explicit plaintext opt-in already answers "where does this go"; the
+  // keyring is then optional, not required.
+  if (plaintext_allowed) return { ...result(true, 'plaintext_storage_allowed'), mode: 'plaintext' };
+
+  if (platform === 'win32') {
+    try {
+      windowsCredentialOperation('write', key, payload);
+    } catch (error) {
+      return result(false, 'windows_credential_manager_unavailable', error);
+    }
+    try {
+      if (windowsCredentialOperation('read', key) !== payload) return result(false, 'windows_readback_failed');
+      return result(true);
+    } catch {
+      return result(false, 'windows_readback_failed');
+    } finally {
+      try { windowsCredentialOperation('delete', key); } catch { /* best effort */ }
+    }
+  }
+
+  try {
+    execFileSync('secret-tool',
+      ['store', `--label=JSN storage probe on '${KEYRING_SERVICE}'`,
+        KEYRING_ATTR_SERVICE, KEYRING_SERVICE, KEYRING_ATTR_USERNAME, key],
+      { stdio: ['pipe', 'ignore', 'pipe'], input: payload, timeout: PROBE_TIMEOUT_MS });
+  } catch (error) {
+    return result(false, error.code === 'ENOENT' ? 'secret_tool_missing' : 'keyring_unavailable');
+  }
+  try {
+    const readback = execFileSync('secret-tool',
+      ['lookup', KEYRING_ATTR_SERVICE, KEYRING_SERVICE, KEYRING_ATTR_USERNAME, key],
+      { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8', timeout: PROBE_TIMEOUT_MS });
+    return readback.trim() === payload ? result(true) : result(false, 'keyring_readback_mismatch');
+  } catch {
+    return result(false, 'keyring_readback_failed');
+  } finally {
+    try {
+      execFileSync('secret-tool', ['clear', KEYRING_ATTR_SERVICE, KEYRING_SERVICE, KEYRING_ATTR_USERNAME, key], { stdio: 'ignore', timeout: PROBE_TIMEOUT_MS });
+    } catch { /* best effort */ }
+  }
+}
+
+/** The exact commands and caveats for repairing an unusable credential store. */
+export function storageRepair(platform = process.platform, reason = '') {
+  if (platform === 'win32') {
+    return {
+      install: null,
+      notes: ['Windows Credential Manager needs Windows PowerShell 5.1 or PowerShell 7+ with FullLanguage/Add-Type and native API access allowed by policy.',
+        `If a policy blocks it, set ${PLAINTEXT_ENV}=1 for the session that runs jsn.`],
+    };
+  }
+  const distro = linuxDistribution();
+  const install = {
+    'debian': 'sudo apt-get install -y libsecret-tools gnome-keyring',
+    'fedora': 'sudo dnf install -y libsecret gnome-keyring',
+    'arch': 'sudo pacman -S --needed libsecret gnome-keyring',
+    'alpine': 'sudo apk add libsecret gnome-keyring',
+  }[distro] || 'install libsecret (the secret-tool binary) with your package manager';
+  const notes = [];
+  if (reason === 'secret_tool_missing') notes.push('secret-tool is not on PATH.');
+  else notes.push('secret-tool is installed but the keyring did not accept a write in this session (no D-Bus session, or the keyring is locked).');
+  if (platform === 'darwin') notes.push('macOS Keychain support is not implemented yet (issue #571); this build shells out to secret-tool.');
+  notes.push('A headless host usually has no unlocked keyring: run jsn inside a session that can unlock one, or opt into plaintext storage for this profile.');
+  return { install, notes, distro };
+}
+
+function linuxDistribution() {
+  try {
+    const text = fs.readFileSync('/etc/os-release', 'utf8');
+    const ids = [text.match(/^ID="?([^"\n]+)"?/m)?.[1], text.match(/^ID_LIKE="?([^"\n]+)"?/m)?.[1]].filter(Boolean).join(' ').toLowerCase();
+    for (const name of ['debian', 'fedora', 'arch', 'alpine']) if (ids.includes(name)) return name;
+  } catch { /* not a Linux host we can identify */ }
+  return null;
+}
 
 /**
  * Preserve lazy legacy fallback: an unreadable legacy identity must not mask a

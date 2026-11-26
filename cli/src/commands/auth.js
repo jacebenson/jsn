@@ -7,6 +7,8 @@ import { canUsePicker, formatCommandList, quoteShellArg } from '../helpers.js';
 import process from 'node:process';
 import { readFile } from 'node:fs/promises';
 import { refreshSession } from '../session.js';
+import { ensureCredentialStorage } from '../auth/credential-storage-setup.js';
+import { assertCredentialTransport } from '../auth/transport.js';
 
 function syncSession(app) {
   if (typeof app._buildSdk === 'function' && typeof app.loadContext === 'function') refreshSession(app);
@@ -325,6 +327,10 @@ async function readBrowserSessionFile(file) {
 
 /** Collect human answers, then call the same login operation as auth login. */
 export async function loginWizard(app, argv = {}, { concise = false } = {}) {
+  // Before the first question: a host without a usable keyring used to accept
+  // every answer, complete the network login, and only then refuse to store
+  // the credential.
+  await ensureCredentialStorage(app, argv);
   const { input, select, confirm, password } = await import('../prompts.js');
   const explicitInstance = resolveWizardInstance(app, argv);
   const instance = resolveInstanceArg(explicitInstance || await input({
@@ -344,7 +350,7 @@ export async function loginWizard(app, argv = {}, { concise = false } = {}) {
       { name: 'Basic — username and password', value: 'basic' },
     ],
   });
-  const request = { ...argv, profile: undefined, instance, name: name.trim() };
+  const request = { ...argv, profile: undefined, instance, name: name.trim(), _storageChecked: true };
   if (method === 'browser') request.browser = true;
   if (method === 'oauth') request.oauth = true;
   const settings = await chooseConnectionPreferences(app.config, profileSettingValues(argv), { confirm });
@@ -672,6 +678,15 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
   if (!targetProfile && argv.makeDefault === undefined && interactive && !preliminary) {
     const { confirm } = await import('../prompts.js');
     setDefault = await confirm({ message: 'Use this profile by default?', default: !app.config.defaultProfile });
+  }
+  // Non-interactive logins fail here — after cheap argument and destination
+  // validation, before any network authentication, and only when the run will
+  // actually store a credential — so the host's storage limits surface first.
+  if (!argv._storageChecked && !preliminary) {
+    // Transport policy first (process-level, no network), then storage: both
+    // must hold before a credential is sent anywhere.
+    assertCredentialTransport(instanceURL);
+    await ensureCredentialStorage(app, argv);
   }
   // --basic (with --password as a compatibility alias): authenticate
   // with basic auth from env vars and persist it for this profile.
