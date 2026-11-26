@@ -31,7 +31,7 @@ jsn auth modify <profile>
 
 ## Headless or locked keyring
 
-Setup and login probe credential storage *before* the first question: they write a throwaway probe value, read it back, and delete it. A binary that is installed but cannot reach an unlocked keyring fails that probe, so a server with no D-Bus session no longer accepts a full set of answers and then refuses to store the credential.
+Credential storage is the OS keyring: Windows Credential Manager, the macOS login Keychain through `/usr/bin/security`, and libsecret (`secret-tool`) on Linux. Setup and login probe it *before* the first question: they write a throwaway probe value, read it back, and delete it. A binary that is installed but cannot reach an unlocked keyring fails that probe, so a server with no D-Bus session no longer accepts a full set of answers and then refuses to store the credential.
 
 When the probe fails, an interactive run asks one question instead:
 
