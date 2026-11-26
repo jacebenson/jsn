@@ -71,6 +71,15 @@ runs the platform's Revert to this version in a background script after a
 confirmation that names the fields it changes, then reads back the new current
 version and the live record. Records created on the instance have no base.
 
+```sh
+jsn customizations revert --app sn_hr_core
+jsn customizations revert --app sn_hr_core --confirm <token>
+```
+
+`customizations revert` does the same for every customised file of a Store or
+repository application, 100 files a run, after a preview and its token. Files
+added on the instance are listed, never deleted.
+
 ## Saved Access Analyzer evidence
 
 ```sh

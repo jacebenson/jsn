@@ -1,12 +1,15 @@
 import { customizationsCmdDefinition } from '../command-families.js';
-import { errUsageHint, errUsage } from '../errors.js';
+import { AppError, errUsageHint, errUsage } from '../errors.js';
 import { canUsePicker } from '../helpers.js';
+import { confirm } from '../prompts.js';
+import { assertMutationScope } from '../intended-context.js';
+import { invalidateAfterMutation } from '../query-validate.js';
 import { paginatedSearch } from '../paginated-search.js';
 import { captureReport, listReports, getReport, compareReports, formatReport, formatReportList, formatReportComparison } from '../customizations.js';
 import { buildActionableReport, writeCustomizationHtml } from '../customizations-report.js';
 import { customizationGuidance, formatCustomizationGuidance } from '../customization-guidance.js';
 
-// Only capture needs an instance. Saved reports never need network access.
+// Only capture and revert need an instance. Saved reports never need network access.
 
 const listHint = { action: 'list', cmd: 'jsn customizations list', description: 'Browse saved customization captures' };
 const showHint = id => ({ action: 'show', cmd: `jsn customizations show ${id}`, description: 'Review this saved capture' });
@@ -28,7 +31,8 @@ function show(app, report, options = {}) {
   const triage = actionable.artifacts.map(({ category, category_label, identity, triage: classification }) => ({ category, category_label, identity, ...classification }));
   app.ok({ ...report, interpretation: customizationGuidance(), triage, _formatted: formatReport(report, options) }, { summary: `Customization capture ${report.run_id}: ${report.status}`, breadcrumbs: [listHint, showHint(report.run_id), compareHint(report.run_id)] });
 }
-export function customizationsCmd(wrap) {
+export function customizationsCmd(wrap, ui = {}) {
+  const prompts = { confirm, canUsePicker, ...ui };
   return {
     ...customizationsCmdDefinition,
     builder: y => y
@@ -81,7 +85,38 @@ export function customizationsCmd(wrap) {
         const result = compareReports(baseline, newer);
         app.ok({ ...result, _formatted: formatReportComparison(result) }, { summary: `Customization comparison: ${result.status}`, breadcrumbs: [listHint, showHint(baseline.run_id), showHint(newer.run_id)] });
       }) })
+      .command({ command: 'revert', describe: 'Revert a Store or repository application\'s customised files to their base system versions',
+        builder: b => b.option('app', { type: 'string', demandOption: true, describe: 'Application scope, e.g. sn_hr_core' })
+          .option('confirm', { type: 'string', describe: 'Confirmation token from the preview; without it, and without a terminal, only the preview runs' })
+          .epilogue(`Previews by default. Reverts up to 100 customised files a run, each through jsn records revert: newest base system version, readback per file. Files added on the instance are listed and never deleted; applications built on this instance are refused.\nExample: jsn customizations revert --app sn_hr_core, then the same with --confirm <token>`),
+        handler: wrap(async (argv, app) => {
+          app.requireInstance();
+          // customizations is a no-instance family, so the shared read-only guard skips it.
+          if (app.session?.readOnly === true) throw new AppError('read_only', `Profile "${app.session.profileName}" is read-only. Mutations are blocked.`);
+          const { previewAppRevert, applyAppRevert, formatAppRevertPreview, formatAppRevert } = await import('../customizations-revert.js');
+          const preview = await previewAppRevert(app.sdk, { scope: argv.app, instance: app.getEffectiveInstance() });
+          assertMutationScope(app.mutationContext, preview.application.sys_id, 'Application');
+          const shown = { ...preview, _formatted: formatAppRevertPreview(preview) };
+          if (argv.confirm !== undefined) {
+            if (argv.confirm !== preview.confirmation_token) throw errUsageHint('The customised files changed since the preview, or the token does not match; nothing was reverted.', `Review a new preview: jsn customizations revert --app ${argv.app}`);
+          } else if (!preview.plans.length || !prompts.canUsePicker(app, argv)) {
+            app.ok(shown, { summary: preview.plans.length ? `Preview: ${preview.plans.length} file(s) to revert; nothing reverted. Rerun with --confirm ${preview.confirmation_token}` : 'Nothing to revert' });
+            return;
+          } else {
+            app.ok(shown, { summary: 'Review the files before confirming' });
+            if (!await prompts.confirm({ message: `Revert ${preview.plans.length} file(s) of ${preview.application.scope} to their base system versions?`, default: false })) {
+              app.ok({ cancelled: true, writes_performed: false }, { summary: 'Cancelled. Nothing was reverted.' });
+              return;
+            }
+          }
+          let result;
+          try { result = await applyAppRevert(app.sdk, preview); } finally { for (const table of new Set(preview.plans.map(plan => plan.table))) invalidateAfterMutation(app, table); }
+          Object.defineProperty(result, '_formatted', { value: formatAppRevert(result), enumerable: false });
+          app.ok(result, { summary: `${result.success_count} reverted; ${result.failure_count} failed${result.more ? '; more customised files remain' : ''}` });
+          if (result.failure_count) process.exitCode = 1;
+        }),
+      })
       .epilogue(`${customizationGuidance().capture}\n${formatCustomizationGuidance()}\nStart: jsn customizations capture --help\nReview: jsn customizations show --help\nCompare: jsn customizations compare --help`),
-    handler: wrap(async (_argv, app) => app.ok({ command: 'customizations', subcommands: ['capture', 'list', 'show', 'html', 'compare'] }, { summary: 'Use `jsn customizations <subcommand> --help` for details.' })),
+    handler: wrap(async (_argv, app) => app.ok({ command: 'customizations', subcommands: ['capture', 'list', 'show', 'html', 'compare', 'revert'] }, { summary: 'Use `jsn customizations <subcommand> --help` for details.' })),
   };
 }

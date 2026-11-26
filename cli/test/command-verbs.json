@@ -218,7 +218,7 @@
       "why": "records deleted reads Deleted Records and joins each entry to its own table and its delete recovery by raw sys_id; list reads one table's rows and cannot say whether a deleted record is back."
     },
     "revert": {
-      "why": "records revert puts a record back to a saved sys_update_version through the platform's Revert to this version; update writes a payload the caller supplies, rollback undoes one eval run's own changes, and undelete restores a deleted copy."
+      "why": "records revert puts a record back to a saved sys_update_version through the platform's Revert to this version, and customizations revert does that for each customised file of one application; update writes a payload the caller supplies, rollback undoes one eval run's own changes, and undelete restores a deleted copy."
     }
   },
   "budgets": {
@@ -248,7 +248,7 @@
       "codesearch": 1,
       "columns": 5,
       "compare": 0,
-      "customizations": 5,
+      "customizations": 6,
       "decisiontables": 6,
       "diff": 1,
       "discover": 0,
