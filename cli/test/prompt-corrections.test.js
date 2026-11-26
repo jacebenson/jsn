@@ -8,6 +8,8 @@ import { confirm, editor, PromptCancelled } from '../src/prompts.js';
 import { paginatedSearch } from '../src/paginated-search.js';
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 25));
+// The paginated record picker debounces search-as-you-type.
+const settle = () => new Promise(resolve => setTimeout(resolve, 260));
 function terminal() {
   const input = new PassThrough();
   const output = new PassThrough();
@@ -31,7 +33,7 @@ for (const size of [2, 10]) {
     await tick();
     assert.equal(typeof release, 'function');
     io.input.write('x');
-    await tick();
+    await settle();
     release([{ name: 'obsolete', value: 'obsolete' }]);
     await tick();
     io.input.write('\r');

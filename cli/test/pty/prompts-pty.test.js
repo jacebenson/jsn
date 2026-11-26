@@ -86,7 +86,7 @@ test('PTY: Ctrl+C cancels cleanly, exits 0 and restores the terminal', { skip },
 });
 
 test('PTY: a stale slow search response never wins over the newer term', { skip }, () => {
-  const report = runPty('stale-source', [[600, 'a'], [40, 'b'], [900, ENTER]]);
+  const report = runPty('stale-source', [[600, 'a'], [300, 'b'], [900, ENTER]]);
   assertTermios(report);
   assert.equal(report.exit, 0);
   assert.equal(report.mark('picked'), 'fresh-ab');
