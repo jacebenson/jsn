@@ -8,9 +8,10 @@ import fs from 'node:fs';
 import { password as passwordPrompt } from './prompts.js';
 import { normalizeInstanceURL, isTrustedCredentialDestination } from './config.js';
 import { assertCredentialTransport } from './auth/transport.js';
-import { errAuth } from './errors.js';
+import { errAuth, errUsage } from './errors.js';
 import { pendingBrowserLogin } from './browser-auth.js';
 import { defaultCredentialStore } from './auth/credential-store.js';
+import { bitwardenCredentialStore } from './auth/bitwarden-store.js';
 import { savePKCEState, loadPKCEState, removePKCEState, getOAuthClientID, generatePKCE, buildAuthURL, REDIRECT_URI } from './auth/oauth.js';
 import { parseBrowserSessionInput } from './auth/browser-session.js';
 import { normalizeAuthMethod, normalizeAuthSource, sourceMethod, probeFailure, classifyProbeError, classifyCredentialState } from './auth/credential-state.js';
@@ -77,6 +78,18 @@ function getBasicAuthFromEnv(instance) {
 
 function askHidden(promptText) {
   return passwordPrompt({ message: promptText });
+}
+
+/**
+ * Which store a profile uses. The OS keyring is the default; `bitwarden` keeps
+ * the same secret in the vault the person already unlocks. Anything else is a
+ * configuration mistake, not a silent fallback.
+ */
+export function credentialStoreFor(profile) {
+  const choice = profile?.credential_store || 'keyring';
+  if (choice === 'keyring') return defaultCredentialStore;
+  if (choice === 'bitwarden') return bitwardenCredentialStore;
+  throw errUsage(`Unknown credential_store "${choice}". Use keyring or bitwarden.`);
 }
 
 export class AuthManager {
