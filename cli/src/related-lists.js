@@ -20,7 +20,7 @@ export function safeRelatedFilter(value = '') {
   }
   return clauses.join('^');
 }
-function parseCount(body) {
+export function parseCount(body) {
   const result = body?.result;
   const entry = Array.isArray(result) && result.length === 1 && !result[0]?.groupby_fields?.length
     ? result[0] : result;

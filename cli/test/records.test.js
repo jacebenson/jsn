@@ -32,6 +32,7 @@ describe('Records Command Structure', () => {
     const names = subcommands.map(s => s.split(' ')[0]);
     assert.ok(names.includes('inspect'));
     assert.ok(names.includes('versions'));
+    assert.ok(names.includes('references'));
   });
 
   it('uses optional [subcommand] so bare invocation shows help, not a yargs error', async () => {

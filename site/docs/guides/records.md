@@ -375,6 +375,79 @@ jsn records history sys_script_include <sys_id> --limit 5 --json
 It does not resolve reference sys_ids to names or read `sys_audit_delete`
 (see `records deleted`).
 
+## Where a record is used
+
+`jsn records references` lists every record that holds one record's sys_id, so
+you can see what breaks before deactivating, deleting or renaming it. It only
+reads. It has two modes:
+
+- `--mode data`, the default, finds data that points at the record: incidents,
+  group memberships, catalog answers.
+- `--mode system` finds configuration that points at it: assignment rules,
+  conditions, properties, templates, defaults and, with `--scripts`, script
+  fields.
+
+```bash
+jsn records references sys_user_group <sys_id> --plan
+jsn records references sys_user_group "Service Desk" --identifier-field name --limit 50
+jsn records references sys_user_group "Service Desk" --identifier-field name --mode system --scripts --json
+```
+
+- The record is resolved like `records get`. Its class and every parent class
+  are the tables a reference can point at: a `cmdb_ci` reference can hold a
+  server.
+- `sys_dictionary` gives the `reference` and `glide_list` fields that point at
+  those tables. A table is configuration when it is `sys_metadata` or extends
+  it; data mode counts the fields on other tables and system mode the fields
+  on these, plus their `document_id` fields. A child table repeats an
+  inherited field's dictionary row; only the table that defines it is counted,
+  because a count on the parent covers its children.
+- Data mode adds catalog answers (`sc_item_option`, `question_answer`,
+  `sc_multi_row_question_answer`), `sys_variable_value` (legacy workflow
+  activity variables) and user preferences.
+- System mode adds the places that hold sys_ids as text: business rule, UI
+  policy, data policy, ACL, notification, assignment, approval, SLA, report,
+  filter and decision table conditions; templates; property values; dictionary
+  and override defaults and reference qualifiers; catalog variable defaults
+  (`question`, which `item_option_new` extends); portal widget options and
+  Virtual Agent topics. `--scripts` adds script fields (business rules, script
+  includes, client scripts, UI actions, fix scripts, scheduled jobs and more).
+- Neither mode searches the record's own child items: journal entries,
+  attachments, audit, update records, approvals, translations, emails and the
+  other `document_id` fields on data tables. A task's group approvals still
+  appear, because they point at it through `task.parent`. Log and history
+  tables are left out too. Each is named under not searched.
+- Counts come first, through the Aggregate API, one request at a time in jsn's
+  UI session. A count or row read with no answer in 20 seconds is cancelled on
+  the instance, and three counts that are slow or refused by the instance's
+  rate limit (HTTP 429) stop the run to spare it. A `LIKE` scan of
+  a list field or a data table follows a row count of that table: over 100,000
+  rows it is skipped and listed unless `--include-large`. Rows are
+  read only for nonzero counts, up to `--limit` per source, with a `jsn records
+  list` command for the rest.
+- `--plan` reads the dictionary and prints the count queries without running
+  one. A search that needs more than `--max-requests` (default 2000) count
+  queries is refused before the first count.
+- Ctrl-C stops before the next request and sends the platform's cancel for
+  the count in flight, in the session it runs in. If the instance refuses
+  jsn's UI session, the counts run without it and the output says that
+  neither Ctrl-C nor a slow count can be cancelled there.
+- A failed or denied count is never read as zero. It is listed under not
+  searched, the run is marked `partial`, and the command exits 1. A skipped
+  large table or a stop after slow counts makes the run partial in the same
+  way.
+- A run makes up to a few hundred count queries and can take minutes on a
+  busy instance. `--csv`, `--tsv` and `--markdown` print one row
+  per referring record (`table`, `sys_id`, `label`, `via`), and in data mode
+  a line on stderr says configuration was not searched; `--json` puts the
+  same rows in `data.records`, then what was not searched, and the plan last.
+
+Not searched, and always listed: the record's child items, log tables,
+`sys_created_by` and `sys_updated_by` (user names, not sys_ids), variable model
+tables (searched through `sys_variable_value`), views and rotation shards, and
+any value stored as a display value or name. System mode also lists Flow
+Designer values, which are compressed; try `jsn flows search`.
+
 ## Records engine compatibility contract
 
 Audit for #313, prerequisite to #314–#321. Baseline: origin/main at a3b0e6f.
