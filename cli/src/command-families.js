@@ -121,7 +121,7 @@ const deferredFamilies = {
   appmodules: profileFamily("appmodules", "./commands/_simple.js", "appmodulesCmd"),
   listcontrols: profileFamily("listcontrols", "./commands/_simple.js", "listcontrolsCmd"),
   views: profileFamily("views", "./commands/_simple.js", "viewsCmd"),
-  privileges: profileFamily("privileges", "./commands/_simple.js", "privilegesCmd"),
+  privileges: profileFamily("privileges", "./commands/_simple.js", "privilegesCmd", { mutationSubcommands: ["allow"] }),
   uxscripts: profileFamily("uxscripts", "./commands/_simple.js", "uxscriptsCmd"),
   catalogscripts: profileFamily("catalogscripts", "./commands/_simple.js", "catalogscriptsCmd"),
   cataloguipolicies: profileFamily("cataloguipolicies", "./commands/_simple.js", "cataloguipoliciesCmd"),

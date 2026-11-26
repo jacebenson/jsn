@@ -51,6 +51,7 @@ denied or malformed reply is an error, never an empty answer.
 jsn privileges requests                                  # requested, denied, invalidated
 jsn privileges requests --target-scope x_acme_core --status all
 jsn privileges requests --source-scope "Payroll Sync" --json
+jsn privileges allow <request>                           # preview; add --yes to write
 ```
 
 A call that Restricted Caller Access blocks files a `sys_restricted_caller_access`
@@ -61,6 +62,10 @@ script, the target and the status (`--limit` 1–1000, default 20, with
 that `privileges list` reads, so allowing a privilege leaves the request
 blocked. Scopes match by scope, name or sys_id and filter on raw sys_ids.
 ACLs can hide rows, so an empty list means no readable rows, not none.
+`privileges allow` sets one request to Allowed, refuses one that already is,
+and reads it back, exiting nonzero unless the row says Allowed. With
+application administration on, only the target application's admins can allow
+it. The row is an application file, so the write needs a capture context.
 
 ## Record version history
 

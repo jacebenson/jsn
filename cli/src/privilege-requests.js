@@ -1,6 +1,7 @@
-import { errNotFound, errUsage } from './errors.js';
+import { errAPI, errNotFound, errUsage, errUsageHint } from './errors.js';
 import { assertSafeExactMatch } from './helpers.js';
 import { isSysId } from './resolve-record.js';
+import { assertMutationScope } from './intended-context.js';
 
 // Restricted Caller Access requests. A blocked call from another scope files one row here, separate from the
 // cross-scope privileges in sys_scope_privilege; approving a privilege leaves the request at Requested.
@@ -40,6 +41,15 @@ async function readScope(sdk, v) {
   return out;
 }
 
+const toRequest = row => ({
+  sys_id: raw(row.sys_id), status: STATUSES[Number(raw(row.status))], operation: raw(row.operation),
+  source_scope: { sys_id: raw(row.source_scope), name: shown(row.source_scope) },
+  source: { table: raw(row.source_table), sys_id: raw(row.source), name: shown(row.source) },
+  target_scope: { sys_id: raw(row.target_scope), name: shown(row.target_scope) },
+  target: { table: raw(row.target_table), sys_id: raw(row.target), name: shown(row.target) },
+  rca_type: raw(row.rca_type), updated: raw(row.sys_updated_on),
+});
+
 export async function readPrivilegeRequests(sdk, { status, sourceScope, targetScope, limit = 20 } = {}) {
   const names = statusNames(status);
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw errUsage('--limit must be an integer from 1 to 1000.');
@@ -55,14 +65,7 @@ export async function readPrivilegeRequests(sdk, { status, sourceScope, targetSc
       throw malformed(TABLE, 'a row does not match the status or scopes asked for');
     }
   }
-  const requests = rows.slice(0, limit).map(row => ({
-    sys_id: raw(row.sys_id), status: STATUSES[Number(raw(row.status))], operation: raw(row.operation),
-    source_scope: { sys_id: raw(row.source_scope), name: shown(row.source_scope) },
-    source: { table: raw(row.source_table), sys_id: raw(row.source), name: shown(row.source) },
-    target_scope: { sys_id: raw(row.target_scope), name: shown(row.target_scope) },
-    target: { table: raw(row.target_table), sys_id: raw(row.target), name: shown(row.target) },
-    rca_type: raw(row.rca_type), updated: raw(row.sys_updated_on),
-  }));
+  const requests = rows.slice(0, limit).map(toRequest);
   return { statuses: names, source_scope: source, target_scope: target, count: requests.length, requests, pagination: { limit, has_more: rows.length > limit } };
 }
 
@@ -81,4 +84,46 @@ export function formatPrivilegeRequests(data) {
 
 export function privilegeRequestsSummary(data) {
   return `${data.count}${data.pagination.has_more ? '+' : ''} readable ${either(data.statuses)} restricted caller access request(s)`;
+}
+
+async function readRequest(sdk, id) {
+  const rows = await sdk.listStrict(TABLE, new URLSearchParams({ sysparm_query: `sys_id=${id}`, sysparm_fields: `${FIELDS},sys_scope,target_scope.scoped_administration`, sysparm_limit: '2', sysparm_display_value: 'all' }));
+  if (!rows.length) throw errNotFound('Restricted caller access request', id);
+  const row = rows[0];
+  if (rows.length > 1 || !row || typeof row !== 'object' || raw(row.sys_id) !== id || !/^[0-3]$/.test(raw(row.status))) throw malformed(TABLE, `the reply is not request ${id}`);
+  return { ...toRequest(row), application_administration: raw(row['target_scope.scoped_administration']) === 'true', sys_scope: raw(row.sys_scope) };
+}
+
+// Allowing writes status 2 on one row and nothing else; with application administration on, only the target app's admins may.
+export async function allowPrivilegeRequest(sdk, { request, yes = false } = {}) {
+  const id = String(request ?? '').trim();
+  if (!isSysId(id)) throw errUsage('allow needs the request sys_id (32 hex characters); jsn privileges requests lists them.');
+  const { application_administration, sys_scope, ...before } = await readRequest(sdk, id);
+  if (before.status === 'allowed') throw errUsageHint(`Request ${id} is already Allowed, so there is nothing to allow.`, 'jsn privileges requests --status allowed lists the allowed requests.');
+  const base = { request: before, change: { status: { from: before.status, to: 'allowed' } }, application_administration };
+  if (!yes) return { ...base, dry_run: true, rerun: ['privileges', 'allow', id, '--yes'] };
+  // The capture guard checks a record's scope only on its context table (sys_scope_privilege), so this row is checked here.
+  assertMutationScope(sdk.mutationContext, sys_scope, 'Restricted caller access request');
+  try { await sdk.update(TABLE, id, { status: '2' }); }
+  catch (error) {
+    if (error?.status === 403 && application_administration) error.hint = `${adminNote(before)} ${error.hint || ''}`.trim();
+    throw error;
+  }
+  const { application_administration: _, sys_scope: __, ...after } = await readRequest(sdk, id);
+  if (after.status !== 'allowed') throw Object.assign(errAPI(200, `Allow of request ${id} not confirmed: it reads ${label(after.status)} after the write.`), { hint: application_administration ? adminNote(before) : 'A field ACL or business rule can drop a write without an error; jsn privileges requests --status all shows its status now.' });
+  return { ...base, request: after, dry_run: false, allowed: true };
+}
+
+const adminNote = r => `${r.target_scope.name || r.target_scope.sys_id} has application administration on: only its application admins can allow this request.`;
+
+export function formatPrivilegeAllow(data) {
+  const r = data.request, c = data.change.status;
+  const line = `  ${label(c.from)} -> ${label(c.to)}  ${OPERATIONS[r.operation] || r.operation}  ${end(r.source_scope, r.source)}  ->  ${end(r.target_scope, r.target)}`;
+  if (!data.dry_run) return [`Allowed request ${r.sys_id}:`, line].join('\n');
+  return [`Would allow request ${r.sys_id}:`, line, ...(data.application_administration ? [adminNote(r)] : []), '', `Run: ${data.rerun}`].join('\n');
+}
+
+export function privilegeAllowSummary(data) {
+  const c = data.change.status;
+  return data.dry_run ? `Dry run: would allow request ${data.request.sys_id} (${label(c.from)} -> ${label(c.to)}); nothing written` : `Allowed request ${data.request.sys_id}`;
 }

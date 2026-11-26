@@ -199,6 +199,9 @@
     "workflows"
   ],
   "approved": {
+    "allow": {
+      "why": "privileges allow sets one Restricted Caller Access request to Allowed, the status name the platform uses; approve would suggest an approval record, and update would hide which field changes."
+    },
     "enable": {
       "why": "audit enable is the state-changing counterpart of the audit read; list/show only read saved evidence, and update would hide which table attribute changes."
     },
@@ -223,7 +226,7 @@
   },
   "budgets": {
     "$comment": "Subcommand count per family. A budget is a ratchet, not a ban: when a new command earns its place, raise the number in the same diff and say why in the PR. Adding a family means adding its budget entry.",
-    "total": 432,
+    "total": 433,
     "families": {
       "access-analyzer": 3,
       "acls": 5,
@@ -275,7 +278,7 @@
       "perf": 8,
       "platform": 2,
       "plugins": 1,
-      "privileges": 6,
+      "privileges": 7,
       "properties": 5,
       "records": 17,
       "relationships": 5,

@@ -632,7 +632,7 @@ Run `jsn` for the full grouped list. Commands are organized by ServiceNow domain
 
 **Upgrade review** — [`skipped-updates`](safety.md#skipped-update-review) discovers existing unresolved skips, reviews current/base field changes and known dependencies, and processes only explicitly selected actions after an exact batch preview and one confirmation.
 
-**Access** — `acls`, `roles`, `scopes`, `properties`, `privileges` (and `privileges requests`)
+**Access** — `acls`, `roles`, `scopes`, `properties`, `privileges` (and `privileges requests`, `privileges allow`)
 
 **User Experience** — `forms`, `lists`, `clientscripts`, `uipolicies`, `uiactions`
 
