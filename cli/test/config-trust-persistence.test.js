@@ -137,6 +137,12 @@ test('trusted switch, modification, deletion and local-only saves remain availab
 
 test('explicit login approves only the authored profile, never unrelated project data', async () => {
   await isolated({ default_profile: 'injected', profiles: { primary: { instance_url: 'https://approved.invalid', domain: 'project-domain' }, injected: { instance_url: 'https://unrelated.invalid' } } }, async f => {
+    // loginProfile preflights credential storage before authenticating. This
+    // in-process case has no task-owned keyring on either platform, so it
+    // declares the documented plaintext opt-in instead of probing for one.
+    const savedPlaintext = process.env.JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE;
+    process.env.JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE = '1';
+    try {
     const cfg = loadConfig();
     const sdk = { getCurrentUser: async () => ({ user_name: 'synthetic-user' }), get: async () => ({ result: [] }) };
     const app = { config: cfg, sdk, getSDKForProfile: () => sdk, auth: { loginWithPassword: async () => ({ username: 'synthetic-user' }) }, ok: () => {} };
@@ -154,5 +160,9 @@ test('explicit login approves only the authored profile, never unrelated project
     assert.deepEqual(saved.profiles.other, f.global.profiles.other);
     assert.equal(saved.default_profile, 'primary');
     assert.equal(saved.instance_url, 'https://approved.invalid');
+    } finally {
+      if (savedPlaintext === undefined) delete process.env.JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE;
+      else process.env.JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE = savedPlaintext;
+    }
   });
 });
