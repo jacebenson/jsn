@@ -115,7 +115,7 @@ const deferredFamilies = {
   uipages: profileFamily("uipages", "./commands/_simple.js", "uiPagesCmd"),
   appmenu: profileFamily("appmenu", "./commands/_simple.js", "appMenuCmd"),
   acls: profileFamily("acls", "./commands/_simple.js", "aclsCmd"),
-  roles: profileFamily("roles", "./commands/_simple.js", "rolesCmd"),
+  roles: profileFamily("roles", "./commands/roles.js", "rolesCmd"),
   properties: profileFamily("properties", "./commands/_simple.js", "propertiesCmd"),
   relationships: profileFamily("relationships", "./commands/_simple.js", "relationshipsCmd"),
   appmodules: profileFamily("appmodules", "./commands/_simple.js", "appmodulesCmd"),
