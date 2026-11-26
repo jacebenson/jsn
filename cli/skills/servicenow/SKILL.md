@@ -32,7 +32,7 @@ Discover commands with `jsn --help`, `jsn discover "search words"`, and
 | Stop auditing a field or deletes | `jsn tables audit exclude <table> <field>`, `audit deletes <table> off` |
 | Undo a delete | `jsn records deleted`, then `records undelete` |
 | Undo a background script | `jsn eval rollback <execution>` |
-| An earlier version of a record | `jsn records versions <table> <sys_id> [--diff N]` |
+| A record's versions, or revert to base | `jsn records versions <table> <sys_id>`, `records revert` |
 | Watch a record or a query | `jsn records watch --table <t> --sys-id <id>` or `--query` |
 | Copy records between instances | `jsn records export`, then `jsn records import <file>` |
 | Load an import set | `jsn import load <table> --file rows.json\|csv` |
