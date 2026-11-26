@@ -50,11 +50,12 @@ denied or malformed reply is an error, never an empty answer.
 ```sh
 jsn records versions sys_script_include <sys_id>
 jsn records versions sys_script_include MyUtil --identifier-field name --diff 2
-jsn records versions sys_script <sys_id> --get data.latest_update.update_set.value
+jsn records versions sys_script <sys_id> --get data.latest_update.update_set_state.value
 ```
 
 Lists a record's `sys_update_version` history newest first (1 is the newest),
-and the newest `sys_update_xml` capture with its update set. `--diff N` compares
+and every `sys_update_xml` capture with its update set and that set's state,
+newest first and bounded by `--limit`. `--diff N` compares
 version N to the current version on raw values, line by line for scripts. Current
 means the version in state current, as the platform's Compare to Current uses; the
 live record is not read. Read-only. No versions does not mean unchanged: only

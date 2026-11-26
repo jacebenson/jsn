@@ -148,11 +148,12 @@ export async function recordVersions(sdk, { table, identifier, identifierField, 
   const versions = rows.slice(0, shown).map((row, index) => ({ number: index + 1, ...row }));
   const updates = await read(sdk, UPDATE, `name=${name}^update_setISNOTEMPTY^ORDERBYDESCsys_updated_on^ORDERBYDESCsys_id`, UPDATE_FIELDS, limit + 1);
   assertName(updates, 'name', name, UPDATE);
-  const captures = updates.slice(0, limit);
+  // --get splits paths on dots, so the dot-walked state gets a plain key.
+  const captures = updates.slice(0, limit).map(({ 'update_set.state': state, ...row }) => ({ ...row, update_set_state: state ?? null }));
 
   if (!versions.length) notes.push(`No versions found for ${name}. Versions exist only for records tracked by update sets that someone changed, or that an upgrade or app installed; tables in glide.update.suppress_update_version keep none, and ACLs can hide them. This does not mean the record is unchanged.`);
   if (!updates.length) notes.push(`No sys_update_xml row in an update set was readable for ${name}; ACLs can hide rows, and records an upgrade or app installed have none.`);
-  if (updates.length > limit) notes.push('More captured updates exist; raise --limit (up to 200) to list them.');
+  if (updates.length > limit) notes.push(limit < 200 ? 'More captured updates exist; raise --limit (up to 200) to list them.' : 'More captured updates exist; only the newest 200 are listed.');
   if (rows.length > shown) notes.push(shown < 200 ? 'More versions exist; raise --limit (up to 200) to list them.' : 'More versions exist; only the newest 200 can be listed or compared.');
   const data = {
     table, record: { sys_id: sysId, table: raw(record.sys_class_name) || table, update_name: name },
@@ -199,10 +200,10 @@ export function formatChanges(records) {
 
 export function formatVersions(data) {
   const lines = [`Versions of ${data.record.table} ${data.record.sys_id} (${data.record.update_name}), newest first (read-only)`];
-  lines.push(...(data.updates.length
-    ? [`${data.updates.length} captured update(s), latest first:`, ...data.updates.map((update, index) => `  ${index ? ' ' : '*'} "${text(update.update_set)}" [${raw(update['update_set.state']) || '?'}] [${raw(update.update_set)}], ${text(update.sys_updated_on)} by ${text(update.sys_updated_by)} (${raw(update.action)}) [${raw(update.sys_id)}]`)]
-    : ['Captured updates: none readable in sys_update_xml for this record.']));
   lines.push(...data.versions.map(versionLine));
+  lines.push(...(data.updates.length
+    ? ['', `${data.updates.length} captured update(s), latest first:`, ...data.updates.map((update, index) => `  ${index ? ' ' : '*'} "${text(update.update_set)}" [${raw(update.update_set_state) || '?'}] [${raw(update.update_set)}], ${text(update.sys_updated_on)} by ${text(update.sys_updated_by)} (${raw(update.action)}) [${raw(update.sys_id)}]`)]
+    : ['', 'Captured updates: none readable in sys_update_xml for this record.']));
   if (data.diff) {
     const { diff } = data;
     lines.push('', `Version ${diff.version} [${diff.version_sys_id}] -> current [${diff.current_sys_id}]: ${diff.status === 'equal' ? 'no differences' : `${diff.records.length} record(s) differ`} (ignoring ${diff.ignored_fields.join(', ')})`);
