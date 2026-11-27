@@ -96,12 +96,16 @@ function rowsOf(rows, table) {
   return rows;
 }
 
+// Ctrl-C during discovery stops before the next metadata read: nothing has been counted yet, so there is nothing to collect.
+const stopIfAborted = signal => { if (signal?.aborted) throw Object.assign(new Error('Interrupted before the plan was complete, so nothing was counted.'), { code: 'interrupted' }); };
+
 // Table parents from sys_db_object, chasing ancestors not yet seen. A table without a row maps to null.
-async function readParents(sdk, names, parents, used) {
+async function readParents(sdk, names, parents, used, signal) {
   let todo = [...new Set(names)].filter(name => !parents.has(name));
   while (todo.length) {
     for (let i = 0; i < todo.length; i += 100) {
       const chunk = todo.slice(i, i + 100);
+      stopIfAborted(signal);
       used.metadata++;
       const rows = rowsOf(await sdk.listStrict('sys_db_object', new URLSearchParams({ sysparm_query: `nameIN${chunk.join(',')}`, sysparm_fields: 'name,super_class.name', sysparm_limit: String(chunk.length), sysparm_display_value: 'false' })), 'sys_db_object');
       for (const row of rows) if (chunk.includes(raw(row.name))) parents.set(raw(row.name), raw(row['super_class.name']));
@@ -116,46 +120,56 @@ function ancestors(table, parents) {
   return chain;
 }
 
-async function readDictionary(sdk, query, used, gaps) {
+async function readDictionary(sdk, query, used, gaps, missing, signal) {
   const rows = [];
   for (let offset = 0; offset < DICTIONARY_MAX; offset += DICTIONARY_PAGE) {
+    stopIfAborted(signal);
     used.metadata++;
     const page = rowsOf(await sdk.listStrict('sys_dictionary', new URLSearchParams({ sysparm_query: `${query}^ORDERBYsys_id`, sysparm_fields: 'name,element,internal_type,reference', sysparm_limit: String(DICTIONARY_PAGE), sysparm_offset: String(offset), sysparm_display_value: 'false' })), 'sys_dictionary');
     rows.push(...page);
     if (page.length < DICTIONARY_PAGE) return rows;
   }
   gaps.push({ source: `sys_dictionary ${query}`, reason: `More than ${DICTIONARY_MAX} dictionary rows; fields after the first ${DICTIONARY_MAX} were not searched` });
+  // Fields past the page limit were never read, so a run that counts without them is incomplete, not clean.
+  missing.add('dictionary');
   return rows;
 }
 
 /** Build every count query for the mode: dictionary fields deduped by ancestry and split by sys_metadata, then the catalogue. */
-async function plan(sdk, { sysId, cls, mode, scripts }, used) {
+async function plan(sdk, { sysId, cls, mode, scripts, signal }, used) {
   const parents = new Map();
   const gaps = [];
-  await readParents(sdk, [cls], parents, used);
+  // Sources the plan wanted but could not read: their absence makes the run partial, not clean.
+  const missing = new Set();
+  await readParents(sdk, [cls], parents, used, signal);
   if (parents.get(cls) === null) throw malformed(`There is no sys_db_object row for ${cls}, so its parent classes are unknown; check that this user can read sys_db_object.`);
   const hierarchy = [cls, ...ancestors(cls, parents)];
   // Read in both modes: every instance has document ID fields (sysapproval_approver.document_id), so none means the read was filtered.
-  const documentFields = await readDictionary(sdk, 'active=true^internal_type=document_id', used, gaps);
+  const documentFields = await readDictionary(sdk, 'active=true^internal_type=document_id', used, gaps, missing, signal);
   if (!documentFields.length) throw malformed('sys_dictionary returned no document ID fields; check that this user can read sys_dictionary.');
   const fields = [
-    ...await readDictionary(sdk, `active=true^internal_typeINreference,glide_list^referenceIN${hierarchy.join(',')}`, used, gaps),
+    ...await readDictionary(sdk, `active=true^internal_typeINreference,glide_list^referenceIN${hierarchy.join(',')}`, used, gaps, missing, signal),
     // Document ID fields on data tables tie child items (approvals, translations, emails) to a record; only configuration ones are references.
     ...(mode === 'system' ? documentFields : []),
   ].map(row => ({ table: raw(row.name), field: raw(row.element), kind: raw(row.internal_type) })).filter(row => isName(row.table) && isName(row.field));
-  await readParents(sdk, fields.map(row => row.table), parents, used);
+  await readParents(sdk, fields.map(row => row.table), parents, used, signal);
   const isConfig = table => table === 'sys_metadata' || ancestors(table, parents).includes('sys_metadata');
   const defined = new Set(fields.map(row => `${row.table}.${row.field}`));
   const skipped = new Map();
   const skip = (reason, table) => { const entry = skipped.get(reason) || skipped.set(reason, []).get(reason); entry.push(table); };
   const sources = [];
+  // Field tables whose class could not be read: they belong in neither half of the search, so they are named rather than guessed.
+  const unclassified = new Set();
   for (const row of fields) {
-    if (isConfig(row.table) !== (mode === 'system')) continue;
-    // Children repeat an inherited field's dictionary row; the parent's count covers them.
-    if (ancestors(row.table, parents).some(parent => defined.has(`${parent}.${row.field}`))) continue;
+    // These exclusions hold whatever the table's class is, so they must not depend on an ancestry read.
     if (CHILD_FIELDS.has(`${row.table}.${row.field}`)) { skip('Approvals of the record itself: they belong to it rather than refer to it', `${row.table}.${row.field}`); continue; }
     const unsearchable = UNSEARCHABLE.find(([pattern]) => pattern.test(row.table));
     if (unsearchable) { skip(unsearchable[1], `${row.table}.${row.field}`); continue; }
+    // A table with no sys_db_object row cannot be placed in either half of the search, in either mode.
+    if (parents.get(row.table) === null) { unclassified.add(`${row.table}.${row.field}`); continue; }
+    if (isConfig(row.table) !== (mode === 'system')) continue;
+    // Children repeat an inherited field's dictionary row; the parent's count covers them.
+    if (ancestors(row.table, parents).some(parent => defined.has(`${parent}.${row.field}`))) continue;
     const like = row.kind === 'glide_list';
     sources.push({ group: 'fields', kind: row.kind, table: row.table, fields: [row.field], match: like ? 'like' : 'eq', sized: like });
   }
@@ -164,10 +178,14 @@ async function plan(sdk, { sysId, cls, mode, scripts }, used) {
     sources.push({ group, kind: 'text', table, fields: columns.split(','), match: 'like', sized: group === 'data' });
   }
   for (const source of sources) source.query = source.fields.map(field => `${field}${source.match === 'like' ? 'LIKE' : '='}${sysId}`).join('^OR');
+  if (unclassified.size) {
+    gaps.push({ source: `${unclassified.size} field(s), e.g. ${[...unclassified].slice(0, 5).join(', ')}`, reason: 'No sys_db_object row for the table, so its class and whether it is configuration are unknown; these fields were not counted' });
+    missing.add('ancestry');
+  }
   for (const [reason, tables] of skipped) gaps.push({ source: `${tables.length} field(s), e.g. ${[...new Set(tables)].slice(0, 5).join(', ')}`, reason });
   if (mode === 'system' && !scripts) gaps.push({ source: 'Script fields (business rules, script includes, client scripts, UI actions, fix scripts, scheduled jobs and more)', reason: 'Add --scripts' });
   // The other mode's gap first: it is the one a reader most needs and the one a truncated read would lose.
-  return { hierarchy, sources, gaps: [...MODE_SKIPPED[mode], ...gaps] };
+  return { hierarchy, sources, gaps: [...MODE_SKIPPED[mode], ...gaps], incomplete: missing.size };
 }
 
 function countError(error) {
@@ -191,7 +209,7 @@ export async function findReferences(sdk, { table, identifier, identifierField, 
   if (!/^[0-9a-f]{32}$/i.test(sysId)) throw malformed('The matched record has no readable sys_id; check field ACLs before retrying.');
   const cls = isName(raw(record.sys_class_name)) ? raw(record.sys_class_name) : table;
   const used = { metadata: 0, counts: 0, rows: 0 };
-  const { hierarchy, sources, gaps } = await plan(sdk, { sysId, cls, mode, scripts }, used);
+  const { hierarchy, sources, gaps, incomplete } = await plan(sdk, { sysId, cls, mode, scripts, signal }, used);
   const sizeTables = [...new Set(sources.filter(source => source.sized).map(source => source.table))];
   const planned = sources.length + sizeTables.length;
   const data = {
@@ -261,6 +279,8 @@ export async function findReferences(sdk, { table, identifier, identifierField, 
     for (const source of sources.filter(item => item.count > 0)) {
       const hint = ['jsn', 'records', 'list', '--table', source.table, '--query', source.query, ...(profile ? ['--profile', profile] : []), ...(instance ? ['--instance', instance] : [])].map(quoteShellArg).join(' ');
       if (interrupted()) { Object.assign(source, { listed: 0, command: hint, reason: 'Interrupted before its rows were read' }); continue; }
+      // The count phase stopped to spare the instance; its rows stop with it, or the run keeps loading an instance it just backed off from.
+      if (slow >= MAX_SLOW) { Object.assign(source, { listed: 0, command: hint, reason: `Not read: ${MAX_SLOW} counts took over ${COUNT_TIMEOUT / 1000}s or hit the instance's rate limit, so the run stopped to spare the instance` }); continue; }
       if (used.counts + used.rows >= maxRequests) { Object.assign(source, { listed: 0, command: hint, reason: 'Budget reached before its rows were read' }); continue; }
       used.rows++;
       let rows;
@@ -288,7 +308,8 @@ export async function findReferences(sdk, { table, identifier, identifierField, 
     if (['failed', 'skipped', 'not_run'].includes(source.status) || source.reason) data.not_searched.push({ source: `${source.table}.${source.fields.join('|')}`, reason: source.reason });
   }
   data.interrupted = !!interrupted();
-  data.partial = data.interrupted || sources.some(source => ['failed', 'skipped', 'not_run'].includes(source.status) || (source.count > 0 && !source.listed));
+  // Metadata the plan could not read leaves the answer incomplete even when every count succeeded.
+  data.partial = data.interrupted || incomplete > 0 || sources.some(source => ['failed', 'skipped', 'not_run'].includes(source.status) || (source.count > 0 && !source.listed));
   // Sources last: a few hundred of them would push the records out of a truncated read.
   delete data.sources;
   data.sources = sources;
@@ -298,10 +319,13 @@ export async function findReferences(sdk, { table, identifier, identifierField, 
 export function formatReferences(data) {
   const lines = [`${data.record.table} ${data.record.sys_id}${data.record.label ? ` (${data.record.label})` : ''}; class hierarchy: ${data.hierarchy.join(' > ')}; mode: ${data.mode}`];
   if (data.plan_only) {
+    lines.push(`Plan: ${data.requests.planned} count queries (${data.size_checks.length} table size checks), budget ${data.requests.max}. Nothing was counted.`);
     const groups = new Map();
     for (const source of data.sources) groups.set(`${source.group}/${source.kind}`, (groups.get(`${source.group}/${source.kind}`) || 0) + 1);
-    lines.push(`Plan: ${data.requests.planned} count queries (${data.size_checks.length} table size checks), budget ${data.requests.max}. Nothing was counted.`);
-    for (const [group, count] of groups) lines.push(`  ${group}: ${count}`);
+    lines.push('By kind:', ...[...groups].map(([group, count]) => `  ${group}: ${count}`));
+    // The point of --plan is to inspect and narrow: print each query, and each size check, not just totals.
+    if (data.size_checks.length) lines.push('Table size checks, one GET each, before the scan they gate (a table over 100000 rows is skipped without --include-large):', ...data.size_checks.map(table => `  ${table}`));
+    lines.push('Counts, one GET each, in order:', ...data.sources.map(source => `  ${source.table}: ${source.query}`));
   } else {
     lines.push(`${data.records.length} referring record(s)${data.partial ? '; PARTIAL: see not searched' : ''}`);
     for (const ref of data.records) lines.push(`${ref.table} ${ref.sys_id}${ref.label ? ` ${ref.label}` : ''}  via ${ref.via.join(', ')}`);

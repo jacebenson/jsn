@@ -130,7 +130,75 @@ test('--plan reads metadata only and runs no count', async () => {
   assert.ok(data.sources.every(source => source.status === 'planned'));
   assert.ok(data.sources.some(source => source.group === 'scripts'));
   assert.equal(data.requests.planned, data.sources.length + data.size_checks.length);
-  assert.match(formatReferences(data), /Nothing was counted/);
+  const text = formatReferences(data);
+  assert.match(text, /Nothing was counted/);
+  // The human plan prints each count query and each size check, so an over-budget plan can be narrowed without --json.
+  assert.ok(data.sources.every(source => text.includes(`  ${source.table}: ${source.query}`)));
+  assert.equal(counted(sdk).length, 0);
+  // Data mode is the one with LIKE scans, so it is the one that names its table size checks.
+  const dataSdk = fixture();
+  const dataPlan = await findReferences(dataSdk, { ...base, planOnly: true });
+  const dataText = formatReferences(dataPlan);
+  assert.ok(dataPlan.size_checks.length);
+  assert.match(dataText, /Table size checks/);
+  assert.ok(dataPlan.size_checks.every(table => dataText.split('\n').includes(`  ${table}`)));
+  assert.equal(counted(dataSdk).length, 0);
+});
+
+test('row reads stop with the counts when three counts pass the slow threshold', async () => {
+  const timedOut = () => Object.assign(new Error('Network error: Request timed out'), { code: 'network_error' });
+  // The first count answers; the next three are slow, which stops the run.
+  const sdk = fixture({ scan: async (url, opts, normal) => { if (url.includes('assignment_group')) return normal(); throw timedOut(); } });
+  const data = await findReferences(sdk, base);
+  assert.equal(data.stopped, 'slow');
+  const countedSource = data.sources.find(source => source.fields[0] === 'assignment_group');
+  assert.equal(countedSource.count, 1);
+  // Its rows are not read: the run stopped to spare the instance, and says so with the command to read them later.
+  assert.ok(!sdk.calls.some(call => call.kind === 'list' && call.table === 'task'));
+  assert.equal(countedSource.listed, 0);
+  assert.match(countedSource.reason, /stopped to spare the instance/);
+  assert.ok(countedSource.command.startsWith('jsn records list --table task'));
+  assert.ok(data.not_searched.some(item => item.source === 'task.assignment_group' && /stopped to spare the instance/.test(item.reason)));
+  assert.equal(data.partial, true);
+});
+
+test('Ctrl-C during discovery stops before the next metadata read and counts nothing', async () => {
+  const controller = new AbortController();
+  const sdk = fixture();
+  const real = sdk.listStrict;
+  sdk.listStrict = async (table, params, opts) => {
+    if (table === 'sys_dictionary') controller.abort();
+    return real.call(sdk, table, params, opts);
+  };
+  await assert.rejects(findReferences(sdk, { ...base, signal: controller.signal }), /Interrupted before the plan was complete/);
+  assert.equal(counted(sdk).length, 0);
+});
+
+test('a field table with no sys_db_object row is a gap that marks the run partial, not a data table', async () => {
+  const sdk = fixture();
+  const real = sdk.listStrict;
+  sdk.listStrict = async (table, params, opts) => {
+    const rows = await real.call(sdk, table, params, opts);
+    if (table !== 'sys_dictionary' || params.get('sysparm_query').includes('document_id')) return rows;
+    return Number(params.get('sysparm_offset')) ? [] : [...rows, dictRow(['ghost_table', 'group', 'reference'])];
+  };
+  const data = await findReferences(sdk, base);
+  // Its ancestry is unknown, so it can be neither counted nor called clean: it is named, and the run is partial.
+  assert.ok(data.not_searched.some(item => /ghost_table\.group/.test(item.source) && /sys_db_object/.test(item.reason)));
+  assert.ok(!data.sources.some(source => source.table === 'ghost_table'));
+  assert.equal(data.partial, true);
+});
+
+test('a dictionary read cut off at its row cap marks the run partial, not complete', async () => {
+  const sdk = fixture();
+  const real = sdk.listStrict;
+  // Twenty full pages reach the 20000-row cap. Every row is a field this mode excludes, so the counts that follow stay cheap.
+  const page = Array.from({ length: 1000 }, () => dictRow(['sysrule_assignment', 'group', 'reference']));
+  sdk.listStrict = async (table, params, opts) => (table === 'sys_dictionary' && !params.get('sysparm_query').includes('document_id') ? page : real.call(sdk, table, params, opts));
+  const data = await findReferences(sdk, base);
+  assert.ok(data.not_searched.some(item => /More than 20000 dictionary rows/.test(item.reason)));
+  assert.ok(data.sources.every(source => source.table !== 'sysrule_assignment'));
+  assert.equal(data.partial, true);
 });
 
 test('large tables are skipped and listed unless --include-large', async () => {
