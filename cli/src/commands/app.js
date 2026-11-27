@@ -30,6 +30,27 @@ import { buildRerunCommand, confirmWrite, quoteShellArg } from '../helpers.js';
 
 const SUPPORTED_BACKENDS = ['update-set', 'package'];
 
+/**
+ * The confirmation gate for `app deploy`.
+ *
+ * `confirmWrite()` returns the answer — false when the person declined — and only
+ * throws in non-interactive mode. The deploy must stop on a decline, so the answer
+ * is returned to the caller instead of being awaited for its side effect.
+ *
+ * @param {object} argv
+ * @param {object} app
+ * @param {object} project
+ * @param {{confirm?: Function}} [deps] — seam for tests
+ * @returns {Promise<boolean>} true when the install may proceed
+ */
+export async function confirmDeployInstall(argv, app, project, deps = {}) {
+  const confirm = deps.confirm || confirmWrite;
+  const question = `Install app "${project.app.name}" ${project.app.version} `
+    + `(scope ${project.app.scope}, ${project.records.length} records) on ${app.getEffectiveInstance()}? `
+    + 'This writes to the instance.';
+  return (await confirm(argv, app, question, { rerun: deployRerun(argv) })) === true;
+}
+
 function writeArtifact(file, contents) {
   const target = path.resolve(file);
   const temporary = path.join(path.dirname(target), `.${path.basename(target)}.${process.pid}.tmp`);
@@ -223,11 +244,9 @@ export function appCmd(wrap) {
           // must fail with nothing uploaded and nothing to confirm.
           const built = buildPackageZip(project, { now: new Date() });
 
-          const question = `Install app "${project.app.name}" ${project.app.version} `
-            + `(scope ${project.app.scope}, ${project.records.length} records) on ${app.getEffectiveInstance()}? `
-            + 'This writes to the instance.';
           const rerunCommand = buildRerunCommand(argv, { rerun: deployRerun(argv) });
-          await confirmWrite(argv, app, question, { rerun: deployRerun(argv) });
+          // A declined install must upload nothing at all.
+          if (!await confirmDeployInstall(argv, app, project)) return;
 
           const report = await deployAppPackage({
             sdk: app.sdk,

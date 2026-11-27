@@ -20,6 +20,7 @@ import { spawnSync } from 'node:child_process';
 import { yargs } from '../src/cli-adapter.js';
 import { appCmd } from '../src/commands/app.js';
 import { readAppProject } from '../src/app-project.js';
+import { extractRecordSource, recordSymbolName } from '../src/app-record-js.js';
 import {
   buildPackageZip, recordVerificationFields, scopeVerificationFields,
   buildRecordXml, buildScopeXml,
@@ -529,4 +530,74 @@ test('app deploy still requires an instance', () => {
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// ── the confirmation gate and the reader's hostile-input rules ────────────
+
+test('a declined install confirmation stops before any upload', async t => {
+  const { confirmDeployInstall } = await import('../src/commands/app.js');
+  const project = projectFor(t);
+  let asked = null;
+  const declined = await confirmDeployInstall({ dir: '.', yes: false }, {
+    getEffectiveInstance: () => INSTANCE,
+  }, project, {
+    confirm: async (argv, app, question) => { asked = question; return false; },
+  });
+  assert.match(asked, /This writes to the instance/);
+  assert.equal(declined, false, 'a declined answer must not let the deploy proceed');
+
+  const accepted = await confirmDeployInstall({ dir: '.', yes: true }, {
+    getEffectiveInstance: () => INSTANCE,
+  }, project, { confirm: async () => true });
+  assert.equal(accepted, true);
+});
+
+test('a code path that resolves outside the project through a link is refused', async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-app-link-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, 'records', 'sys_script_include'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'code'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'app.yaml'), 'version: 1\napp:\n  name: A\n  scope: global\nbackend: update-set\n');
+  fs.writeFileSync(path.join(root, 'records', 'sys_script_include', 'U.json'), JSON.stringify({
+    sys_id: 'a'.repeat(32), table: 'sys_script_include',
+    fields: { name: 'U' }, code: { script: 'code/evil.js' },
+  }));
+  const outside = path.join(root, '..', `jsn-outside-${process.pid}.js`);
+  fs.writeFileSync(outside, 'var stolen = 1;\n');
+  t.after(() => fs.rmSync(outside, { force: true }));
+  try {
+    fs.symlinkSync(outside, path.join(root, 'code', 'evil.js'));
+  } catch {
+    t.skip('symlinks are unavailable on this host');
+    return;
+  }
+  assert.throws(() => readAppProject(root), /resolves outside the project root through a link/);
+});
+
+test('metadata that would trap the host is refused inside the bounded context', () => {
+  const source = [
+    'var U = 1;',
+    '',
+    'export default {',
+    `  sys_id: '${'a'.repeat(32)}',`,
+    "  table: 'sys_script_include',",
+    '  fields: new Proxy({}, { getPrototypeOf() { for (;;) {} } }),',
+    '  script: U,',
+    '};',
+    '',
+  ].join('\n');
+  const started = Date.now();
+  const result = extractRecordSource(source);
+  assert.equal(result.ok, false);
+  assert.match(result.error, /cannot read the default export/);
+  assert.ok(Date.now() - started < 5000, 'validation must not hang on a hostile trap');
+});
+
+test('a regular expression after a control statement does not confuse extraction', () => {
+  const body = "function U() {\n  if (true) /}/.test('}');\n  return 'ok';\n}\n";
+  const source = body + `\nexport default {\n  sys_id: '${'a'.repeat(32)}',\n  table: 'sys_script_include',\n  fields: { name: 'U' },\n  script: U,\n};\n`;
+  const result = extractRecordSource(source);
+  assert.equal(result.ok, true, result.error);
+  assert.equal(result.body, body);
+  assert.equal(recordSymbolName(result.metadata.script), 'U');
 });

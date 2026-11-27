@@ -51,16 +51,23 @@ const IDENT = /[$_\p{ID_Start}][$\u200C\u200D\p{ID_Continue}]*/uy;
 const NUMBER = /(?:0[xX][0-9a-fA-F_]+|0[bB][01_]+|0[oO][0-7_]+|(?:\d[\d_]*(?:\.[\d_]*)?|\.\d[\d_]*)(?:[eE][+-]?\d+)?)n?/y;
 
 // After these keywords a `/` starts a regular expression, not a division.
+// After these a `(` opens a statement condition, so the matching `)` allows a
+// regular expression to follow: `if (x) /re/.test(y)`.
+const CONTROL_KEYWORDS = new Set(['if', 'while', 'for', 'with', 'switch', 'catch']);
 const REGEX_KEYWORDS = new Set([
   'return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void',
   'do', 'else', 'case', 'yield', 'await', 'throw',
 ]);
 
-const MAX_METADATA_DEPTH = 16;
 
 function regexAllowed(previous) {
   if (!previous) return true;
-  if (previous.type === 'punct') return ![')', ']', '}'].includes(previous.value);
+  if (previous.type === 'punct') {
+    // `)` closing an `if`/`while`/`for`/... condition is followed by a statement,
+    // not by an operand: `if (x) /re/.test(y)` starts a regular expression.
+    if (previous.value === ')' && previous.control === true) return true;
+    return ![')', ']', '}'].includes(previous.value);
+  }
   if (previous.type === 'ident') return REGEX_KEYWORDS.has(previous.value);
   // A number, string, template literal or regex is an operand: `/` divides.
   return false;
@@ -100,6 +107,9 @@ class SourceScanner {
   code(inTemplate, sink) {
     const source = this.source;
     let braces = 0;
+    // Whether each open `(` is a control-statement condition.
+    const parens = [];
+    let pendingControl = false;
     while (this.index < source.length && !this.error) {
       const start = this.index;
       const char = source[start];
@@ -132,6 +142,7 @@ class SourceScanner {
       if (ident) {
         this.index = start + ident[0].length;
         this.emit({ type: 'ident', value: ident[0], start, end: this.index }, sink);
+        pendingControl = CONTROL_KEYWORDS.has(ident[0]);
         continue;
       }
       NUMBER.lastIndex = start;
@@ -150,7 +161,16 @@ class SourceScanner {
         braces -= 1;
       }
       this.index += 1;
-      this.emit({ type: 'punct', value: char, start, end: this.index }, sink);
+      const token = { type: 'punct', value: char, start, end: this.index };
+      if (char === '(') {
+        parens.push(pendingControl);
+        pendingControl = false;
+      } else if (char === ')') {
+        token.control = parens.pop() === true;
+      } else if (!/^\s$/.test(char)) {
+        pendingControl = false;
+      }
+      this.emit(token, sink);
     }
     if (inTemplate && !this.error) this.fail('unterminated template expression');
   }
@@ -280,66 +300,21 @@ function matchingBrace(tokens, open) {
 }
 
 /** Cross-realm plain object: `{}` or `Object.create(null)`, never a Date/Map/array. */
-function isPlainObject(value) {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === null || Object.getPrototypeOf(prototype) === null;
-}
-
 // A metadata value written as a bare identifier names a declaration in the
-// record file. It is not data, so it is bound to a unique symbol while the
-// literal is evaluated and mapped back to one of these markers afterwards.
-const SYMBOL_MARK = Symbol('jsn.recordSymbol');
+// record file. Identifiers are bound to unique sentinels inside the context and
+// come back as this marker object, so the host never touches a vm object.
+const SYMBOL_MARK = '__jsn_symbol__';
 
 /** True when `value` is the marker substituted for an identifier value. */
 export function isRecordSymbol(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
-    && Object.hasOwn(value, SYMBOL_MARK);
+    && typeof value[SYMBOL_MARK] === 'string' && Object.keys(value).length === 1;
 }
 
-/** The identifier a marker stands for, or null for any other value. */
 export function recordSymbolName(value) {
   return isRecordSymbol(value) ? value[SYMBOL_MARK] : null;
 }
 
-function describeUnsupported(value, options = {}) {
-  const at = options.at || 'the default export';
-  const depth = options.depth || 0;
-  const seen = options.seen || new Set();
-  const symbols = options.symbols || null;
-  if (value === null) return null;
-  const type = typeof value;
-  if (type === 'string' || type === 'boolean') return null;
-  if (type === 'number') return Number.isFinite(value) ? null : { at, kind: 'a non-finite number' };
-  if (type === 'function') return { at, kind: 'a function' };
-  // The sentinels bound for identifier values are not data either, but they
-  // are expected: they are mapped back to markers right after this check.
-  if (type === 'symbol') return symbols && symbols.has(value) ? null : { at, kind: 'a symbol' };
-  if (type !== 'object') return { at, kind: `a ${type}` };
-  if (isRecordSymbol(value)) return null;
-  if (Array.isArray(value)) return { at, kind: 'an array' };
-  if (!isPlainObject(value)) return { at, kind: 'a non-plain object' };
-  if (depth >= MAX_METADATA_DEPTH) return { at, kind: 'an object nested too deeply' };
-  if (seen.has(value)) return { at, kind: 'a circular reference' };
-  seen.add(value);
-  // Descriptors, not `Object.entries`: reading a getter would run metadata code
-  // on this side of the vm boundary, where the timeout does not apply.
-  const descriptors = Object.getOwnPropertyDescriptors(value);
-  for (const key of Reflect.ownKeys(descriptors)) {
-    if (typeof key !== 'string') return { at, kind: 'a symbol key' };
-    const descriptor = descriptors[key];
-    if (descriptor.get || descriptor.set) {
-      return { at: `${at}.${key}`, kind: 'an accessor property' };
-    }
-    const problem = describeUnsupported(descriptor.value, { at: `${at}.${key}`, depth: depth + 1, seen, symbols });
-    if (problem) return problem;
-  }
-  seen.delete(value);
-  return null;
-}
-
-// After these the identifier is a literal (or the context object itself), not
-// a value that can name a declaration.
 const LITERAL_KEYWORDS = new Set(['true', 'false', 'null', 'undefined', 'NaN', 'Infinity', 'this']);
 
 /**
@@ -370,41 +345,71 @@ function literalIdentifiers(tokens, open, close) {
 /** One unique sentinel symbol per identifier, used only inside the vm. */
 function bindIdentifiers(names) {
   const bindings = new Map();
-  for (const name of names) bindings.set(name, Symbol(`jsn.recordSymbol:${name}`));
+  for (const name of names) bindings.set(name, Symbol(name));
   return bindings;
 }
 
 /** Replace every bound sentinel with the marker that validation understands. */
-function substituteSymbols(value, symbols) {
-  if (typeof value === 'symbol') return { [SYMBOL_MARK]: symbols.get(value) };
-  if (value === null || typeof value !== 'object') return value;
-  const result = {};
-  for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(value))) {
-    result[key] = substituteSymbols(descriptor.value, symbols);
-  }
-  return result;
-}
-
 /**
- * Evaluate the metadata literal in an otherwise empty context.
+ * Evaluate the metadata literal and validate it **inside** the bounded context.
  *
- * The literal cannot call anything that reaches the host: the context holds no
- * `process`, `require`, `Buffer` or module loader, only the identifier
- * bindings. A timeout bounds a literal that tries to compute for a long time.
+ * The value never crosses back as an object: the snippet walks it, rejects
+ * anything that is not plain data, and returns JSON. Host code only parses
+ * that string, so a Proxy trap, an accessor or an enormous ownKeys array runs
+ * under the timeout instead of hanging the build on the host thread.
  */
 function evaluateMetadata(literal, bindings) {
   const sandbox = Object.create(null);
   for (const [name, sentinel] of bindings) sandbox[name] = sentinel;
+  const snippet = `(() => {
+    const value = (${literal});
+    const MARK = '${SYMBOL_MARK}';
+    const MAX_DEPTH = 16;
+    const seen = new Set();
+    const walk = (v, depth, at) => {
+      if (v === null) return null;
+      const t = typeof v;
+      if (t === 'string' || t === 'boolean') return v;
+      if (t === 'number') {
+        if (!Number.isFinite(v)) throw new Error(at + ' is a non-finite number');
+        return v;
+      }
+      if (t === 'symbol') { const m = {}; m[MARK] = String(v.description || ''); return m; }
+      if (t === 'function') throw new Error(at + ' is a function');
+      if (t !== 'object') throw new Error(at + ' is a ' + t);
+      if (Array.isArray(v)) throw new Error(at + ' is an array');
+      const proto = Object.getPrototypeOf(v);
+      if (!(proto === null || Object.getPrototypeOf(proto) === null)) throw new Error(at + ' is a non-plain object');
+      if (depth >= MAX_DEPTH) throw new Error(at + ' is an object nested too deeply');
+      if (seen.has(v)) throw new Error(at + ' is a circular reference');
+      seen.add(v);
+      const out = {};
+      for (const key of Reflect.ownKeys(v)) {
+        if (typeof key !== 'string') throw new Error(at + ' has a symbol key');
+        const d = Object.getOwnPropertyDescriptor(v, key);
+        if (!d) throw new Error(at + '.' + key + ' is not readable');
+        if (d.get || d.set) throw new Error(at + '.' + key + ' is an accessor property');
+        out[key] = walk(d.value, depth + 1, at + '.' + key);
+      }
+      seen.delete(v);
+      return out;
+    };
+    return JSON.stringify(walk(value, 0, 'the default export'));
+  })()`;
   try {
-    return { ok: true, value: runInContext(`(${literal}\n)`, createContext(sandbox), {
-      timeout: 1000,
-      displayErrors: false,
-    }) };
+    const json = runInContext(snippet, createContext(sandbox), { timeout: 1000, displayErrors: false });
+    return { ok: true, metadata: JSON.parse(json) };
   } catch (error) {
-    return { ok: false, error: `cannot read the default export: ${String(error && error.message).split('\n')[0]}` };
+    const detail = String(error && error.message).split('\n')[0];
+    // Keep the established wording for "this is not data" refusals; the walk
+    // builds them from the value's own path.
+    if (detail.startsWith('the default export')) {
+      return { ok: false, error: 'the default export may hold only strings, numbers, booleans and '
+        + `plain objects: ${detail}` };
+    }
+    return { ok: false, error: `cannot read the default export: ${detail}` };
   }
 }
-
 const DECLARATION_KEYWORDS = new Set(['var', 'let', 'const', 'function', 'class']);
 
 /**
@@ -489,18 +494,9 @@ export function extractRecordSource(source) {
   const bindings = bindIdentifiers(literalIdentifiers(tokens, found + 2, close));
   const evaluated = evaluateMetadata(literal, bindings);
   if (!evaluated.ok) return evaluated;
-  if (!isPlainObject(evaluated.value)) {
+  const metadata = evaluated.metadata;
+  if (metadata === null || typeof metadata !== 'object' || Array.isArray(metadata)) {
     return { ok: false, error: 'the default export must be a plain object' };
   }
-  const unsupported = describeUnsupported(evaluated.value, { symbols: new Set(bindings.values()) });
-  if (unsupported) {
-    return {
-      ok: false,
-      error: 'the default export may hold only strings, numbers, booleans and plain objects: '
-        + `${unsupported.at} is ${unsupported.kind}`,
-    };
-  }
-
-  const reverse = new Map([...bindings].map(([name, sentinel]) => [sentinel, name]));
-  return { ok: true, metadata: substituteSymbols(evaluated.value, reverse), body, literal };
+  return { ok: true, metadata, body, literal };
 }

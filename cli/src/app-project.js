@@ -444,6 +444,28 @@ function checkClaimedSymbol({ display, label, symbol, allowBody, body, declarati
 }
 
 /** A `code.<field>` value: a path relative to the project root, always. */
+/**
+ * The real path of `candidate` when it is inside the real project root, else null.
+ *
+ * `insideRoot()` compares written paths, which a symlink in the project can
+ * escape: `code/x.js -> ~/.aws/credentials` passes the lexical check and then
+ * `readFileSync` follows the link. Resolve both the file and the root before
+ * reading anything the build embeds in an artifact.
+ */
+function containedRealPath(root, candidate) {
+  let realFile;
+  let realRoot;
+  try {
+    realRoot = fs.realpathSync(root);
+    realFile = fs.realpathSync(candidate);
+  } catch {
+    return null;
+  }
+  const relative = path.relative(realRoot, realFile);
+  if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) return null;
+  return realFile;
+}
+
 function resolveCodePath({ root, display, label, value, errors }) {
   if (path.isAbsolute(value)) {
     errors.push(`${display}: ${label} must be relative to the project root, not absolute (${value})`);
@@ -461,6 +483,10 @@ function resolveCodePath({ root, display, label, value, errors }) {
   }
   try {
     if (!fs.statSync(resolvedPath).isFile()) throw Object.assign(new Error('not a file'), { code: 'ENOENT' });
+    if (containedRealPath(root, resolvedPath) === null) {
+      errors.push(`${display}: ${label} resolves outside the project root through a link (${value})`);
+      return null;
+    }
     return { path: value, text: readUtf8(resolvedPath) };
   } catch (error) {
     errors.push(`${display}: ${label} file not found: ${inside} (${error.code || oneLine(error.message)})`);
@@ -494,6 +520,10 @@ function resolveScriptValue({ root, display, value, errors }) {
   }
 
   if (stats) {
+    if (containedRealPath(root, resolvedPath) === null) {
+      errors.push(`${display}: script resolves outside the project root through a link (${value})`);
+      return null;
+    }
     if (!stats.isFile()) {
       errors.push(`${display}: script path is not a file: ${inside}`);
       return null;
