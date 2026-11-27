@@ -249,9 +249,11 @@ persist, the whole subcommand is declared write-class for read-only profiles.
 ```sh
 jsn usercriteria list --query "active=true"
 jsn usercriteria show "Any user for KB"
-jsn usercriteria create -f name="Service desk only" -f group=<group sys_id> \
+jsn usercriteria create -f name="Service desk only" -f group=<group_sys_id> \
   --expect-scope global --expect-update-set "Catalog access"
 ```
+
+Replace `<group_sys_id>` with the group's sys_id.
 
 `usercriteria` (alias `uc`) reads and writes `user_criteria`. `show` also lists
 the catalog items that name the criteria in their Available for
