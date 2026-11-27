@@ -1,6 +1,9 @@
 import { deferredFamilyDefinition } from '../command-families.js';
 import { inventoryCompareCommand } from '../instance-inventory.js';
-import { readDependencyTree, formatPluginTree } from '../plugins.js';
+import { readDependencyTree, formatPluginTree, planActivation, activatePlugin, formatActivation } from '../plugins.js';
+import { boundedPoll, boundedTimeout } from '../store.js';
+import { quoteShellArg } from '../helpers.js';
+import { AppError, errUsage } from '../errors.js';
 
 const showCommand = wrap => ({
   command: 'show <id>', describe: 'Show a plugin and every plugin it requires, nested (read-only)',
@@ -14,8 +17,51 @@ const showCommand = wrap => ({
   }),
 });
 
+const installCommand = wrap => ({
+  command: 'install <ids..>', describe: 'Activate one plugin and the plugins it requires; preview by default',
+  builder: p => p.strict().positional('ids', { type: 'string', array: true, describe: 'Plugin id; several ids preview one plan and never send' })
+    .option('yes', { type: 'boolean', default: false, describe: 'Activate the one plugin named; without it nothing is sent' })
+    .option('timeout', { type: 'number', default: 1800, describe: 'Seconds to wait for the activation tracker (1 to 14400)' })
+    .option('poll-interval', { type: 'number', default: 5, describe: 'Seconds between tracker reads (0 to 300)' })
+    .epilogue('jsn plugins install com.snc.pa.premium\njsn plugins install com.snc.pa.premium com.snc.sla.timeline\njsn plugins install com.glide.web_service_aggregate --yes\n'
+      + 'Without --yes, reads each dependency tree and lists the inactive plugins activation would pull in, required plugins first, and any refusal.\n'
+      + 'With --yes and one id: POST /api/sn_cicd/plugin/<id>/activate, waits on its tracker, then reads every listed plugin back from v_plugin.\n'
+      + 'Refused before anything is sent: an active plugin, a blocked install, an incomplete tree, or more than one id. Activation cannot be undone here.'),
+  handler: wrap(async (argv, app) => {
+    // Every check that can refuse runs before the first request.
+    const ids = (argv.ids ?? []).map(String);
+    if (argv.yes && new Set(ids).size > 1) throw errUsage('--yes activates one plugin at a time; several ids preview a plan only. Nothing was sent.');
+    const timeoutMs = boundedTimeout(argv.timeout) * 1000, pollIntervalMs = boundedPoll(argv.pollInterval) * 1000;
+    app.requireInstance();
+    const plan = await planActivation(app.sdk, ids);
+    const refused = plan.refusals.map(r => `${r.id}: ${r.reason}`).join('; ');
+    if (!argv.yes) {
+      const rerun = plan.requested.length === 1 && !plan.refusals.length ? ['jsn', 'plugins', 'install', plan.requested[0], '--yes'].map(quoteShellArg).join(' ') : null;
+      const data = { dry_run: true, sent: false, ...plan, rerun };
+      Object.defineProperty(data, '_formatted', { value: formatActivation(data), enumerable: false });
+      return app.ok(data, { summary: `Dry run: ${plan.plugins.length} plugin(s) would be activated${refused ? `; refused: ${refused}` : ''}; nothing sent`,
+        breadcrumbs: rerun ? [{ action: 'install', cmd: rerun, description: 'Activate it' }] : [] });
+    }
+    if (plan.refusals.length) throw errUsage(`Not activated: ${refused}. Nothing was sent.`);
+    const data = await activatePlugin(app.sdk, plan, { pollIntervalMs, timeoutMs });
+    Object.defineProperty(data, '_formatted', { value: formatActivation(data), enumerable: false });
+    const [id] = plan.requested;
+    if (!data.wait_timed_out && !data.succeeded) {
+      throw new AppError('plugin_activation_failed', `Activation of ${id} failed (tracker ${data.tracker_id}): ${data.status_message || data.status_label || data.error || 'the tracker reported failure'}.`,
+        `Read jsn plugins show ${id}; some required plugins may already be active. jsn never resends an activation.`);
+    }
+    if (data.still_inactive?.length) {
+      throw new AppError('plugin_verification_failed', `Tracker ${data.tracker_id} reported success, but v_plugin still shows ${data.still_inactive.join(', ')} inactive.`,
+        `Read jsn plugins show ${id}; a reported success is not a completed activation.`);
+    }
+    app.ok(data, { summary: data.wait_timed_out ? `Activation of ${id} still running after ${argv.timeout}s (tracker ${data.tracker_id}); not verified` : `Activated ${id} and ${data.plugins.length - 1} required plugin(s); verified on v_plugin`,
+      breadcrumbs: [{ action: 'show', cmd: `jsn plugins show ${id}`, description: 'Read the plugin and its tree again' }, ...(data.wait_timed_out ? [{ action: 'status', cmd: `jsn store status ${data.tracker_id}`, description: 'Read the tracker again' }] : [])] });
+    if (data.wait_timed_out) process.exitCode = 1;
+  }),
+});
+
 export const pluginsCmd = wrap => ({
   ...deferredFamilyDefinition('plugins'),
-  builder: p => p.command(inventoryCompareCommand(wrap, 'plugins')).command(showCommand(wrap)),
-  handler: wrap(async (_argv, app) => app.ok({ commands: ['compare', 'show'] }, { summary: 'jsn plugins show <id> for a plugin and its nested dependencies; jsn plugins compare --source pdi --target vendor for plugins only; jsn compare for plugins and Store apps' })),
+  builder: p => p.command(inventoryCompareCommand(wrap, 'plugins')).command(showCommand(wrap)).command(installCommand(wrap)),
+  handler: wrap(async (_argv, app) => app.ok({ commands: ['compare', 'show', 'install'] }, { summary: 'jsn plugins show <id> for a plugin and its nested dependencies; jsn plugins install <id> to preview activating it; jsn plugins compare --source pdi --target vendor for plugins only; jsn compare for plugins and Store apps' })),
 });

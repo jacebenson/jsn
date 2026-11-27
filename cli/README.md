@@ -417,6 +417,8 @@ jsn plugins show com.glide.ui.ng.amb
 jsn plugins show com.snc.pa.premium --get data.inactive
 jsn plugins show com.snc.pa.premium --json
 jsn plugins compare com.snc.pa.premium --source pdi --target vendor
+jsn plugins install com.snc.pa.premium
+jsn plugins install com.glide.web_service_aggregate --yes
 ```
 
 `show` reads `v_plugin` by plugin id (never its `sys_id`, which differs on some rows) and walks
@@ -427,6 +429,14 @@ the dependencies that are not active. A required id `v_plugin` does not list is 
 listed, with its state unknown, never as missing or not installed; the plugin id you name must be
 listed, or `show` fails with not found. `compare <id>` narrows `jsn plugins compare` to the plugin
 and the tree read on `--source`. Both are reads and work on read-only profiles.
+
+`install` is a mutation. Without `--yes` it reads each tree and lists the inactive plugins
+activation would pull in, required plugins first, and sends nothing. Several ids preview one
+merged plan. `--yes` activates one plugin through `POST /api/sn_cicd/plugin/<id>/activate`
+(admin or `sn_cicd.sys_ci_automation`), waits on its tracker (`--timeout`, `--poll-interval`),
+and reads every plugin it listed back from `v_plugin`; only all of them active is success. An
+active plugin, a blocked install, an incomplete tree, or more than one id is refused before
+anything is sent. A wait that ends first keeps the tracker and exits 1; nothing is resent.
 
 ## Choose output
 

@@ -1,4 +1,6 @@
-import { errNotFoundHint, errUsage } from './errors.js';
+import { AppError, errAPI, errNotFoundHint, errUsage } from './errors.js';
+import { isSysId } from './resolve-record.js';
+import { waitForOperation } from './store.js';
 
 // v_plugin's sys_id is not the plugin id on every row, so every read and every join uses id.
 const TABLE = 'v_plugin';
@@ -91,5 +93,77 @@ export function formatPluginTree(data) {
   });
   render(p.id, '', new Set([p.id]));
   if (!p.requires.length) lines.push('(no dependencies)');
+  return lines.join('\n');
+}
+
+// Preview of what activating these plugins would do. Reads only; nothing is sent.
+export async function planActivation(sdk, ids) {
+  if (!Array.isArray(ids) || !ids.length) throw errUsage('Name at least one plugin id to install.');
+  ids.forEach(validatePluginId);
+  const requested = [...new Set(ids)], nodes = new Map(), refusals = [], cycles = [];
+  let unlisted = [];
+  for (const id of requested) {
+    const tree = await readDependencyTree(sdk, id);
+    for (const node of [tree.plugin, ...tree.dependencies]) if (!nodes.has(node.id)) nodes.set(node.id, node);
+    unlisted = [...new Set([...unlisted, ...tree.unlisted])];
+    cycles.push(...tree.cycles.filter(([a, b]) => !cycles.some(([x, y]) => x === a && y === b)));
+    if (tree.plugin.active) refusals.push({ id, reason: 'already active' });
+    if (!tree.complete) refusals.push({ id, reason: `its dependency tree is incomplete (the ${tree.limit_reached} limit was reached)` });
+  }
+  // Required plugins first. A plugin already on the path is a cycle, named above and not followed.
+  const order = [], seen = new Set();
+  const visit = id => {
+    if (seen.has(id) || !nodes.has(id)) return;
+    seen.add(id);
+    nodes.get(id).requires.forEach(visit);
+    order.push(id);
+  };
+  requested.forEach(visit);
+  const plugins = order.map(id => nodes.get(id)).filter(node => node.active === false);
+  for (const node of plugins) if (node.block_install) refusals.push({ id: node.id, reason: requested.includes(node.id) ? 'install is blocked' : 'it is required, inactive and its install is blocked' });
+  return { requested, plugins: plugins.map(({ id, name, version, depth }) => ({ id, name, version, required_by_request: !requested.includes(id), depth })), unlisted, cycles, refusals };
+}
+
+// One plugin through the CI/CD API, then the tracker, then v_plugin. A tracker alone is never success.
+export async function activatePlugin(sdk, plan, { pollIntervalMs, timeoutMs, wait } = {}) {
+  const [id] = plan.requested;
+  const response = await sdk.request(`${sdk.baseURL}/api/sn_cicd/plugin/${encodeURIComponent(id)}/activate`, { method: 'POST' });
+  const result = response?.result;
+  if (!result || typeof result !== 'object') throw errAPI(200, `The activation request for ${id} returned no result, so its state is unknown. Read jsn plugins show ${id} before retrying.`);
+  const tracker = result.links?.progress?.id;
+  if (result.error || !isSysId(String(tracker ?? ''))) {
+    throw new AppError('plugin_activation_rejected', `Activation of ${id} was not started: ${raw(result.error) || raw(result.status_message) || 'no progress tracker came back'}.`,
+      `Read jsn plugins show ${id} before retrying; jsn never resends an activation.`);
+  }
+  let progress;
+  try { progress = await waitForOperation(sdk, tracker, { pollIntervalMs, timeoutMs, ...(wait ? { wait } : {}) }); }
+  catch (error) {
+    throw new AppError('plugin_progress_unavailable', `Activation of ${id} was started (tracker ${tracker}) but its progress could not be read: ${error.message}. It may still be running.`,
+      `Read jsn store status ${tracker} and jsn plugins show ${id}; do not resend.`);
+  }
+  const data = { ...plan, tracker_id: tracker, ...progress, still_inactive: null, verified: false };
+  if (progress.wait_timed_out || !progress.succeeded) return data;
+  const ids = plan.plugins.map(plugin => plugin.id);
+  let found;
+  try { found = await readPlugins(sdk, ids); }
+  catch (error) {
+    throw new AppError('plugin_readback_unavailable', `Tracker ${tracker} reported success, but v_plugin could not be read back: ${error.message}.`,
+      `Read jsn plugins show ${id}; a reported success is not a completed activation.`);
+  }
+  data.still_inactive = ids.filter(dep => found.get(dep)?.active !== true);
+  data.verified = !data.still_inactive.length;
+  return data;
+}
+
+export function formatActivation(data) {
+  const lines = [data.tracker_id ? `Activation of ${data.requested[0]}: tracker ${data.tracker_id}, ${data.status_label ?? data.status ?? 'status unknown'}${data.wait_timed_out ? ' (still running when the wait ended)' : ''}` : `Install ${data.requested.join(', ')}: preview, nothing sent`];
+  lines.push(data.plugins.length ? 'Plugins to activate, required plugins first:' : 'No inactive plugin to activate.');
+  data.plugins.forEach((plugin, i) => lines.push(`  ${i + 1}. ${plugin.id}  ${plugin.name ?? 'unnamed'} ${plugin.version ?? 'version unknown'}${plugin.required_by_request ? ', required' : ''}`));
+  if (data.unlisted.length) lines.push(`Not listed in v_plugin, state unknown: ${data.unlisted.join(', ')}`);
+  if (data.cycles.length) lines.push(`Cycles, not followed: ${data.cycles.map(([a, b]) => `${a} -> ${b}`).join(', ')}`);
+  for (const refusal of data.refusals) lines.push(`Refused: ${refusal.id}: ${refusal.reason}`);
+  if (data.status_message || data.error) lines.push(`Tracker says: ${data.status_message || data.error}`);
+  if (data.still_inactive?.length) lines.push(`Still inactive after activation: ${data.still_inactive.join(', ')}`);
+  if (data.verified) lines.push(`Verified: v_plugin shows all ${data.plugins.length} active.`);
   return lines.join('\n');
 }
