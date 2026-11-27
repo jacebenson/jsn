@@ -822,6 +822,18 @@ test('an inline script that starts with a slash is code, not an absolute path', 
   assert.deepEqual(readAppProject(root).records[0].code, { script: { path: null, text: line } });
 });
 
+test('a script file whose name holds a space is read, not treated as code', (t) => {
+  const root = writeAppProject(t, {
+    code: { 'code/my rule.js': 'gs.info(1);\n' },
+    records: oneRecord({ code: undefined, script: 'code/my rule.js' }),
+  });
+  assert.deepEqual(readAppProject(root).records[0].code,
+    { script: { path: 'code/my rule.js', text: 'gs.info(1);\n' } });
+  // The same name without a file is still reported, not shipped as code.
+  const missing = writeAppProject(t, { code: baseCode, records: oneRecord({ code: undefined, script: 'code/absent rule.js' }) });
+  expectInvalid(missing, /script path does not exist: code\/absent rule\.js/);
+});
+
 test('a record file that links outside the project is refused', (t) => {
   const root = writeAppProject(t, { code: baseCode, records: {} });
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-outside-'));

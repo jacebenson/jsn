@@ -87,8 +87,10 @@ const FIELD_NAME = /^[A-Za-z_][A-Za-z0-9_.-]*$/;
 // Characters that can appear in a relative path we are willing to read. A
 // `script` string that contains a separator and nothing outside this set is
 // treated as a path, so a missing file is reported instead of being silently
-// emitted as one line of script text.
-const PATH_CHARS = /^[A-Za-z0-9._~@+\\/-]+$/;
+// emitted as one line of script text. A space is included: `code/my rule.js`
+// is a real file name, and only characters no file name needs — `(`, `;`, `{`,
+// quotes — mark a value as inline code.
+const PATH_CHARS = /^[A-Za-z0-9._~@+\\/ \t-]+$/;
 // The XML 1.0 Char production. Everything else — NUL and the other C0 controls,
 // lone surrogates, U+FFFE/U+FFFF — cannot be carried in a document at all, so a
 // field or script holding one is refused instead of being stripped or escaped
@@ -576,9 +578,10 @@ function resolveCodePath({ root, display, label, value, errors }) {
  * like a path and does not resolve to a file is an error — never script text.
  */
 function resolveScriptValue({ root, display, value, errors }) {
-  // A value holding characters no path can contain is one line of code, never a
+  // A value holding characters no file name needs is one line of code, never a
   // reference: `script: '/^active$/.test(value);'` must reach the fallback
-  // below instead of failing as an absolute path.
+  // below instead of failing as an absolute path. Anything path-shaped,
+  // including names with spaces, is resolved and read first.
   if (!PATH_CHARS.test(value.trim())) return { path: null, text: value };
   if (path.isAbsolute(value)) {
     errors.push(`${display}: script must be relative to the project root, not absolute (${value})`);
