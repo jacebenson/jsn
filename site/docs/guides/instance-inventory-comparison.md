@@ -61,6 +61,11 @@ blocked, an incomplete tree). With `--yes` and one id it activates that plugin
 through the CI/CD API, waits on the tracker, and reads every plugin it listed
 back from `v_plugin`. Activation cannot be undone from jsn.
 
+`jsn plugins plans` lists the batch install plans recorded in
+`sys_batch_install_plan`, newest first. `jsn plugins plans <name or sys_id>`
+shows one plan's items with their state and failure reason; `--get data.failed`
+names the failed and invalid items. Both only read.
+
 Human output lists up to 50 differing/unknown rows per inventory by default,
 with omitted counts. `--verbose` expands all differences. Matching entries need
 no action and are summarized. JSON includes all entries, their `before`, `after`,

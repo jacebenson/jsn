@@ -312,6 +312,7 @@ test('plugins plans lists the newest plans with a lookahead, and shows one plan 
     assert.deepEqual(data.items.map(item => [item.id, item.state, item.reason, item.demo_data]), [['com.example.i1', 'failed', 'PLUGIN_DEPENDENCY_UNAVAILABLE', false], ['com.example.i2', 'installed', null, true]]);
     assert.deepEqual([data.count, data.complete, data.failed], [2, true, ['com.example.i1']]);
   }
+  assert.deepEqual((await showPlan(planSdk({ items: [...planItems, itemRecord(3, { state: dv('invalid', 'Invalid') })] }), PLAN)).failed, ['com.example.i1', 'com.example.i3']);
   assert.match(formatPlan(await showPlan(planSdk(), PLAN)), /auto-upgrade-1 \[a{32}\] partial_install[\s\S]*Rollback context BAK0001204; Two items\n2 item\(s\), 1 failed or invalid\n {2}failed {2}plugin {2}Item 1 \[com\.example\.i1\] 1\.0\.0 {2}PLUGIN_DEPENDENCY_UNAVAILABLE: com\.hidden\.core is not available/);
 });
 
