@@ -263,7 +263,7 @@ test('install --yes never reports a rejected, failed, unreadable or unverified a
   const cases = [
     ['api_error', { activation: { result: 'text' } }],
     ['plugin_activation_rejected', { activation: { result: { error: 'Plugin is not entitled', status: '3', links: { progress: { id: TRACKER } } } } }],
-    ['plugin_activation_rejected', { activation: { result: { status: '0', links: {} } } }],
+    ['plugin_activation_unknown', { activation: { result: { status: '0', links: {} } } }],
     ['plugin_activation_failed', { progress: ['3'] }],
     ['plugin_activation_failed', { progress: ['3'], readback: () => { throw forbidden(); } }],
     ['plugin_progress_unavailable', { progress: [forbidden()] }],

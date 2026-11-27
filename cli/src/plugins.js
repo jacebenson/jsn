@@ -131,9 +131,14 @@ export async function activatePlugin(sdk, plan, { pollIntervalMs, timeoutMs } = 
   const result = response?.result;
   if (!result || typeof result !== 'object') throw errAPI(200, `The activation request for ${id} returned no result, so its state is unknown. Read jsn plugins show ${id} before retrying.`);
   const tracker = result.links?.progress?.id;
-  if (result.error || !isSysId(String(tracker ?? ''))) {
-    throw new AppError('plugin_activation_rejected', `Activation of ${id} was not started: ${raw(result.error) || raw(result.status_message) || 'no progress tracker came back'}.`,
+  if (result.error) {
+    throw new AppError('plugin_activation_rejected', `Activation of ${id} was not started: ${raw(result.error)}.`,
       `Read jsn plugins show ${id} before retrying; jsn never resends an activation.`);
+  }
+  // No tracker does not prove a rejection: the activation may be running.
+  if (!isSysId(String(tracker ?? ''))) {
+    throw new AppError('plugin_activation_unknown', `Activation of ${id} may have started, but no progress tracker came back, so its state is unknown.`,
+      `Read jsn plugins show ${id} before any retry; jsn never resends an activation.`);
   }
   let progress;
   try { progress = await waitForOperation(sdk, tracker, { pollIntervalMs, timeoutMs }); }
