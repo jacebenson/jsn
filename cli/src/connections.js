@@ -29,7 +29,7 @@ async function one(sdk, table, id) {
   return row || null;
 }
 
-// A credential that is set but not returned (ACL-denied or deleted) keeps its id and name with type and table null.
+// A credential that is set but not returned (hidden by row ACLs, or deleted) keeps its id and name with type and table null; a 403 on any read fails the command.
 function connection(row, cred) {
   const credId = raw(row.credential);
   return { sys_id: raw(row.sys_id), name: raw(row.name), active: raw(row.active) === 'true',

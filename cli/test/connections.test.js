@@ -122,6 +122,10 @@ test('missing, ambiguous, denied, unreadable and malformed answers are never rep
     const error = Object.assign(new Error('Synthetic read denied'), { status });
     await assert.rejects(listConnections({ listStrict: async () => { throw error; } }), e => e === error);
     await assert.rejects(showConnection({ listStrict: async () => { throw error; } }, 'Alpha'), e => e === error);
+    // A denied credential or OAuth read fails the command too; only a row hidden by ACLs leaves the type unknown.
+    const denying = table => ({ listStrict: async (name, params) => { if (name === table) throw error; return fixtureSdk().listStrict(name, params); } });
+    await assert.rejects(listConnections(denying('discovery_credentials')), e => e === error);
+    for (const [table, name] of [['discovery_credentials', 'Alpha'], ['oauth_2_0_credentials', 'Beta'], ['oauth_entity_profile', 'Beta']]) await assert.rejects(showConnection(denying(table), name), e => e === error);
   }
   await assert.rejects(listConnections({ listStrict: async () => [{ name: field('No sys_id') }] }), /Malformed http_connection/);
   const answering = (table, rows) => ({ listStrict: async (name, params) => name === table ? rows : fixtureSdk().listStrict(name, params) });

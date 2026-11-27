@@ -317,7 +317,8 @@ flag, and its credential's name, type and table. `show` gives one connection
 and, for an OAuth 2.0 credential, adds its OAuth profile, grant type and
 Application Registry entry. Every read names its fields, so passwords, keys, client secrets
 and tokens are never requested; `oauth_entity` and `oauth_credential` are never
-read. A credential the profile cannot read keeps its name with type `null`.
+read. A credential row hidden by ACLs keeps its name with type `null`; a 403 on
+any read fails the command rather than giving partial results.
 
 ## Find a REST API
 
