@@ -211,6 +211,8 @@ test('real CLI shows a result with its steps on a read-only profile, and rejects
     assert.match(human.stdout, /Log lines \(1\):/);
     const get = await run(['atf', 'results', id(10), '--get', 'data.failed_tests.count']);
     assert.equal(get.stdout.trim(), '2');
+    const upper = await run(['atf', 'results', id(10).toUpperCase(), '--get', 'data.failed_tests.count']);
+    assert.equal(upper.stdout.trim(), '2');
     const pending = JSON.parse((await run(['atf', 'results', id(50), '--json'])).stdout);
     assert.deepEqual([pending.data.status, pending.data.steps], ['running', undefined]);
     assert.match(pending.data.warnings[0], /^No step detail: no readable sys_atf_test_result or sys_atf_test_suite_result has sys_id 0+32\. A run still in progress has no result yet, or ACLs hide it\.$/);
