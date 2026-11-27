@@ -1,7 +1,58 @@
-<section class="shell intro-hero"><p class="eyebrow">SERVICENOW CHANGES. READY TO SHIP.</p><h1>It works.<br><em>Now make it shippable.</em></h1><p class="intro-lead">A CLI for ServiceNow that fits the way your team already ships.<br>Follow one real change, from the first command to a completed update set.</p>
-<div class="intro-video" id="introduction"><% if @intro_video %><%= render "video_player", video: @intro_video, title: "JSN introduction: from install to a shippable change", introduction: true %><% else %><div class="intro-poster"><div class="poster-top"><span>JSN / THE FIRST CHANGE</span><span class="coming-soon">VIDEO COMING SOON</span></div><div class="poster-story"><div><p class="eyebrow">FROM THE WORKBENCH TO THE UPDATE SET</p><h2>One table.<br>A change your<br>team can ship.</h2><p>Install. Connect. Build. Test. Ship.</p></div><svg viewBox="0 0 320 240" role="img" aria-label="A simple line drawing of a boat"><path d="M35 165h250l-42 46H79zM158 26v139M147 40L56 151h91zM170 57v94h90zM20 225q25-13 50 0t50 0t50 0t50 0t50 0t50 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></div><div class="poster-bottom"><code>$ npm i -g @jacebenson/jsn</code><span>~11 MIN · ONE REAL WORKFLOW</span></div></div><% end %></div>
-<div class="intro-caption"><span><strong>The first change.</strong> From “it works” to something your team can review, promote, and back out.</span><a href="/docs/install/">Get started now →</a></div>
-<details class="intro-chapters"><summary>Inside the walkthrough <span>10 chapters · about 11 minutes</span></summary><ol><% [['0:00','The change that stayed in Default'],['1:05','Meet JSN'],['1:45','What you’ll need'],['2:30','Install the CLI'],['4:00','Connect your instance'],['6:00','Create and select an update set'],['7:00','Build the boat table with your agent'],['9:00','Test it with a real record'],['9:45','Review and complete the change'],['10:20','Ready for your team']].each do |time, title| %><li><time><%= time %></time><span><%= title %></span></li><% end %></ol></details></section>
+<section class="shell intro-hero">
+  <div class="intro-grid">
+    <div class="intro-copy">
+      <p class="eyebrow">SERVICENOW CHANGES. READY TO SHIP.</p>
+      <h1>It works.<br><em>Now make it shippable.</em></h1>
+      <p class="intro-lead">A CLI for ServiceNow that fits the way your team already ships. Run one real change, from the first command to a completed update set.</p>
+      <div class="intro-actions">
+        <a class="button" href="/docs/install/">Install JSN <span aria-hidden="true">→</span></a>
+        <a class="quiet-link" href="#introduction">See how it works ↓</a>
+      </div>
+      <div class="install-line">
+        <code><span class="prompt" aria-hidden="true">$</span> npm i -g @jacebenson/jsn</code>
+        <button class="copy-command" type="button" data-copy="npm i -g @jacebenson/jsn" aria-label="Copy the install command">Copy</button>
+      </div>
+      <p class="small intro-footnote">Node 24 LTS · macOS, Linux, Windows · MIT<br>Nothing to sign up for: <code>jsn docs "business rules"</code> searches ServiceNow documentation before you connect an instance. Every release is checked by a <a href="/results">public acceptance run</a>.</p>
+    </div>
+    <div class="terminal intro-terminal">
+      <p class="terminal-top"><span>EXAMPLE SESSION</span><span>ONE TERMINAL</span></p>
+      <p><span class="prompt">$</span> npm i -g @jacebenson/jsn</p>
+      <p><span class="prompt">$</span> jsn docs "business rules" --limit 2</p>
+      <p class="terminal-comment">2 of 2390 results · no instance, no login</p>
+      <p class="terminal-divider"></p>
+      <p><span class="prompt">$</span> jsn setup</p>
+      <p class="terminal-comment">profile “dev” saved → your-instance.service-now.com</p>
+      <p><span class="prompt">$</span> jsn records list --table incident --limit 2</p>
+      <p class="terminal-comment">INC0010001 In progress Printer offline<br>INC0010002 New Network drive access</p>
+      <p class="terminal-bottom"><span>FOUR COMMANDS</span><span>ABOUT A MINUTE</span></p>
+    </div>
+  </div>
+</section>
+
+<section class="shell walkthrough" id="introduction">
+  <div class="walkthrough-head">
+    <div><p class="eyebrow">THE FIRST CHANGE</p><h2>Watch one change go from <em>“it works”</em> to shipped.</h2></div>
+    <p>Eleven minutes, one real workflow: install, connect, build a table, test it with a record, then complete the update set. Prefer reading? <a href="/docs/">Start with the guides →</a></p>
+  </div>
+  <div class="intro-video"><% if @intro_video %><%= render "video_player", video: @intro_video, title: "JSN introduction: from install to a shippable change", introduction: true %><% else %><div class="intro-poster"><div class="poster-top"><span>JSN / THE FIRST CHANGE</span><span class="coming-soon">VIDEO COMING SOON</span></div><div class="poster-story"><div><p class="eyebrow">FROM THE WORKBENCH TO THE UPDATE SET</p><h2>One table.<br>A change your<br>team can ship.</h2><p>Install. Connect. Build. Test. Ship.</p></div><svg viewBox="0 0 320 240" role="img" aria-label="A simple line drawing of a boat"><path d="M35 165h250l-42 46H79zM158 26v139M147 40L56 151h91zM170 57v94h90zM20 225q25-13 50 0t50 0t50 0t50 0t50 0t50 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></div><div class="poster-bottom"><code>$ npm i -g @jacebenson/jsn</code><span>~11 MIN · ONE REAL WORKFLOW</span></div></div><% end %></div>
+  <div class="intro-caption"><span><strong>The first change.</strong> From “it works” to something your team can review, promote, and back out.</span><a href="/docs/install/">Get started now →</a></div>
+  <details class="intro-chapters"><summary>Inside the walkthrough <span>10 chapters · about 11 minutes</span></summary><ol><% [['0:00','The change that stayed in Default'],['1:05','Meet JSN'],['1:45','What you’ll need'],['2:30','Install the CLI'],['4:00','Connect your instance'],['6:00','Create and select an update set'],['7:00','Build the boat table with your agent'],['9:00','Test it with a real record'],['9:45','Review and complete the change'],['10:20','Ready for your team']].each do |time, title| %><li><time><%= time %></time><span><%= title %></span></li><% end %></ol></details>
+</section>
+
 <section class="start-band"><div class="shell steps"><p class="eyebrow">NEW HERE?<br><strong>Start small.</strong></p><a href="/docs/install/"><span>01 / GET READY</span><h3>Install JSN ↗</h3><p>Get the toolkit into your terminal.</p></a><a href="/features/<%= @features.find { |f| f['id'] == 'auth' }['canonicalSlug'] %>/"><span>02 / CONNECT</span><h3>Meet your instance →</h3><p>Walk through your first connection.</p></a><a href="#features"><span>03 / TRY SOMETHING</span><h3>Pick a feature ↓</h3><p>Find a workflow that helps today.</p></a></div></section>
 <section class="shell library" id="features"><div class="section-heading"><div><p class="eyebrow">THE FEATURE LIBRARY</p><h2>What would you like to do?</h2></div><p>One feature at a time.<br>Practical examples, with video walkthroughs as they arrive.</p></div><div class="filters"><label class="search">⌕ <input id="feature-search" type="search" placeholder="Find a feature…" aria-label="Search features"></label><div class="chips" role="group" aria-label="Filter by workflow"><button class="active" aria-pressed="true" data-group="All">All features</button><% @features.map { |f| f['group'] }.uniq.each do |group| %><button aria-pressed="false" data-group="<%= group %>"><%= group %></button><% end %></div></div><p id="result-count" class="small" aria-live="polite"><%= @features.length %> features to explore</p><div class="feature-grid"><% @features.each_with_index do |feature, index| %><a class="feature-card" data-group="<%= feature['group'] %>" href="/features/<%= feature['canonicalSlug'] %>/"><div class="card-art tone-<%= index % 4 %>"><span class="card-icon" aria-hidden="true"><%= %w[⌘ ↗ ≋ ◇][index % 4] %></span><span class="video-badge"><%= @videos[feature['canonicalSlug']] ? '▶ Watch walkthrough' : '↗ Explore feature' %></span></div><div class="card-body"><p class="eyebrow"><%= feature['group'] %></p><h3><%= feature['title'] %><span>↗</span></h3><p><%= feature['tagline'] %></p></div></a><% end %></div><p id="empty-results" hidden>No features match yet. Try another word or choose All features.</p></section>
-<script>const search=document.querySelector('#feature-search'),buttons=[...document.querySelectorAll('button[data-group]')],cards=[...document.querySelectorAll('.feature-card')];let group='All';function filter(){let count=0;cards.forEach(card=>{const show=(group==='All'||card.dataset.group===group)&&card.textContent.toLowerCase().includes(search.value.toLowerCase());card.hidden=!show;if(show)count++});document.querySelector('#result-count').textContent=count+' features to explore';document.querySelector('#empty-results').hidden=count!==0}search.addEventListener('input',filter);buttons.forEach(button=>button.addEventListener('click',()=>{group=button.dataset.group;buttons.forEach(b=>{b.classList.toggle('active',b===button);b.setAttribute('aria-pressed',String(b===button))});filter()}));</script>
+
+<section class="shell community" id="community">
+  <div class="community-copy">
+    <p class="eyebrow">STUCK, OR WANT IT DIFFERENT?</p>
+    <h2>Try it, then tell me where it hurt.</h2>
+    <p>JSN is built in the open. A command that tripped you up, a workflow that should exist, a doc line that lied: say so and it goes on the list. You can also just watch what ships next.</p>
+  </div>
+  <div class="community-cards">
+    <a class="community-card" href="https://discord.gg/42yr57TP96"><span>01 / TALK</span><h3>Join the Discord <em>↗</em></h3><p>Ask a question, share your update-set workflow, hear about new releases first.</p></a>
+    <a class="community-card" href="https://github.com/jacebenson/jsn/issues"><span>02 / REPORT</span><h3>Open an issue <em>↗</em></h3><p>Bugs, gaps, and “this took me 20 clicks” stories. Screenshots and command output help most.</p></a>
+    <a class="community-card" href="https://github.com/jacebenson/jsn/pulls"><span>03 / BUILD</span><h3>Send a pull request <em>↗</em></h3><p>Features, fixes, and docs corrections are welcome. The test suite and lint run in CI.</p></a>
+  </div>
+</section>
+
+<script>document.querySelectorAll('[data-copy]').forEach(button=>{const label=button.textContent;button.addEventListener('click',()=>{const text=button.dataset.copy,field=Object.assign(document.createElement('textarea'),{value:text,readOnly:true});field.style.cssText='position:absolute;left:-9999px';document.body.appendChild(field);field.select();try{document.execCommand('copy')}catch(error){}field.remove();if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(text).catch(()=>{});button.textContent='Copied';setTimeout(()=>{button.textContent=label},1600)})});const search=document.querySelector('#feature-search'),buttons=[...document.querySelectorAll('button[data-group]')],cards=[...document.querySelectorAll('.feature-card')];let group='All';function filter(){let count=0;cards.forEach(card=>{const show=(group==='All'||card.dataset.group===group)&&card.textContent.toLowerCase().includes(search.value.toLowerCase());card.hidden=!show;if(show)count++});document.querySelector('#result-count').textContent=count+' features to explore';document.querySelector('#empty-results').hidden=count!==0}search.addEventListener('input',filter);buttons.forEach(button=>button.addEventListener('click',()=>{group=button.dataset.group;buttons.forEach(b=>{b.classList.toggle('active',b===button);b.setAttribute('aria-pressed',String(b===button))});filter()}));</script>
