@@ -13,7 +13,8 @@ import { renderHelp, renderTips } from './help.js';
 import { isMutationCommand, refreshMutationCommands } from './mutations.js';
 import { impersonationRefusal, confirmImpersonatedWrite, runImpersonated } from './impersonation.js';
 import { maybeShowHome } from './welcome.js';
-import { isLocalPreview, noInstanceCommands, dailyCheckSkipCommands, collectCapabilities } from './capabilities.js';
+import { isLocalPreview, noInstanceCommands, dailyCheckSkipCommands, collectCapabilities, operationOf } from './capabilities.js';
+import { resolveRuntimePreferences } from './preferences.js';
 import { guardExit, exitWithError, AppError, CodeUsage, errUsageHint } from './errors.js';
 import { writesCustomization } from './mutation-context.js';
 import { formatCommandList } from './helpers.js';
@@ -22,6 +23,7 @@ import { formatCommandList } from './helpers.js';
 // their implementation on path resolution; only the modules cli.js itself uses
 // at build time (discover, version, skill) are imported eagerly.
 import { discoverCmd } from './commands/discover.js';
+
 
 import { versionCmd } from './commands/version.js';
 
@@ -241,6 +243,20 @@ export function buildCLI() {
               hint: 'Switch to a write-enabled profile first:\n  jsn auth switch <name>',
             });
           }
+          // Workflow preferences gate known JSN operations after the
+          // read-only policy (which keeps precedence). --force/--yes cannot
+          // bypass this: it is a preference, not a confirmation.
+          const operation = operationOf(argv);
+          if (operation) {
+            const { preferences, profile } = resolveRuntimePreferences(argv, app.config);
+            if (preferences.operations?.[operation] === false) {
+              guardExit(argv, {
+                code: 'operation_denied',
+                message: `${operation} operations are disabled by JSN preferences${profile ? ` for profile "${profile}"` : ''}.`,
+                hint: `Re-enable with: jsn preferences set operations.${operation} true${profile ? ` --profile ${profile}` : ''}\nNo request was sent.`,
+              });
+            }
+          }
         }
       },
       (argv) => {
@@ -327,6 +343,7 @@ export function buildCLI() {
     })
     // CONFIGURATION
     .command(deferredFamily('setup', wrap))
+    .command(deferredFamily('preferences', wrap))
     .command(deferredFamily('auth', wrap))
     .command(deferredFamily('updatesets', wrap))
     .command(deferredFamily('app', wrap))

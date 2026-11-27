@@ -291,11 +291,17 @@
     },
     "deploy": {
       "why": "deploy is the instance-side counterpart of build: it installs the package that build produced and verifies each record. install names a Store or plugin install and would blur that this ships the local project; create and update write one record, not an application."
+    },
+    "preferences": {
+      "why": "preferences changes JSN's own workflow opinions in the global config, not ServiceNow records; setup configures connections and update would imply a sys_properties write, while show and set remain the ordinary read and write verbs underneath it and the noun is what the command actually manages."
+    },
+    "unset": {
+      "why": "unset removes one preference override so the value falls back to the next layer; delete would imply deleting stored instance data, clear is already the log-trimming verb, and set cannot express removal because it always writes a value."
     }
   },
   "budgets": {
     "$comment": "Subcommand count per family. A budget is a ratchet, not a ban: when a new command earns its place, raise the number in the same diff and say why in the PR. Adding a family means adding its budget entry.",
-    "total": 482,
+    "total": 485,
     "families": {
       "access-analyzer": 4,
       "acls": 5,
@@ -350,6 +356,7 @@
       "perf": 10,
       "platform": 2,
       "plugins": 1,
+      "preferences": 3,
       "privileges": 7,
       "properties": 5,
       "records": 21,

@@ -25,12 +25,13 @@ describe('capabilities registry', () => {
       queryTable: 'incident',
       mutationContext: 'operational',
       mutationSubcommands: ['create', 'update', 'delete'],
+      operations: { create: 'create', update: 'update', delete: 'delete' },
     });
     // A read-only factory command declares no mutations
     assert.deepStrictEqual(caps.get('sppages'), { mutationContext: 'table', table: 'sp_page', mutationSubcommands: [] });
     // `eval --sandbox` evaluates one expression and writes nothing, so the
     // command declares the flag that exempts it from capture context.
-    assert.deepStrictEqual(caps.get('eval'), { transactionScopeOption: 'scope', mutationSubcommands: [''], mutationContextReadOnlyFlags: ['sandbox'] });
+    assert.deepStrictEqual(caps.get('eval'), { transactionScopeOption: 'scope', mutationSubcommands: [''], mutationContextReadOnlyFlags: ['sandbox'], operations: { '': 'update' } });
     // No-instance commands declare themselves
     assert.deepStrictEqual(caps.get('auth'), { noInstance: true, skipContextHeader: true });
     assert.deepStrictEqual(caps.get('setup'), { noInstance: true, skipContextHeader: true });
@@ -66,6 +67,7 @@ describe('capabilities registry', () => {
     assert.deepStrictEqual(caps.get('uipolicies'), {
       mutationContext: 'table', table: 'sys_ui_policy',
       mutationSubcommands: ['create', 'update', 'delete'],
+      operations: { create: 'create', update: 'update', delete: 'delete' },
     });
   });
 
@@ -80,14 +82,14 @@ describe('capabilities registry', () => {
   });
 
   it('declares customization local review, read-only capture and revert as its only mutation', () => {
-    assert.deepStrictEqual(collectCapabilities().get('customizations'), { noInstance: true, skipDailyChecks: true, mutationSubcommands: ['revert'] });
+    assert.deepStrictEqual(collectCapabilities().get('customizations'), { noInstance: true, skipDailyChecks: true, mutationSubcommands: ['revert'], operations: { revert: null } });
     assert.ok(noInstanceCommands().has('customizations'));
     assert.deepStrictEqual(mutationPaths().filter(path => path[0] === 'customizations'), [['customizations', 'revert']]);
   });
 
   it('derives dailyCheckSkipCommands including offline customization reports', () => {
     const skip = dailyCheckSkipCommands();
-    assert.deepStrictEqual([...skip].sort(), ['app', 'customizations', 'discover', 'docs', 'document', 'help', 'skill', 'subscriptions', 'update', 'upgrade', 'version']);
+    assert.deepStrictEqual([...skip].sort(), ['app', 'customizations', 'discover', 'docs', 'document', 'help', 'preferences', 'skill', 'subscriptions', 'update', 'upgrade', 'version']);
   });
 
   it('derives mutation paths for root CRUD commands', () => {

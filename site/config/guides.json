@@ -2,6 +2,7 @@
   "install": "guides/install.md",
   "setup": "guides/setup.md",
   "safety": "guides/safety.md",
+  "preferences": "guides/preferences.md",
   "output": "guides/output.md",
   "agents": "guides/agents.md",
   "cli-guide": "guides/cli-guide.md",
