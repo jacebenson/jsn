@@ -131,7 +131,8 @@ export async function activatePlugin(sdk, plan, { pollIntervalMs, timeoutMs } = 
   const result = response?.result;
   if (!result || typeof result !== 'object') throw errAPI(200, `The activation request for ${id} returned no result, so its state is unknown. Read jsn plugins show ${id} before retrying.`);
   const tracker = result.links?.progress?.id;
-  if (result.error) {
+  // A tracker means the activation was queued, even beside error text (a license warning on a PDI).
+  if (!isSysId(String(tracker ?? '')) && result.error) {
     throw new AppError('plugin_activation_rejected', `Activation of ${id} was not started: ${raw(result.error)}.`,
       `Read jsn plugins show ${id} before retrying; jsn never resends an activation.`);
   }
@@ -146,7 +147,7 @@ export async function activatePlugin(sdk, plan, { pollIntervalMs, timeoutMs } = 
     throw new AppError('plugin_progress_unavailable', `Activation of ${id} was started (tracker ${tracker}) but its progress could not be read: ${error.message}. It may still be running.`,
       `Read jsn store status ${tracker} and jsn plugins show ${id}; do not resend.`);
   }
-  const data = { ...plan, tracker_id: tracker, ...progress, still_inactive: null, verified: false };
+  const data = { ...plan, tracker_id: tracker, activation_warning: result.error ? raw(result.error) : null, ...progress, still_inactive: null, verified: false };
   if (progress.wait_timed_out || !progress.succeeded) return data;
   const ids = plan.plugins.map(plugin => plugin.id);
   let found;
@@ -167,6 +168,7 @@ export function formatActivation(data) {
   if (data.unlisted.length) lines.push(`Not listed in v_plugin, state unknown: ${data.unlisted.join(', ')}`);
   if (data.cycles.length) lines.push(`Cycles, not followed: ${data.cycles.map(([a, b]) => `${a} -> ${b}`).join(', ')}`);
   for (const refusal of data.refusals) lines.push(`Refused: ${refusal.id}: ${refusal.reason}`);
+  if (data.activation_warning) lines.push(`Instance warning: ${data.activation_warning}`);
   if (data.status_message || data.error) lines.push(`Tracker says: ${data.status_message || data.error}`);
   if (data.still_inactive?.length) lines.push(`Still inactive after activation: ${data.still_inactive.join(', ')}`);
   if (data.verified) lines.push(`Verified: v_plugin shows all ${data.plugins.length} active.`);
