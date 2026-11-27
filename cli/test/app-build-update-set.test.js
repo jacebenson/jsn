@@ -23,7 +23,7 @@ import { SaxesParser } from 'saxes';
 import { readAppProject } from '../src/app-project.js';
 import {
   buildAppUpdateSet, buildUpdateSetDocument, serializeUpdateSetDocument,
-  buildRecordPayload, escapeXmlText, updateSetTimestamp, derivedSysId,
+  buildRecordPayload, escapeXmlText, updateSetTimestamp, derivedSysId, contentFingerprint,
 } from '../src/app-build-update-set.js';
 import { inspectUpdateSetXML } from '../src/update-set-xml.js';
 import {
@@ -140,16 +140,18 @@ test('builds one envelope the importer accepts, with one member per record', (t)
     `sys_script_include_${SYS_ID_B}`,
   ]);
 
-  // Set identity: derived, stable, and a loaded retrieved set.
+  // Set identity: derived from the app and its content, stable, and a loaded
+  // retrieved set. The content part is why a changed build is a new set.
+  const fingerprint = contentFingerprint(project.records);
   assert.deepEqual(document.set, {
     name: 'Demo App',
     application: APP_SYS_ID,
     application_name: 'Demo App',
     application_scope: 'x_1_demo',
     state: 'loaded',
-    remote_sys_id: derivedSysId('jsn-app-set', 'x_1_demo', 'Demo App', 'source'),
+    remote_sys_id: derivedSysId('jsn-app-set', 'x_1_demo', 'Demo App', 'source', fingerprint),
     release_date: '2026-11-26 12:34:56',
-    sys_id: derivedSysId('jsn-app-set', 'x_1_demo', 'Demo App', 'retrieved'),
+    sys_id: derivedSysId('jsn-app-set', 'x_1_demo', 'Demo App', 'retrieved', fingerprint),
   });
   assert.equal(document.unload_date, '2026-11-26 12:34:56');
   assert.match(xml, /^<\?xml version="1\.0" encoding="UTF-8"\?>\n<unload unload_date="2026-11-26 12:34:56">\n/);
@@ -563,4 +565,25 @@ test('jsn app build is registered local-only and is not a mutation', async () =>
   assert.deepEqual(mutationPaths().filter(pattern => pattern[0] === 'app'), [['app', 'deploy']]);
   assert.equal(isMutationCommand({ _: ['app', 'build'] }), false);
   assert.equal(isMutationCommand({ _: ['app', 'deploy'] }), true);
+});
+
+test('the set identity follows the content, so a changed build is a new set', (t) => {
+  const project = buildFixtureProject(t);
+  const first = buildUpdateSetDocument(project, { now: NOW });
+  const same = buildUpdateSetDocument(project, { now: NOW });
+  assert.equal(same.set.sys_id, first.set.sys_id, 'an unchanged rebuild keeps its id');
+  assert.deepEqual(same.members.map(member => member.fields.sys_id), first.members.map(member => member.fields.sys_id));
+
+  // Importing the same id answers `already_loaded`, so a changed script under
+  // an unchanged id would leave the target holding the old payload.
+  const edited = {
+    ...project,
+    records: project.records.map(record => ({
+      ...record,
+      code: Object.fromEntries(Object.entries(record.code).map(([name, entry]) => [name, { ...entry, text: `${entry.text}\n// edited` }])),
+    })),
+  };
+  const changed = buildUpdateSetDocument(edited, { now: NOW });
+  assert.notEqual(changed.set.sys_id, first.set.sys_id);
+  assert.notEqual(changed.members[0].fields.sys_id, first.members[0].fields.sys_id);
 });

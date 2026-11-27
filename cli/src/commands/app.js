@@ -162,7 +162,13 @@ export function appCmd(wrap) {
                 + `(${project.records.length} records, ${built.entries.length} entries, ${zip.length} bytes)\n`
                 + `  ${written}\n`
                 + 'Nothing was written to any instance. To deploy it:\n'
-                + `  ${deployCommand}`,
+                + `  ${deployCommand}`
+                // deploy installs only the package backend, so a build that
+                // overrode the project's backend leaves a command it will refuse.
+                + (backend === project.backend ? ''
+                  : `\nThe project declares backend "${project.backend}": set "backend: package" `
+                    + '(and app.version) in app.yaml before running that command, because '
+                    + 'jsn app deploy installs only the package backend.'),
               breadcrumbs: [
                 { action: 'deploy', cmd: deployCommand, description: 'Install the package on the selected instance and verify every record' },
               ],
@@ -188,7 +194,9 @@ export function appCmd(wrap) {
           };
 
           if (argv.out === '-') {
-            if (jsonMode) {
+            // An extraction request must still answer: raw XML on stdout would
+            // swallow --get.
+            if (jsonMode || argv.get) {
               app.ok({ ...data, out: null, xml }, {
                 summary: `Built update set "${inspection.name}" (${inspection.count} updates) on stdout; nothing was written to any instance`,
               });

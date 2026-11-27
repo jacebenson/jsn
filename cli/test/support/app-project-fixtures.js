@@ -54,7 +54,7 @@ export function sym(name) {
 
 const SYMBOL_PLACEHOLDER = '__jsn_symbol__:';
 
-function serializeMetadata(value) {
+export function serializeMetadata(value) {
   const json = JSON.stringify(value, (key, item) => (
     item instanceof SymbolRef ? `${SYMBOL_PLACEHOLDER}${item.name}` : item
   ), 2);
@@ -160,6 +160,9 @@ export function cliEnv(root, extra = {}) {
     JSN_NO_PROMPTS: '1',
     JSN_NO_VERSION_CHECK: '1',
     JSN_NO_SKILL_CHECK: '1',
+    // A developer or CI shell that exports this would let a child resolve an
+    // instance with no profile, and the no-instance test would test nothing.
+    SERVICENOW_INSTANCE_URL: '',
     ...extra,
   };
 }

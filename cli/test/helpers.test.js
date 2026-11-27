@@ -334,3 +334,26 @@ describe('verifyWriteBack', () => {
     assert.ok(mismatches[0].got.includes('record not found'));
   });
 });
+
+describe('buildRerunCommand', () => {
+  let buildRerunCommand;
+  it('loads', async () => { ({ buildRerunCommand } = await import('../src/helpers.js')); });
+
+  it('pins the selector even when a path or query merely contains its name', () => {
+    const argv = { _: ['app', 'deploy'], profile: 'dev' };
+    const command = buildRerunCommand(argv, { rerun: [...argv._, '--dir', '/tmp/--profile-fixture', '--yes'] });
+    assert.match(command, /--profile dev$/);
+  });
+
+  it('keeps an explicit selector instead of appending a second one', () => {
+    const argv = { _: ['app', 'deploy'], profile: 'dev' };
+    assert.equal(buildRerunCommand(argv, { rerun: [...argv._, '--profile', 'prod'] }), 'jsn app deploy --profile prod');
+    assert.equal(buildRerunCommand(argv, { rerun: [...argv._, '--profile=prod'] }), 'jsn app deploy --profile=prod');
+  });
+
+  it('uses a complete command string as given', () => {
+    const argv = { _: ['app', 'deploy'], instance: 'https://x.service-now.com' };
+    assert.equal(buildRerunCommand(argv, { rerun: 'jsn app deploy --profile prod --yes' }),
+      'jsn app deploy --profile prod --yes --instance https://x.service-now.com');
+  });
+});

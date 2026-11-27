@@ -45,6 +45,9 @@ const SCOPE_NAME = /^[A-Za-z][A-Za-z0-9_.-]*$/;
 // A version is an identity, not free text: it lands in a filename and in the
 // manifest, so path separators and whitespace are refused up front.
 const VERSION_NAME = /^[A-Za-z0-9][A-Za-z0-9._+-]*$/;
+// Fields the package writer generates for every record. A project that sets
+// one of these would get a second element carrying a different value.
+const RESERVED_RECORD_FIELDS = ['sys_scope', 'sys_update_name'];
 
 /**
  * The application sys_id a package scopes its records to.
@@ -104,6 +107,11 @@ export function validatePackageTarget(project) {
   }
 
   const scope = typeof app.scope === 'string' ? app.scope.trim() : '';
+  // Validation trims, but the writers and buildInventory read the stored
+  // value: " global " would be labelled scoped and written with its spaces.
+  if (typeof app.scope === 'string' && app.scope !== scope) {
+    errors.push('app.yaml: app.scope must not have leading or trailing whitespace');
+  }
   if (!scope) {
     errors.push('app.yaml: app.scope is required to package an app');
   } else if (!SCOPE_NAME.test(scope)) {
@@ -111,6 +119,9 @@ export function validatePackageTarget(project) {
       + '(letters, digits, "_", "." and "-" only)');
   }
 
+  if (typeof app.version === 'string' && app.version !== app.version.trim()) {
+    errors.push('app.yaml: app.version must not have leading or trailing whitespace');
+  }
   if (app.version === undefined || app.version === null
     || (typeof app.version === 'string' && app.version.trim() === '')) {
     errors.push('app.yaml: app.version is required for the package backend '
@@ -122,8 +133,24 @@ export function validatePackageTarget(project) {
 
   const sysId = typeof app.sys_id === 'string' ? app.sys_id.trim() : '';
   if (scope && scope !== 'global' && !sysId) {
-    errors.push(`app.yaml: app.sys_id is required when app.scope is "${scope}": `
+    errors.push('app.yaml: app.sys_id is required when app.scope is "' + scope + '": '
       + 'a scoped package must name the application sys_id its records scope to');
+  }
+
+  // The writer emits these from the record identity and the application, so a
+  // user-supplied copy would be appended after the generated one and appear
+  // twice in the payload; a readback then compares one returned value against
+  // two declared ones and can never agree.
+  for (const record of project.records ?? []) {
+    for (const name of RESERVED_RECORD_FIELDS) {
+      if (record.fields && Object.prototype.hasOwnProperty.call(record.fields, name)) {
+        errors.push(`${record.file}: fields.${name} is written by the package backend `
+          + '(it comes from the record identity and the application); remove it from the record');
+      }
+    }
+    if (record.code && Object.prototype.hasOwnProperty.call(record.code, 'sys_id')) {
+      errors.push(`${record.file}: code.sys_id is written by the package backend; remove it from the record`);
+    }
   }
 
   return errors;
@@ -182,7 +209,7 @@ export function recordVerificationFields(record, app) {
     { name: 'sys_update_name', value: `${record.table}_${record.sys_id}` },
   ];
   for (const [name, value] of Object.entries(record.fields ?? {})) {
-    if (name === 'sys_id') continue; // emitted once, from the record identity
+    if (name === 'sys_id' || RESERVED_RECORD_FIELDS.includes(name)) continue; // emitted once, from the identity
     fields.push({ name, value: String(value) });
   }
   for (const [name, entry] of Object.entries(record.code ?? {})) {

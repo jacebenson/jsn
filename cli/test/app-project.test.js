@@ -12,7 +12,7 @@ import { spawnSync } from 'node:child_process';
 import { readAppProject, validateAppProject } from '../src/app-project.js';
 import {
   SYS_ID_A, SYS_ID_B, APP_SYS_ID, DEFAULT_APP_YAML, TRICKY_SCRIPT, SIMPLE_INCLUDE,
-  happyProjectSpec, writeAppProject, cliEnv, singleFileRecord, singleFileMetadata, sym,
+  happyProjectSpec, writeAppProject, cliEnv, singleFileRecord, singleFileMetadata, sym, serializeMetadata,
 } from './support/app-project-fixtures.js';
 
 const CLI = path.resolve('bin/jsn.js');
@@ -674,4 +674,47 @@ test('a .js record written entirely with CRLF line endings reads the same', (t) 
   const [record] = readAppProject(root).records;
   assert.equal(record.code.script.text, body);
   assert.equal(record.sys_id, SYS_ID_A);
+});
+
+// --- review findings on the record reader ---------------------------------
+
+test('a metadata value named like the evaluator keeps its meaning', (t) => {
+  // `script: value` used to read the evaluator's own `const value` — a temporal
+  // dead zone — and `script: Set` replaced the constructor the walker needs.
+  for (const name of ['value', 'Set', 'walk']) {
+    const body = `const ${name} = 1;`;
+    const root = writeAppProject(t, jsProject(body, singleFileMetadata({ script: sym(name) })));
+    assert.equal(readAppProject(root).records[0].code.script.text, body, name);
+  }
+});
+
+test('a function expression name is not a top-level declaration', (t) => {
+  const body = 'const replacement = function OldName() {};';
+  const ok = writeAppProject(t, jsProject(body, singleFileMetadata({ script: sym('replacement') })));
+  assert.equal(readAppProject(ok).records[0].code.script.text, body);
+  const bad = writeAppProject(t, jsProject(body, singleFileMetadata({ script: sym('OldName') })));
+  expectInvalid(bad, /names "OldName", which is not declared at the top level of this file/);
+});
+
+test('a quoted string may continue across CRLF after a backslash', (t) => {
+  const body = "var s = 'a\\\r\nb';";
+  const root = writeAppProject(t, jsProject(body, singleFileMetadata({ script: sym('s') })));
+  assert.equal(readAppProject(root).records[0].code.script.text, body);
+});
+
+test('a line comment ends at any JavaScript line terminator', (t) => {
+  for (const terminator of ['\r', '\u2028', '\u2029']) {
+    const source = `var DemoRule = 1;${terminator}// note${terminator}export default ${serializeMetadata(singleFileMetadata())};${terminator}`;
+    const root = writeAppProject(t, { raw: { [JS_RULE]: source } });
+    // The metadata is found at all, which a comment scan looking only for LF
+    // would have swallowed along with everything after it.
+    assert.ok(readAppProject(root).records[0].code.script.text.startsWith('var DemoRule'), JSON.stringify(terminator));
+  }
+});
+
+test('app.sys_id must be a string, not a one-element list that stringifies to one', (t) => {
+  const root = writeAppProject(t, {
+    appYaml: DEFAULT_APP_YAML.replace(`  sys_id: ${APP_SYS_ID}`, `  sys_id:\n    - ${APP_SYS_ID}`),
+  });
+  expectInvalid(root, /app\.sys_id must be 32 lowercase hexadecimal characters/);
 });

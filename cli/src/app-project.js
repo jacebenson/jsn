@@ -16,7 +16,7 @@
 //     sys_id: '22222222222222222222222222222222',
 //     table: 'sys_script_include',
 //     fields: { name: 'LaptopUtils', active: 'true' },
-//     script: true,
+//     script: LaptopUtils,
 //   };
 //
 // Everything above the `export default` statement is the script, byte-for-byte,
@@ -118,8 +118,16 @@ function insideRoot(root, target) {
 
 function readUtf8(file) {
   // Buffer.toString('utf8') keeps a leading BOM and every original byte of a
-  // valid UTF-8 file, which is exactly what lifted script bodies need.
-  return fs.readFileSync(file).toString('utf8');
+  // valid UTF-8 file, which is exactly what lifted script bodies need — but it
+  // replaces a malformed byte with U+FFFD, silently shipping different bytes
+  // than the author wrote. Decode strictly and let the caller report the file.
+  const bytes = fs.readFileSync(file);
+  try {
+    // ignoreBOM keeps the BOM in the string, as Buffer.toString('utf8') does.
+    return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+  } catch {
+    throw Object.assign(new Error('the file is not valid UTF-8'), { code: 'EINVALIDUTF8' });
+  }
 }
 
 /**
@@ -356,9 +364,10 @@ function assembleRecord({ root, table, file, display, raw, errors, seenSysIds, b
 /**
  * Resolve `code` and `script` to one entry per code field.
  *
- * `code.<field>` is a path (or `true` for the file body, in a `.js` record).
- * `script` is sugar for the field named `script` and additionally accepts one
- * line of code.
+ * `code.<field>` is a path, or in a `.js` record the name of a declaration in
+ * the file body (`code.script: LaptopUtils`), the same named-declaration form
+ * `script` uses. `script` is sugar for the field named `script` and
+ * additionally accepts one line of code.
  */
 function resolveCodeFields({ root, display, raw, fields, errors, allowBody, body, declarations }) {
   const resolved = [];

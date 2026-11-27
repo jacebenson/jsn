@@ -340,7 +340,8 @@ test('a readback field mismatch is a failed deploy listing every disagreement', 
 
   await assert.rejects(deploy(project, transport), error => {
     assert.equal(error.code, 'api_error');
-    assert.match(error.message, /1 of 2 records verified|0 of 2 records verified/);
+    // Both records disagree, so neither can count as verified.
+    assert.match(error.message, /0 of 2 records verified/);
     assert.match(error.message, /condition: uploaded "active=true", instance has "active=false"/);
     assert.match(error.message, /api_name: uploaded "x_1_demo\.DemoHelper", instance has "x_1_demo\.Other"/);
     assert.match(error.message, /never reports a mismatched install as deployed/);

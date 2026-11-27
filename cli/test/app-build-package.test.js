@@ -708,3 +708,24 @@ test('the package backend is registered local-only, and only deploy is a mutatio
   assert.equal(isMutationCommand({ _: ['app', 'deploy'] }), true);
   assert.deepEqual(mutationPaths().filter(pattern => pattern[0] === 'app'), [['app', 'deploy']]);
 });
+
+test('refuses the identity fields the package writer generates', () => {
+  const project = {
+    app: { name: 'Demo', scope: 'x_1_demo', sys_id: APP_SYS_ID, version: '1.0.0' },
+    records: [{
+      file: 'records/sys_script/rule.js', table: 'sys_script', sys_id: SYS_ID_A,
+      fields: { name: 'Rule', sys_scope: 'global' }, code: { sys_id: { path: null, text: 'x' } },
+    }],
+  };
+  const errors = validatePackageTarget(project).join('\n');
+  // Two <sys_scope> elements, or two record ids, make a readback impossible.
+  assert.match(errors, /fields\.sys_scope is written by the package backend/);
+  assert.match(errors, /code\.sys_id is written by the package backend/);
+});
+
+test('refuses surrounding whitespace in the identity it writes', () => {
+  const project = { app: { name: 'Demo', scope: ' global ', sys_id: APP_SYS_ID, version: ' 1.0.0 ' }, records: [] };
+  const errors = validatePackageTarget(project).join('\n');
+  assert.match(errors, /app\.scope must not have leading or trailing whitespace/);
+  assert.match(errors, /app\.version must not have leading or trailing whitespace/);
+});

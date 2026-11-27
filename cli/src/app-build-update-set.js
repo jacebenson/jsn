@@ -107,6 +107,25 @@ export function buildRecordPayload(record) {
   return parts.join('');
 }
 
+/**
+ * A stable fingerprint of everything the set carries.
+ *
+ * The instance keeps an update set by its sys_id, and `importUpdateSet`
+ * answers `already_loaded` for one it already holds. An identity derived only
+ * from the app name and scope therefore made a rebuilt set with a changed
+ * script unimportable: the target kept the first payload. The fingerprint
+ * keeps an identical retry idempotent while a changed build is a new set.
+ */
+export function contentFingerprint(records) {
+  const canonical = records.map(record => [
+    record.table,
+    record.sys_id,
+    Object.entries(record.fields ?? {}).map(([name, value]) => [name, String(value)]),
+    Object.entries(record.code ?? {}).map(([name, entry]) => [name, entry.text]),
+  ]);
+  return createHash('sha256').update(JSON.stringify(canonical)).digest('hex').slice(0, 16);
+}
+
 function uniqueSysId(seed, used) {
   let attempt = 0;
   for (;;) {
@@ -144,12 +163,17 @@ export function buildUpdateSetDocument(project, { now = new Date() } = {}) {
   const timestamp = updateSetTimestamp(now);
   const name = project.app.name;
   const application = applicationReference(project.app);
-  const setSysId = derivedSysId('jsn-app-set', project.app.scope, name, 'retrieved');
-  const remoteSysId = derivedSysId('jsn-app-set', project.app.scope, name, 'source');
+  // Content-scoped identity: a changed build gets a new set, an identical one
+  // keeps its id and stays idempotent on re-import.
+  const fingerprint = contentFingerprint(project.records);
+  const setSysId = derivedSysId('jsn-app-set', project.app.scope, name, 'retrieved', fingerprint);
+  const remoteSysId = derivedSysId('jsn-app-set', project.app.scope, name, 'source', fingerprint);
   const used = new Set([setSysId]);
 
   const members = project.records.map(record => {
-    const memberId = uniqueSysId(`jsn-app-member:${record.table}:${record.sys_id}`, used);
+    // Member ids carry the export identity too: a renamed app changes the set
+    // ids, and members seeded only by record identity would already exist.
+    const memberId = uniqueSysId(`jsn-app-member:${fingerprint}:${record.table}:${record.sys_id}`, used);
     used.add(memberId);
     return {
       fields: {

@@ -142,7 +142,11 @@ class SourceScanner {
       if (ident) {
         this.index = start + ident[0].length;
         this.emit({ type: 'ident', value: ident[0], start, end: this.index }, sink);
-        pendingControl = CONTROL_KEYWORDS.has(ident[0]);
+        // `obj.if()` names a property, not a control statement: the `(` after it
+        // is a call, so a `/` following the `)` divides rather than starting a
+        // regular expression.
+        const property = this.previous !== null && this.previous.type === 'punct' && this.previous.value === '.';
+        pendingControl = !property && CONTROL_KEYWORDS.has(ident[0]);
         continue;
       }
       NUMBER.lastIndex = start;
@@ -367,12 +371,38 @@ function bindIdentifiers(names) {
  * that string, so a Proxy trap, an accessor or an enormous ownKeys array runs
  * under the timeout instead of hanging the build on the host thread.
  */
+// Names that cannot appear in a parameter list. A literal holding one of these
+// is not data — `{ script: function () {} }` and `{ get script() {} }` are
+// rejected below — so those literals keep the global-binding path.
+const RESERVED_BINDINGS = new Set([
+  'await', 'break', 'case', 'catch', 'class', 'const', 'continue', 'debugger',
+  'default', 'delete', 'do', 'else', 'enum', 'export', 'extends', 'false',
+  'finally', 'for', 'function', 'if', 'implements', 'import', 'in',
+  'instanceof', 'interface', 'let', 'new', 'null', 'package', 'private',
+  'protected', 'public', 'return', 'static', 'super', 'switch', 'this',
+  'throw', 'true', 'try', 'typeof', 'var', 'void', 'while', 'with', 'yield',
+]);
+
 function evaluateMetadata(literal, bindings) {
   const sandbox = Object.create(null);
-  for (const [name, sentinel] of bindings) sandbox[name] = sentinel;
+  const names = [...bindings.keys()];
+  // Each record identifier reaches the literal as a parameter of the arrow that
+  // evaluates it, so a name such as `value` or `Set` cannot collide with the
+  // walker's own locals or with the intrinsics it uses: a `const value` in the
+  // same scope put `script: value` in a temporal dead zone, and binding `Set`
+  // as a global replaced the constructor `new Set()` needs.
+  const byParameter = names.length > 0 && names.every(name => !RESERVED_BINDINGS.has(name));
+  if (byParameter) {
+    names.forEach((name, index) => { sandbox[`__jsn_id_${index}`] = bindings.get(name); });
+  } else {
+    for (const [name, sentinel] of bindings) sandbox[name] = sentinel;
+  }
+  const call = byParameter
+    ? `((${names.join(', ')}) => (${literal}))(${names.map((_, index) => `__jsn_id_${index}`).join(', ')})`
+    : `(${literal})`;
   const snippet = `(() => {
    try {
-    const value = (${literal});
+    const defaultExport = ${call};
     const MARK = '${SYMBOL_MARK}';
     const MAX_DEPTH = 16;
     const seen = new Set();
@@ -404,7 +434,7 @@ function evaluateMetadata(literal, bindings) {
       seen.delete(v);
       return out;
     };
-    return JSON.stringify(walk(value, 0, 'the default export'));
+    return JSON.stringify(walk(defaultExport, 0, 'the default export'));
    } catch (thrown) {
     // Convert the error inside the bounded context. Reading .message of a
     // vm-thrown value on the host would run project code (a getter, a Proxy
