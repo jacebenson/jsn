@@ -22,7 +22,7 @@ const map = (sys_id = MAP, extra = {}) => ({ sys_id: ref(sys_id), name: ref(sys_
   enforce_mandatory_fields: ref('Only Mapped Fields'), copy_empty_fields: ref('false'), create_new_record_on_empty_coalesce_fields: ref('false'),
   run_script: ref(sys_id === MAP ? 'true' : 'false'), script: ref('target.active = true;'), ...extra });
 const entry = (n, target_field, extra = {}) => ({ sys_id: ref(id(n)), map: ref(MAP, 'Staged users'), source_field: ref(`u_${target_field}`), target_field: ref(target_field),
-  coalesce: ref('false'), use_source_script: ref('false'), choice_action: ref('create'), date_format: ref(''), source_script: ref(''), ...extra });
+  coalesce: ref('false'), coalesce_empty_fields: ref('false'), use_source_script: ref('false'), choice_action: ref('create'), date_format: ref(''), source_script: ref(''), ...extra });
 const script = (n, when, order, extra = {}) => ({ sys_id: ref(id(100 + n)), map: ref(MAP, 'Staged users'), when: ref(when), order: ref(String(order)),
   active: ref('true'), script: ref(`// ${when} ${order}`), ...extra });
 const ENTRIES = [entry(1, 'department', { choice_action: ref('reject') }), entry(2, 'email', { coalesce: ref('true') }),
@@ -65,12 +65,12 @@ test('import maps on a staging table reads its maps, then their field maps and s
   const data = await readImportMaps(sdk, 'u_staging');
   assert.deepEqual(sdk.calls.map(c => [c.table, c.query, c.limit, c.display]), [
     ['sys_transform_map', 'source_table=u_staging^ORDERBYorder^ORDERBYname', '51', 'all'],
-    ['sys_transform_entry', `mapIN${MAP},${OLD}^ORDERBYtarget_field`, '1001', 'all'],
+    ['sys_transform_entry', `mapIN${MAP},${OLD}^ORDERBYDESCcoalesce^ORDERBYtarget_field`, '1001', 'all'],
     ['sys_transform_script', `mapIN${MAP},${OLD}^ORDERBYorder`, '201', 'all'],
   ]);
   assert.deepEqual(sdk.calls.map(c => c.fields.split(',')), [
     ['sys_id', 'name', 'source_table', 'target_table', 'active', 'order', 'run_business_rules', 'enforce_mandatory_fields', 'copy_empty_fields', 'create_new_record_on_empty_coalesce_fields', 'run_script'],
-    ['sys_id', 'map', 'source_field', 'target_field', 'coalesce', 'use_source_script', 'choice_action', 'date_format'],
+    ['sys_id', 'map', 'source_field', 'target_field', 'coalesce', 'coalesce_empty_fields', 'use_source_script', 'choice_action', 'date_format'],
     ['sys_id', 'map', 'when', 'order', 'active'],
   ]);
   assert.equal(data.matched_by, 'source_table');
@@ -81,7 +81,7 @@ test('import maps on a staging table reads its maps, then their field maps and s
     create_new_record_on_empty_coalesce_fields: false, run_script: true, coalesce: ['email'], field_maps: undefined, transform_scripts: undefined });
   assert.equal(old.active, false);
   assert.deepEqual(staging.field_maps.map(f => f.target_field), ['department', 'email', 'name', 'start_date']);
-  assert.deepEqual(staging.field_maps[2], { sys_id: id(3), source_field: 'u_name', target_field: 'name', coalesce: false, use_source_script: true, choice_action: 'create', date_format: '' });
+  assert.deepEqual(staging.field_maps[2], { sys_id: id(3), source_field: 'u_name', target_field: 'name', coalesce: false, coalesce_empty_fields: false, use_source_script: true, choice_action: 'create', date_format: '' });
   assert.deepEqual(old.field_maps.map(f => f.target_field), ['user_name']);
   assert.deepEqual(old.coalesce, []);
   assert.deepEqual(staging.transform_scripts.map(s => [s.when, s.order, s.active]),
@@ -117,6 +117,18 @@ test('import maps --scripts reads and prints the map script, field map source sc
   assert.match(text, /Map script: off \(Run script is not set\)\n {6}target\.active = true;/, 'a stored body that does not run says so');
 });
 
+test('import maps says how empty coalesce values behave, field-level Coalesce empty fields first', async () => {
+  const onEmpty = { create_new_record_on_empty_coalesce_fields: ref('true') };
+  const sdk = fakeSdk(staged({ sys_transform_map: () => [map(MAP, onEmpty), map(OLD, onEmpty)],
+    sys_transform_entry: [entry(2, 'email', { coalesce: ref('true'), coalesce_empty_fields: ref('true') }), entry(5, 'user_name', { map: ref(OLD), coalesce: ref('true') })] }));
+  const data = await readImportMaps(sdk, 'u_staging');
+  assert.equal(data.maps[0].field_maps[0].coalesce_empty_fields, true);
+  const [staging, old] = formatImportMaps(data).split('\n\n').slice(1);
+  assert.match(staging, /Coalesce empty fields on email: an empty value matches an existing record where that field is empty\./);
+  assert.doesNotMatch(staging, /all empty inserts/, 'Coalesce empty fields overrides the map setting');
+  assert.match(old, /A row whose coalesce fields are all empty inserts a new record\./);
+});
+
 test('import maps falls back to a map name, and a sys_id reads that map alone', async () => {
   const byName = fakeSdk({ sys_transform_map: q => q.startsWith('name=Staged users') ? [map()] : [] });
   const named = await readImportMaps(byName, 'Staged users');
@@ -130,7 +142,7 @@ test('import maps falls back to a map name, and a sys_id reads that map alone', 
   const one = await readImportMaps(bySysId, MAP.toUpperCase());
   assert.deepEqual(bySysId.calls.map(c => [c.table, c.query]), [
     ['sys_transform_map', `sys_id=${MAP.toUpperCase()}^ORDERBYorder^ORDERBYname`],
-    ['sys_transform_entry', `mapIN${MAP}^ORDERBYtarget_field`],
+    ['sys_transform_entry', `mapIN${MAP}^ORDERBYDESCcoalesce^ORDERBYtarget_field`],
     ['sys_transform_script', `mapIN${MAP}^ORDERBYorder`],
   ]);
   assert.equal(one.matched_by, 'sys_id');
@@ -160,7 +172,7 @@ test('import maps stops at 50 maps, 1000 field maps and 200 scripts with one row
     sys_transform_script: Array.from({ length: 201 }, (_, i) => script(i, 'onBefore', i, { map: ref(id(1)) })) });
   const data = await readImportMaps(sdk, 'u_staging');
   assert.equal(data.maps.length, 50);
-  assert.equal(sdk.calls[1].query, `mapIN${many.slice(0, 50).map(m => m.sys_id.value).join(',')}^ORDERBYtarget_field`);
+  assert.equal(sdk.calls[1].query, `mapIN${many.slice(0, 50).map(m => m.sys_id.value).join(',')}^ORDERBYDESCcoalesce^ORDERBYtarget_field`);
   assert.equal(data.maps[0].field_maps.length, 1000);
   assert.equal(data.maps[0].transform_scripts.length, 200);
   assert.deepEqual([data.has_more, data.field_maps_has_more, data.scripts_has_more], [true, true, true]);

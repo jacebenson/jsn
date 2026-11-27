@@ -350,7 +350,7 @@ export function formatImportRuns(data) {
 
 // Transform maps for `import maps`: maps by staging table, name or sys_id, then their field maps and scripts by raw map sys_id.
 const MAP_FIELDS = 'sys_id,name,source_table,target_table,active,order,run_business_rules,enforce_mandatory_fields,copy_empty_fields,create_new_record_on_empty_coalesce_fields,run_script';
-const ENTRY_FIELDS = 'sys_id,map,source_field,target_field,coalesce,use_source_script,choice_action,date_format';
+const ENTRY_FIELDS = 'sys_id,map,source_field,target_field,coalesce,coalesce_empty_fields,use_source_script,choice_action,date_format';
 const SCRIPT_FIELDS = 'sys_id,map,when,order,active';
 const MAX_MAPS = 50, MAX_ENTRIES = 1000, MAX_SCRIPTS = 200;
 // The order transform events fire: once at the start, per row around the field maps, once at the end.
@@ -384,10 +384,11 @@ export async function readImportMaps(sdk, target, { scripts = false } = {}) {
     if (found.some(row => !byId.has(raw(row.map)))) throw new Error(`${table} returned a ${what} of another transform map.`);
     return found;
   };
-  const entries = await children('sys_transform_entry', scripts ? `${ENTRY_FIELDS},source_script` : ENTRY_FIELDS, 'target_field', MAX_ENTRIES, 'field map');
+  // Coalesce rows sort first, so a cut list still holds every coalesce field.
+  const entries = await children('sys_transform_entry', scripts ? `${ENTRY_FIELDS},source_script` : ENTRY_FIELDS, 'DESCcoalesce^ORDERBYtarget_field', MAX_ENTRIES, 'field map');
   for (const e of entries.slice(0, MAX_ENTRIES)) {
     byId.get(raw(e.map)).field_maps.push({ sys_id: raw(e.sys_id), source_field: raw(e.source_field), target_field: raw(e.target_field), coalesce: flag(e.coalesce),
-      use_source_script: flag(e.use_source_script), choice_action: raw(e.choice_action), date_format: raw(e.date_format), ...(scripts ? { source_script: raw(e.source_script) } : {}) });
+      coalesce_empty_fields: flag(e.coalesce_empty_fields), use_source_script: flag(e.use_source_script), choice_action: raw(e.choice_action), date_format: raw(e.date_format), ...(scripts ? { source_script: raw(e.source_script) } : {}) });
   }
   const events = await children('sys_transform_script', scripts ? `${SCRIPT_FIELDS},script` : SCRIPT_FIELDS, 'order', MAX_SCRIPTS, 'script');
   for (const s of events.slice(0, MAX_SCRIPTS)) {
@@ -418,7 +419,9 @@ export function formatImportMaps(data) {
     lines.push(m.coalesce.length
       ? `  Coalesce on ${m.coalesce.join(', ')}: a row whose ${m.coalesce.join(' and ')} ${m.coalesce.length > 1 ? 'match' : 'matches'} an existing ${m.target_table} record updates it; any other row inserts a new one.`
       : '  No coalesce field: every row inserts a new record.');
-    if (m.create_new_record_on_empty_coalesce_fields) lines.push('  A row whose coalesce fields are empty inserts a new record.');
+    const empty = m.field_maps.filter(f => f.coalesce && f.coalesce_empty_fields).map(f => f.target_field);
+    if (empty.length) lines.push(`  Coalesce empty fields on ${empty.join(', ')}: an empty value matches an existing record where that field is empty.`);
+    else if (m.create_new_record_on_empty_coalesce_fields) lines.push('  A row whose coalesce fields are all empty inserts a new record.');
     lines.push(`  Field maps (${m.field_maps.length}):`);
     if (m.field_maps.length) {
       const width = Math.max(20, ...m.field_maps.map(f => f.source_field.length + 1));
