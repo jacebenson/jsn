@@ -1,22 +1,22 @@
 {
-  "commit": "re-recorded on current main after merging #708, #707, the app family, usercriteria and connections",
-  "note": "Regenerated from the combined CLI after the merge; one recording covers what each PR recorded on its own. Help is asserted byte-for-byte; the json entry is informational and still from the app-family recording.",
+  "commit": "recorded on main after merging #699 (workflow preferences) conflicts",
+  "note": "Regenerated from the combined CLI after clearing the merge conflicts; help is asserted byte-for-byte, the json entry is informational and still from the earlier app-family recording.",
   "command": "piped (non-TTY) invocation from cli/, JSN_NO_VERSION_CHECK=1 JSN_NO_SKILL_CHECK=1, throwaway XDG_CONFIG_HOME",
   "bytes": {
-    "help": 2960,
+    "help": 2972,
     "json": 87868,
-    "quiet": 2960,
-    "csv": 2960,
-    "markdown": 2960,
-    "get": 2960
+    "quiet": 2972,
+    "csv": 2972,
+    "markdown": 2972,
+    "get": 2972
   },
   "sha256": {
-    "help": "f1c05aa2884f34d9901f291d92b7bb18926f093f44813ee10e4368cb014e8016",
+    "help": "828a9a5314037742e1ce76f04a8d08166d19d937113cecf5940b37f6dfef9e19",
     "json": "0335af96b49bf88a9a46a79cc3f8c24d464dd0ed2ac7ec354f4db53c37c56a04",
-    "quiet": "f1c05aa2884f34d9901f291d92b7bb18926f093f44813ee10e4368cb014e8016",
-    "csv": "f1c05aa2884f34d9901f291d92b7bb18926f093f44813ee10e4368cb014e8016",
-    "markdown": "f1c05aa2884f34d9901f291d92b7bb18926f093f44813ee10e4368cb014e8016",
-    "get": "f1c05aa2884f34d9901f291d92b7bb18926f093f44813ee10e4368cb014e8016"
+    "quiet": "828a9a5314037742e1ce76f04a8d08166d19d937113cecf5940b37f6dfef9e19",
+    "csv": "828a9a5314037742e1ce76f04a8d08166d19d937113cecf5940b37f6dfef9e19",
+    "markdown": "828a9a5314037742e1ce76f04a8d08166d19d937113cecf5940b37f6dfef9e19",
+    "get": "828a9a5314037742e1ce76f04a8d08166d19d937113cecf5940b37f6dfef9e19"
   },
   "json_command_count": 96
 }
