@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { readDependencyTree, formatPluginTree, TREE_LIMITS } from '../src/plugins.js';
 import { pluginsCmd } from '../src/commands/plugins.js';
 import { isMutationCommand } from '../src/mutations.js';
+import { errAPI, errNetwork } from '../src/errors.js';
 import { compareInstanceInventory } from '../src/instance-inventory.js';
 import { loopbackCredentialArgs, loopbackFixtureEnv } from './support/loopback-credential-fixture.mjs';
 
@@ -276,6 +277,11 @@ test('install --yes never reports a rejected, failed, unreadable or unverified a
     ['api_error', { activation: { result: 'text' } }],
     ['plugin_activation_rejected', { activation: { result: { error: 'Plugin ID is not valid', status: '3' } } }],
     ['plugin_activation_unknown', { activation: { result: { status: '0', links: {} } } }],
+    // No answer is not a rejection: a load balancer's 5xx, a timeout or a dropped connection may follow an accepted request.
+    ['plugin_activation_unknown', { activation: errAPI(500, 'snow_adc') }],
+    ['plugin_activation_unknown', { activation: errNetwork(new Error('Request timed out')) }],
+    ['plugin_activation_unknown', { activation: new TypeError('fetch failed') }],
+    ['api_error', { activation: errAPI(404, 'Plugin ID is not valid') }],
     ['plugin_activation_failed', { progress: ['3'] }],
     ['plugin_activation_failed', { progress: ['3'], readback: () => { throw forbidden(); } }],
     ['plugin_progress_unavailable', { progress: [forbidden()] }],

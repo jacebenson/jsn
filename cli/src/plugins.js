@@ -1,4 +1,4 @@
-import { AppError, errAPI, errNotFoundHint, errUsage } from './errors.js';
+import { AppError, CodeNetwork, errAPI, errNotFoundHint, errUsage } from './errors.js';
 import { isSysId } from './resolve-record.js';
 import { waitForOperation } from './store.js';
 
@@ -129,7 +129,15 @@ export async function planActivation(sdk, ids) {
 // One plugin through the CI/CD API, then the tracker, then v_plugin. A tracker alone is never success.
 export async function activatePlugin(sdk, plan, { pollIntervalMs, timeoutMs } = {}) {
   const [id] = plan.requested;
-  const response = await sdk.request(`${sdk.baseURL}/api/sn_cicd/plugin/${encodeURIComponent(id)}/activate`, { method: 'POST' });
+  let response;
+  try {
+    response = await sdk.request(`${sdk.baseURL}/api/sn_cicd/plugin/${encodeURIComponent(id)}/activate`, { method: 'POST' });
+  } catch (error) {
+    // A 4xx is the instance's answer; a timeout, dropped connection or 5xx may follow a request it accepted.
+    if (error instanceof AppError && error.code !== CodeNetwork && !(error.status >= 500)) throw error;
+    throw new AppError('plugin_activation_unknown', `Activation of ${id} may have started, but the request failed (${error.message}), so its state is unknown.`,
+      `Read jsn plugins show ${id} before any retry; jsn never resends an activation.`);
+  }
   const result = response?.result;
   if (!result || typeof result !== 'object') throw errAPI(200, `The activation request for ${id} returned no result, so its state is unknown. Read jsn plugins show ${id} before retrying.`);
   const tracker = result.links?.progress?.id;
