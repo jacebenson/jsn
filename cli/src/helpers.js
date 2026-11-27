@@ -5,7 +5,7 @@ import readline from 'node:readline';
 import { paginatedSearch } from './paginated-search.js';
 import { isTTY, FormatAuto } from './output.js';
 import { getActiveProfile } from './config.js';
-import { errConfirmationRequired, isTerminalAuthError } from './errors.js';
+import { AppError, CodeConfirmationRequired, errConfirmationRequired, isTerminalAuthError } from './errors.js';
 
 /**
  * Detect whether a human is actually available to answer interactive
@@ -103,20 +103,61 @@ export function quoteShellArg(value) {
  */
 export function buildRerunCommand(argv = {}, { rerun = null } = {}) {
   let parts;
+  let tokens = null;   // the argv tokens, when the caller supplied them
+  let text = null;     // a complete command string, used verbatim
   if (Array.isArray(rerun) && rerun.length > 0) {
-    parts = ['jsn', ...rerun].map(quoteShellArg);
+    tokens = [...rerun];
+    parts = ['jsn', ...tokens].map(quoteShellArg);
   } else if (typeof rerun === 'string' && rerun.trim()) {
-    parts = [rerun.trim()];
+    text = rerun.trim();
+    parts = [text];
   } else {
-    parts = ['jsn', ...(argv?._ || [])].map(quoteShellArg);
+    tokens = [...(argv?._ || [])];
+    parts = ['jsn', ...tokens].map(quoteShellArg);
   }
-  if (parts.length === 1) return ''; // no path known — nothing worth repeating
-  const joined = parts.join(' ');
+  if (parts.length === 1 && text === null) return ''; // no path known — nothing worth repeating
+  // A selector is present only as its own token (`--profile x`, `--profile=x`).
+  // Matching the joined command would let a directory or query that merely
+  // contains "--profile" suppress the pin, and the hint would then retarget
+  // the default profile or instance.
+  const selects = name => (text === null
+    ? tokens.some(token => String(token) === name || String(token).startsWith(`${name}=`))
+    : new RegExp(`(^|\\s)${name}(=|\\s|$)`).test(text));
   // Re-pin the profile/instance the caller was operating on, so following
   // the hint cannot silently retarget a different instance or profile.
-  if (argv?.profile && !joined.includes('--profile')) parts.push('--profile', quoteShellArg(argv.profile));
-  if (argv?.instance && !joined.includes('--instance')) parts.push('--instance', quoteShellArg(argv.instance));
+  if (argv?.profile && !selects('--profile')) parts.push('--profile', quoteShellArg(argv.profile));
+  if (argv?.instance && !selects('--instance')) parts.push('--instance', quoteShellArg(argv.instance));
   return parts.join(' ');
+}
+
+/**
+ * Confirm a command that writes instance state and is keyed off `--yes`.
+ *
+ * This is the `--yes` family used by commands whose write target is only known
+ * after local work (`updatesets import`, `app deploy`): the approval is a
+ * statement about the target that was displayed, so a prompt only runs when a
+ * human is present, a piped/agent invocation is refused with the exact rerun
+ * command, and machine output (`--json`, `--get`, an explicit `--format`) never
+ * turns into an interactive question.
+ *
+ * @param {object} argv — parsed args (reads `yes`, `json`, `get`, `format`)
+ * @param {object} app — app instance (accepted for symmetry with the other
+ *   confirmation helpers; this family does not consult profile preferences)
+ * @param {string} question — e.g. `Install app "Demo" 1.0.0 on https://…?`
+ * @param {object} [options] — { rerun } complete rerun command or token array
+ * @returns {Promise<boolean>} true when the action may proceed
+ * @throws AppError(confirmation_required) when refused or unavailable
+ */
+export async function confirmWrite(argv, app, question, { rerun = null } = {}) {
+  if (argv.yes) return true;
+  if (!canPrompt() || argv.json || argv.get || (argv.format && argv.format !== FormatAuto)) {
+    throw new AppError(CodeConfirmationRequired, `${question} — confirmation required. Pass --yes after approving this target.`,
+      `Rerun: ${buildRerunCommand(argv, { rerun })}`);
+  }
+  // Loaded on demand: this helper is reachable from every command module, and
+  // only an interactive confirmation needs the prompt engine.
+  const { confirm } = await import('./prompts.js');
+  return confirm({ message: question, default: false });
 }
 
 /**

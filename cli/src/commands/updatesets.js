@@ -4,11 +4,11 @@ import { diffUpdateSets } from '../update-set-diff.js';
 import path from 'node:path';
 import { inspectUpdateSetXML, updateSetFilename, MAX_UPDATE_SET_BYTES } from '../update-set-xml.js';
 import { editor, confirm } from '../prompts.js';
-import { formatRecordForDisplay, getStringField, interactiveList, assertSafeExactMatch, canPrompt, buildRerunCommand, verifyWriteBack, quoteShellArg } from '../helpers.js';
+import { formatRecordForDisplay, getStringField, interactiveList, assertSafeExactMatch, canPrompt, buildRerunCommand, confirmWrite, verifyWriteBack, quoteShellArg } from '../helpers.js';
 import { getActiveProfile } from '../config.js';
 import { FormatAuto } from '../output.js';
 import { getCurrentApplication, getCurrentUpdateSet, requireCurrentUserSysId, setCurrentApplication, setCurrentUpdateSet } from '../context.js';
-import { AppError, CodeConfirmationRequired, errAPI, errUsage, errConfirmationRequired } from '../errors.js';
+import { errAPI, errUsage, errConfirmationRequired } from '../errors.js';
 import { resolveScope } from './scopes.js';
 import { unwrapSysId } from '../resolve-record.js';
 import { assertNoUnresolvedProblems, DEFAULT_OPERATION_TIMEOUT_MS } from '../update-set-apply.js';
@@ -214,12 +214,7 @@ async function findRetrievedByRemoteSysId(app, remoteSysId) {
  * @returns {Promise<boolean>} false when the human declined
  */
 async function confirmUpdateSetMutation(argv, app, question, rerun) {
-  if (argv.yes) return true;
-  if (!canPrompt() || argv.json || argv.get || (argv.format && argv.format !== FormatAuto)) {
-    throw new AppError(CodeConfirmationRequired, `${question} — confirmation required. Pass --yes after approving this target.`,
-      `Rerun: ${buildRerunCommand(argv, { rerun })}`);
-  }
-  return confirm({ message: question, default: false });
+  return confirmWrite(argv, app, question, { rerun });
 }
 
 function timeoutFrom(argv) {

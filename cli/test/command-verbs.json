@@ -282,11 +282,20 @@
     },
     "why": {
       "why": "why explains the per-record cause for one artifact - why a scheduled job did not run, why an email was ignored, why a flow, field or column did not apply, why a notification was not sent. show prints the configuration record, status reports across records without testing one, and inspect reads history rather than explaining cause."
+    },
+    "app": {
+      "why": "The project noun for a shared on-disk record format that both ad hoc uploads and packaged apps use; records reads instance rows and updatesets manages instance sets, while neither names the local directory format, and appmenu/appmodules are navigation tables."
+    },
+    "build": {
+      "why": "build compiles a validated local project into one artifact in a single step; export downloads an existing update set from an instance, create makes instance rows, and neither reads app.yaml or writes anything without an instance."
+    },
+    "deploy": {
+      "why": "deploy is the instance-side counterpart of build: it installs the package that build produced and verifies each record. install names a Store or plugin install and would blur that this ships the local project; create and update write one record, not an application."
     }
   },
   "budgets": {
     "$comment": "Subcommand count per family. A budget is a ratchet, not a ban: when a new command earns its place, raise the number in the same diff and say why in the PR. Adding a family means adding its budget entry.",
-    "total": 480,
+    "total": 482,
     "families": {
       "access-analyzer": 4,
       "acls": 5,
@@ -384,7 +393,8 @@
       "uxscripts": 5,
       "version": 0,
       "views": 5,
-      "workflows": 2
+      "workflows": 2,
+      "app": 2
     }
   }
 }

@@ -2,6 +2,7 @@
 import { SaxesParser } from 'saxes';
 import { AppError, errAPI, errUsage } from './errors.js';
 import { getStringField } from './helpers.js';
+import { parseUploadFormCSRF } from './sdk.js';
 
 export const DEFAULT_XML_EXPORT_LIMIT = 10000;
 // The 30-second request default covers the whole response; writing or loading an unload near the cap takes minutes.
@@ -109,8 +110,8 @@ export async function importUnloadXML(sdk, xml, records) {
   const target = records[0].table;
   const formURL = `${sdk.baseURL}/upload.do?sysparm_target=${target}`;
   const html = await sdk.rawRequest(formURL, { method: 'GET', headers: cookies ? { Cookie: cookies } : {} });
-  const csrf = html.match(/name=["']sysparm_ck["'][^>]*value=["']([^"']+)["']/i)?.[1];
-  if (!csrf || !/action=["']\/sys_upload\.do["']/i.test(html) || !/name=["']attachFile["']/i.test(html)) {
+  const csrf = parseUploadFormCSRF(html);
+  if (!csrf) {
     throw errUsage('The XML upload form is unavailable; nothing was uploaded. Importing XML needs the admin role and a UI session.');
   }
   const form = new FormData();

@@ -540,6 +540,24 @@ const deferredFamilies = {
     },
     module: "./commands/updatesets.js", exportName: "updateSetsCmd",
   },
+  "app": {
+    definition: {
+      command: "app [subcommand]",
+      describe: "Build a local app project into a deployable artifact, or deploy the package backend to an instance",
+    },
+    capabilities: {
+      noInstance: true,
+      skipDailyChecks: true,
+      // `app` reads and builds locally with no instance. `deploy` installs a
+      // package, so it is a mutation: declared here so the instance requirement,
+      // read-only refusal and help all derive from this one declaration.
+      mutationSubcommands: ["deploy"],
+      // An install writes application records, not a record in a chosen table:
+      // there is no capture context (scope + update set) to verify.
+      mutationContextExemptSubcommands: ["deploy"],
+    },
+    module: "./commands/app.js", exportName: "appCmd",
+  },
   "scopes": {
     definition: {
       command: "scopes [subcommand]",
