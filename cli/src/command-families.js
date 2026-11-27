@@ -166,6 +166,19 @@ const deferredFamilies = {
 // Hand-written families declare their root identity here, once. The command
 // module spreads this same object instead of publishing a second copy.
 
+  "events": {
+    definition: {
+      command: "events [subcommand]",
+      describe: "Inspect the event log, its backlog and reprocess a recorded event",
+    },
+    capabilities: {
+      queryTable: "sysevent",
+      mutationContext: "operational",
+      mutationSubcommands: ["reprocess"],
+      localPreviewSubcommands: ["reprocess"],
+    },
+    module: "./commands/events.js", exportName: "eventsCmd",
+  },
   "tower": {
     definition: {
       command: "tower",

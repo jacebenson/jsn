@@ -347,6 +347,7 @@ export function buildCLI() {
     .command(deferredFamily('scheduledjobs', wrap))
     .command(deferredFamily('asyncrules', wrap))
     .command(deferredFamily('triggers', wrap))
+    .command(deferredFamily('events', wrap))
     // AUTOMATION — In Memory
     .command(deferredFamily('rules', wrap))
     .command(deferredFamily('decisiontables', wrap))
