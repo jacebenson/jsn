@@ -438,7 +438,8 @@ merged plan. `--yes` activates one plugin through `POST /api/sn_cicd/plugin/<id>
 (admin or `sn_cicd.sys_ci_automation`), waits on its tracker (`--timeout`, `--poll-interval`),
 and reads every plugin it listed back from `v_plugin`; only all of them active is success. An
 active plugin, a blocked install, an incomplete tree, or more than one id is refused before
-anything is sent. A wait that ends first keeps the tracker and exits 1; nothing is resent.
+anything is sent. A wait that ends first keeps the tracker and exits 1; nothing is resent. A
+request that times out, drops or gets a 5xx is reported as possibly started, never as rejected.
 
 `plans` lists the batch install plans the platform records in `sys_batch_install_plan`, newest
 first (`--limit`, default 20). `plans <name or sys_id>` shows one plan with its items from

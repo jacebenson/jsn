@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { readDependencyTree, formatPluginTree, TREE_LIMITS, listPlans, showPlan, formatPlan, formatPlans } from '../src/plugins.js';
 import { pluginsCmd } from '../src/commands/plugins.js';
 import { isMutationCommand } from '../src/mutations.js';
+import { errAPI, errNetwork } from '../src/errors.js';
 import { compareInstanceInventory } from '../src/instance-inventory.js';
 import { loopbackCredentialArgs, loopbackFixtureEnv } from './support/loopback-credential-fixture.mjs';
 
@@ -78,6 +79,8 @@ test('malformed, denied and inconsistent responses are never reported as a tree'
     'the same row twice': found => [...found, ...found],
     'a row without an id': found => found.map(row => ({ ...row, id: '' })),
     'a non-object row': () => ['com.example.root'],
+    // A field ACL can drop requires from the row; read as no requirements, the tree would look complete.
+    'a row without requires': found => found.map(({ requires: _requires, ...row }) => row),
   };
   for (const [name, reply] of Object.entries(cases)) await assert.rejects(readDependencyTree(fixtureSdk(graph, reply), 'com.example.root'), /Malformed v_plugin response/, name);
   const denied = { listStrict: async () => { throw Object.assign(new Error('Forbidden'), { status: 403 }); } };
@@ -274,6 +277,11 @@ test('install --yes never reports a rejected, failed, unreadable or unverified a
     ['api_error', { activation: { result: 'text' } }],
     ['plugin_activation_rejected', { activation: { result: { error: 'Plugin ID is not valid', status: '3' } } }],
     ['plugin_activation_unknown', { activation: { result: { status: '0', links: {} } } }],
+    // No answer is not a rejection: a load balancer's 5xx, a timeout or a dropped connection may follow an accepted request.
+    ['plugin_activation_unknown', { activation: errAPI(500, 'snow_adc') }],
+    ['plugin_activation_unknown', { activation: errNetwork(new Error('Request timed out')) }],
+    ['plugin_activation_unknown', { activation: new TypeError('fetch failed') }],
+    ['api_error', { activation: errAPI(404, 'Plugin ID is not valid') }],
     ['plugin_activation_failed', { progress: ['3'] }],
     ['plugin_activation_failed', { progress: ['3'], readback: () => { throw forbidden(); } }],
     ['plugin_progress_unavailable', { progress: [forbidden()] }],
@@ -282,7 +290,8 @@ test('install --yes never reports a rejected, failed, unreadable or unverified a
   ];
   for (const [code, options] of cases) {
     const f = installFixture(options);
-    await assert.rejects(f.run({ ids: ['com.example.root'], yes: true }), error => error.code === code, code);
+    // Every recovery hint keeps the selectors, so following one reads the instance that ran the activation.
+    await assert.rejects(f.run({ ids: ['com.example.root'], yes: true, profile: 'vendor' }), error => error.code === code && (code === 'api_error' || /plugins show com\.example\.root --profile vendor/.test(error.hint)), code);
     assert.equal(f.sent.filter(s => s.url.includes('/activate')).length, 1, code);
     assert.equal(f.data, undefined, code);
   }
@@ -405,6 +414,8 @@ test('real CLI shows the tree read-only with JSON, --get, human output and stric
     assert.deepEqual([narrowed.data.tree.plugin, narrowed.data.records.length, narrowed.data.counts.matching], ['com.example.root', 4, 4]);
     const before = calls.length;
     for (const args of [['show', 'bad^id'], ['show'], ['show', 'com.example.root', '--typo'], ['compare', 'com.example.a', 'com.example.b', '--source', 'fixture', '--target', 'fixture']]) await assert.rejects(run(['plugins', ...args, '--json']), undefined, JSON.stringify(args));
+    // jsn compare and jsn store compare take no id, so a stray one is refused rather than ignored.
+    for (const args of [['compare'], ['store', 'compare']]) await assert.rejects(run([...args, 'com.example.a', '--source', 'fixture', '--target', 'fixture', '--json']), error => error.code === 2, JSON.stringify(args));
     assert.equal(calls.length, before);
     await assert.rejects(run(['plugins', 'show', 'com.example.absent', '--json']), error => error.code === 1 && /Error \(not_found\): Plugin not found: com\.example\.absent[\s\S]*does not show it is absent or inactive/.test(error.stderr));
     const installBefore = calls.length;
