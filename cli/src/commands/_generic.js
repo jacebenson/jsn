@@ -261,7 +261,7 @@ export function buildDevCmd(name, table, aliases, defaultColumns, wrap, opts = {
               summary: `Created ${singular}`,
               breadcrumbs: [
                 { action: 'show', cmd: `jsn ${name} show ${getStringField(record, 'name') || getStringField(record, 'sys_id')}`, description: `View the new ${singular}` },
-                ...(opts.createBreadcrumbs || []),
+                ...(typeof opts.createBreadcrumbs === 'function' ? opts.createBreadcrumbs(argv, app) : opts.createBreadcrumbs || []),
               ],
             });
           }),

@@ -1,7 +1,9 @@
 import { deferredFamilyDefinition } from '../command-families.js';
 
 // Raw REST passthrough — can hit any endpoint with any method, so the whole
-// command is a mutation surface on read-only profiles.
+// command is a mutation surface on read-only profiles. Its operation mapping
+// (method to create/update/delete) is declared in command-families.js, where
+// the capability must be known before this module loads.
 
 export function restCmd(wrap) {
   return {

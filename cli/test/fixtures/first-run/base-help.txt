@@ -29,7 +29,7 @@ jsn --all-commands --help for details
                    uxapplicability appmenu appmodules
   DATA             tables columns relationships cmdb includes import logs
                    properties records transactions snippets
-  CONFIGURATION    setup auth updatesets scopes midservers platform
+  CONFIGURATION    setup preferences auth updatesets scopes midservers platform
   DEVELOPER        scan atf eval fixscripts rest graphql codesearch docs
                    document diff perf skill version
   OTHER            app cases workflows attachments store plugins compare

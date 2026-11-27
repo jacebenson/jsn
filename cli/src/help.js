@@ -162,6 +162,7 @@ const DATA_COMMANDS = [
 
 const CONFIG_COMMANDS = [
   { name: 'setup', desc: 'Set up and manage instances (interactive: add, switch, remove, modify)' },
+  { name: 'preferences', desc: 'Workflow preferences (operations, testing guidance, update-set naming)' },
   { name: 'auth', desc: 'Authentication (login, refresh, status)' },
   { name: 'updatesets', desc: 'Update sets (set, create, export)' },
   { name: 'scopes', desc: 'Application scopes' },

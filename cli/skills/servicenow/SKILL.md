@@ -14,10 +14,10 @@ Discover commands with `jsn --help`, `jsn discover "search words"`, and
 `jsn <command> --help`. Help is the reference; this file is the shortcuts.
 
 - Verify the intended instance and select it explicitly with `--profile <name>`.
-- `eval` and `fixscripts run` are the last resort. Explain why and get approval; never
-  bypass ServiceNow protections to get an answer.
-- Honor delete confirmations. Get approval for destructive work and Global +
-  Default mutations; use `--force` only for the approved operation.
+- `eval` and `fixscripts run` are the last resort: explain why, get approval, never
+  bypass ServiceNow protections for an answer.
+- Honor delete confirmations; get approval for destructive and Global + Default
+  mutations. `--force` is for the approved operation only.
 
 ## Before you reach for eval
 
@@ -40,32 +40,31 @@ Discover commands with `jsn --help`, `jsn discover "search words"`, and
 | Why a user cannot reach a record | `jsn access-analyzer check --user <u> --table <t> --record <id>` |
 | Documentation | `jsn docs "query"` or `jsn docs --path <path>` |
 
-Every write in that table previews first; `--yes` on a delete needs
-the count its preview printed. Cascade previews and impersonated writes are
-writes too: `--preview-cascade` creates and deletes one Data Management job, and
-writing as another user needs the human's approval plus `--impersonate-writes`.
+Every write in that table previews first; `--yes` on a delete needs the count its
+preview printed. `--preview-cascade` writes too (one Data Management job), and
+impersonated writes need the human's approval plus `--impersonate-writes`.
 
-Watching streams newline-delimited JSON (`record_change`, `gap`,
-`watch_summary`). Run it for a bounded window and report what arrived; a `gap` or
-`"complete": false` means events were missed, so re-read the record.
+Watching streams NDJSON (`record_change`, `gap`, `watch_summary`); run it for a bounded
+window and report what arrived. A `gap` or `"complete": false` means events were missed,
+so re-read the record.
 
 For development:
 
 1. Choose or create the application scope and update set.
-2. Supply task-owned `--expect-scope <scope/name/id>` and
-   `--expect-update-set <name/id>` on customization writes, or explicitly save
-   profile-and-instance-bound `write_context` in local `.servicenow/config.json`.
-   Never derive intended values from current preferences. `--force` cannot bypass
-   missing intent, unknown context or mismatches. Domain-scoped customization
-   currently refuses, including `--expect-domain`, because `X-Now-Domain` does not
-   prove effective domain. Inspect with `auth status --context`; `--local` is offline.
-   Reads never print or fetch automatic context. Ordinary ticket/data edits do not
-   need customization expectations. Keep related development changes together.
+2. Supply task-owned `--expect-scope <scope/name/id>` and `--expect-update-set <name/id>`
+   on customization writes, or save profile-and-instance-bound `write_context` in local
+   `.servicenow/config.json`. Never derive intended values from current preferences, and
+   `--force` cannot bypass missing intent, unknown context or mismatches. Domain-scoped
+   customization refuses, including `--expect-domain`, because `X-Now-Domain` does not
+   prove effective domain; inspect with `auth status --context`. Reads never print or
+   fetch automatic context, and ordinary ticket/data edits need no expectations.
 3. Verify the results on the instance and report where changes were captured.
-4. Offer to run relevant existing ATFs and instance scans, or create missing checks.
-5. Ask whether anything else belongs in the update set; if it is finished,
-   complete it with notes.
+4. Read the target's effective preferences with `jsn preferences show --profile <p> --json`
+   (or `--instance <URL>`): an `operations` denial cannot be forced past, `testing` names
+   the checks to offer (none when `recommend` is false or methods are empty), and
+   `suggestMissing` gates proposing new ones. `jsn atf` and `jsn scan` stay available;
+   never auto-create or auto-run tests.
+5. Ask whether anything else belongs; when finished, complete it with notes.
 
-For incoming update sets: import the XML, preview the set, and resolve preview
-errors with the human where needed. Once the preview is clear, commit the set
-and verify the results.
+For incoming update sets: import the XML, preview it, resolve preview errors with the
+human, then commit and verify.
