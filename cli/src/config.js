@@ -8,7 +8,7 @@ const APP_NAME = 'servicenow';
 // Persistence provenance is private: project JSON cannot forge it.
 const persistence = new WeakMap();
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
-const fields = ['instanceURL', 'defaultProfile', 'format', 'connectionDefaults', 'docs'];
+const fields = ['instanceURL', 'defaultProfile', 'format', 'connectionDefaults', 'docs', 'preferences'];
 function snapshot(cfg) {
   return structuredClone(Object.fromEntries([...fields, 'profiles'].map(key => [key, cfg[key]])));
 }
@@ -55,6 +55,7 @@ function loadFromFile(cfg, filePath, source) {
     const fileCfg = JSON.parse(data);
     // Installation-wide preferences are never taken from a project config.
     if (source === 'global') {
+      if (Object.hasOwn(fileCfg, 'preferences')) cfg.preferences = fileCfg.preferences;
       if (fileCfg.connection_defaults && typeof fileCfg.connection_defaults === 'object') cfg.connectionDefaults = fileCfg.connection_defaults;
       if (fileCfg.docs && typeof fileCfg.docs === 'object') cfg.docs = fileCfg.docs;
     }
@@ -102,6 +103,7 @@ export function createConfig() {
     sources: {},
     connectionDefaults: null,
     docs: null,
+    preferences: null,
   };
 }
 
@@ -192,11 +194,26 @@ export function saveConfig(cfg, { approvedProfile = '', approveDefault = false }
       changedFields.add(key);
     }
   }
+  // Preserve unrelated global keys and preferences written through the
+  // preference setter since this config snapshot was loaded. Never read local.
+  let stored = {};
+  try { stored = JSON.parse(fs.readFileSync(globalConfigPath(), 'utf8')); } catch { /* absent */ }
+  if (!stored || typeof stored !== 'object' || Array.isArray(stored)) stored = {};
+  if (state && same(cfg.preferences, state.effective.preferences)) next.preferences = structuredClone(stored.preferences);
+  if (state) for (const [name, profile] of Object.entries(next.profiles)) {
+    if (same(cfg.profiles[name]?.preferences, state.effective.profiles[name]?.preferences)) {
+      const preferences = stored.profiles?.[name]?.preferences;
+      if (preferences === undefined) delete profile.preferences;
+      else profile.preferences = structuredClone(preferences);
+    }
+  }
   const dir = globalConfigDir();
   fs.mkdirSync(dir, { recursive: true, mode: 0o750 });
   const payload = {
+    ...stored,
     connection_defaults: next.connectionDefaults || undefined,
     docs: next.docs || undefined,
+    preferences: next.preferences ?? undefined,
     instance_url: next.instanceURL || undefined,
     profiles: Object.keys(next.profiles).length > 0 ? next.profiles : undefined,
     default_profile: next.defaultProfile || undefined,

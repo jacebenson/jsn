@@ -482,7 +482,8 @@ export class LocalCLI {
    * it, and a family with no migrated guide gains no invented URL.
    */
   _docsEpilogue(node, path) {
-    const base = node.epilogueText;
+    const base = typeof node.epilogueText === 'function'
+      ? node.epilogueText(this.parseGlobalOptions(this.args) || {}) : node.epilogueText;
     const link = path.length ? resolveDocLink(path[0]) : null;
     if (!link || (base && base.includes(link))) return base;
     const line = `Documentation: ${link}`;

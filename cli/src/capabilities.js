@@ -59,7 +59,9 @@ const REGISTRY = new Map();
  * @returns {object} the caps object (for convenient inline use)
  */
 export function declareCapabilities(name, caps) {
-  REGISTRY.set(name, { ...caps });
+  const operations = Object.fromEntries((caps.mutationSubcommands || []).map(sub =>
+    [sub, sub === '' ? 'update' : OPERATION_VERBS.get(sub.split(' ').at(-1)) || null]));
+  REGISTRY.set(name, { ...caps, ...(caps.mutationSubcommands?.length ? { operations: { ...operations, ...caps.operations } } : {}) });
   return caps;
 }
 
@@ -150,6 +152,51 @@ export function mutationPaths(caps = collectCapabilities()) {
 /** Test hook: clear the registry between isolated buildCLI() runs. */
 export function _resetCapabilities() {
   REGISTRY.clear();
+}
+
+// Verb -> operation class. Only verbs that the capability registry already
+// declares as mutations can be classified; reads stay null. This is derived
+// from the registry, not a second command-name allowlist.
+const OPERATION_VERBS = new Map([
+  ['create', 'create'], ['add', 'create'], ['upload', 'create'], ['clone', 'create'],
+  ['copy', 'create'], ['install', 'create'], ['import', 'create'], ['order', 'create'],
+  ['update', 'update'], ['edit', 'update'], ['set', 'update'], ['publish', 'update'],
+  ['complete', 'update'], ['commit', 'update'], ['preview', 'update'],
+  ['parent', 'update'], ['ignore', 'update'], ['reopen', 'update'], ['process', 'update'],
+  ['approve', 'update'], ['reject', 'update'], ['submit', 'update'], ['start', 'update'],
+  ['stop', 'update'], ['validate', 'update'], ['execute', 'update'], ['activate', 'update'],
+  ['deactivate', 'update'], ['add-check', 'update'], ['remove-check', 'update'],
+  ['run', 'update'], ['run-suite', 'update'], ['test', 'update'], ['unlock', 'update'],
+  ['session-set', 'update'], ['session-reset', 'update'], ['cancel', 'update'],
+  ['delete', 'delete'], ['remove', 'delete'], ['delete-many', 'delete'],
+]);
+
+/**
+ * Classify the operation a command performs for the preference guard.
+ *
+ * Derived from the mutation declarations in this registry:
+ *   - a declared mutating subcommand maps its verb to create/update/delete;
+ *   - a whole-command mutation (mutationSubcommands: ['']) uses its known
+ *     method (`rest --method DELETE`) or is treated as update (`eval`);
+ *   - read commands and unclassifiable mixed surfaces (`records bulk`) are null.
+ *
+ * This is a workflow opinion, not a security boundary: it only knows the
+ * operations JSN itself performs.
+ *
+ * @param {object} argv — parsed argv with `_`
+ * @param {Map<string, object>} [caps]
+ * @returns {'create'|'update'|'delete'|null}
+ */
+export function operationOf(argv, caps = collectCapabilities()) {
+  const tokens = argv?._ || [];
+  const capability = caps.get(tokens[0]);
+  if (!capability?.mutationSubcommands) return null;
+  const sub = capability.mutationSubcommands
+    .filter(sub => (sub ? sub.split(' ') : []).every((token, index) => tokens[index + 1] === token))
+    .sort((a, b) => b.length - a.length)[0];
+  if (sub === undefined) return null;
+  const operation = capability.operations?.[sub];
+  return typeof operation === 'function' ? operation(argv) : operation ?? null;
 }
 
 /** Declared local-only previews bypass instance access, including context headers. */
