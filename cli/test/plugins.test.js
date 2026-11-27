@@ -236,6 +236,8 @@ test('install refuses before sending: several ids with --yes, bad input, active,
     'already active': installGraph().map(row => row.id === 'com.example.root' ? { ...row, active: 'active' } : row),
     'it is required, inactive and its install is blocked': installGraph().map(row => row.id === 'com.example.c' ? { ...row, block_install: 'true' } : row),
     'install is blocked': installGraph().map(row => row.id === 'com.example.root' ? { ...row, block_install: 'true' } : row),
+    // A field ACL can drop block_install; read as not blocked, a blocked plugin would pass the gate.
+    'its install block could not be read': installGraph().map(row => row.id === 'com.example.c' ? { ...row, block_install: '' } : row),
     'its dependency tree is incomplete (the depth limit was reached)': Array.from({ length: TREE_LIMITS.depth + 2 }, (_, i) => plugin(i ? `com.example.p${i}` : 'com.example.root', [`com.example.p${i + 1}`], { active: 'inactive' })),
   };
   for (const [reason, rows] of Object.entries(cases)) {
