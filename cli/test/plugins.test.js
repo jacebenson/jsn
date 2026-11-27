@@ -58,7 +58,7 @@ test('a plugin with no dependencies reads once; an id v_plugin does not list is 
   assert.equal(lone.calls.length, 1);
   assert.equal(data.count, 0);
   assert.match(formatPluginTree(data), /\(no dependencies\)/);
-  await assert.rejects(readDependencyTree(fixtureSdk(), 'com.example.absent'), error => error.code === 'not_found' && /Plugin not found: com\.example\.absent/.test(error.message));
+  await assert.rejects(readDependencyTree(fixtureSdk(), 'com.example.absent'), error => error.code === 'not_found' && /Plugin not found: com\.example\.absent/.test(error.message) && /does not show it is absent or inactive/.test(error.hint));
 });
 
 test('invalid plugin ids are refused before any request', async () => {
@@ -115,7 +115,7 @@ test('real CLI shows the tree read-only with JSON, --get, human output and stric
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-plugins-'));
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-plugins-')));
   fs.mkdirSync(path.join(dir, 'servicenow'));
   fs.writeFileSync(path.join(dir, 'servicenow/config.json'), JSON.stringify({ default_profile: 'fixture', profiles: { fixture: { instance_url: `http://127.0.0.1:${server.address().port}`, auth_method: 'basic', read_only: true } } }));
   const env = loopbackFixtureEnv({ HOME: dir, XDG_CONFIG_HOME: dir, XDG_CACHE_HOME: dir, JSN_DATA_HOME: path.join(dir, 'data'), SN_USERNAME: 'fixture', SN_PASSWORD: 'fixture-secret', JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_HEADER: '1', JSN_NO_PROMPTS: '1' });
@@ -131,7 +131,7 @@ test('real CLI shows the tree read-only with JSON, --get, human output and stric
     const before = calls.length;
     for (const args of [['show', 'bad^id'], ['show'], ['show', 'com.example.root', '--typo']]) await assert.rejects(run(['plugins', ...args, '--json']), undefined, JSON.stringify(args));
     assert.equal(calls.length, before);
-    await assert.rejects(run(['plugins', 'show', 'com.example.absent', '--json']), error => error.code === 1 && /Error \(not_found\): Plugin not found: com\.example\.absent/.test(error.stderr));
+    await assert.rejects(run(['plugins', 'show', 'com.example.absent', '--json']), error => error.code === 1 && /Error \(not_found\): Plugin not found: com\.example\.absent[\s\S]*does not show it is absent or inactive/.test(error.stderr));
     const reads = calls.filter(call => call.pathname.startsWith('/api/now/table/'));
     assert.ok(reads.length && reads.every(call => call.method === 'GET' && call.pathname === '/api/now/table/v_plugin'));
   } finally {
