@@ -2,12 +2,13 @@
 // pause and stop conditions match? Condition strings only evaluate on the server, so one background script
 // tests them with the call SLAConditionBase makes. The script only reads.
 import { AppError, CodeAPI } from './errors.js';
-import { SYS_ID, TABLE, listSlas, showSla, taskSlas } from './slas.js';
+import { SYS_ID, TABLE, checkDefinition, checkTask, listSlas, showSla, taskSlas } from './slas.js';
 
 const MARK = 'JSN_SLA_WHY:';
 const LIMIT = 100;
 const NAMES = ['start', 'pause', 'resume', 'stop', 'cancel'];
 const empty = table => `No readable active SLA definitions on ${table}. ACLs can hide rows, so an empty list does not prove there are none.`;
+const NO_TASK_SLAS = 'No readable task SLAs on the record. ACLs can hide rows, so a definition shown as not attached may still be attached.';
 const malformed = () => new AppError(CodeAPI, 'The SLA condition check returned no readable result.');
 
 // The table and ids are validated, so they are safe inside quotes. ES5, as background scripts run.
@@ -60,6 +61,8 @@ function verdict(d, r, task) {
 }
 
 export async function whySlas(sdk, { task: identifier, definition } = {}) {
+  checkTask(identifier);
+  if (definition !== undefined) checkDefinition(definition);
   const named = definition === undefined ? null : await showSla(sdk, definition);
   const { task, records: taskSlaRows, more: moreTaskSlas } = await taskSlas(sdk, identifier);
   if (!TABLE.test(task.table)) throw malformed();
@@ -68,7 +71,7 @@ export async function whySlas(sdk, { task: identifier, definition } = {}) {
   if (records.length) {
     const ids = records.map(d => d.sys_id);
     if (!SYS_ID.test(task.sys_id) || !ids.every(sysId => SYS_ID.test(sysId))) throw malformed();
-    const line = String(await sdk.executeScript(whyScript(task.table, task.sys_id, ids), 'global', { rollback: false })).match(/JSN_SLA_WHY:(\{[^\r\n]*\})/);
+    const line = String(await sdk.executeScript(whyScript(task.table, task.sys_id, ids), 'global', { rollback: false, finished: /JSN_SLA_WHY:\{/ })).match(/JSN_SLA_WHY:(\{[^\r\n]*\})/);
     if (!line) throw malformed();
     try { out = JSON.parse(line[1]); } catch { throw malformed(); }
     if (out?.found === false) throw new AppError(CodeAPI, `The background script could not read ${task.table} ${task.sys_id}.`);
@@ -86,7 +89,7 @@ export async function whySlas(sdk, { task: identifier, definition } = {}) {
     return { ...row, verdict: verdict(row, r, task) };
   });
   return { task, case_sensitive: out.case_sensitive, records: rows, count: rows.length, attached: rows.filter(d => d.task_slas.some(t => t.active)).length,
-    more: pagination.has_more, more_task_slas: moreTaskSlas, ...(rows.length ? {} : { visibility: empty(task.table) }) };
+    more: pagination.has_more, more_task_slas: moreTaskSlas, ...(!rows.length ? { visibility: empty(task.table) } : !taskSlaRows.length ? { visibility: NO_TASK_SLAS } : {}) };
 }
 
 const STATE = { true: 'matches', false: 'no match', null: 'empty' };
@@ -96,7 +99,7 @@ export function formatSlaWhy(data) {
     lines.push(`  ${d.name} [${d.sys_id}]`, `    ${Object.entries(d.conditions).map(([name, value]) => `${name} ${STATE[value]}`).join(', ')}`,
       ...d.task_slas.filter(t => !t.active).map(t => `    earlier task SLA [${t.sys_id}]: ${stage(t)}`), `    ${d.verdict}`);
   }
-  if (!data.count) lines.push(empty(data.task.table));
+  if (data.visibility) lines.push(data.visibility);
   if (data.more) lines.push(`More than ${LIMIT} active definitions on ${data.task.table}; only the first ${LIMIT} by name were tested.`);
   if (data.more_task_slas) lines.push('More than 100 task SLAs on the record; attachment is judged from the first 100 by start time.');
   if (data.case_sensitive !== null) lines.push(`Conditions were matched ${data.case_sensitive ? 'case-sensitively' : 'ignoring case'}, as com.snc.sla.condition.case_sensitive sets. Contract and service offering rules were not tested.`);

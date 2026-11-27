@@ -87,6 +87,7 @@ test('reads the record, its task SLAs and the active definitions on its table, t
   assert.equal(f.calls.length, 4, 'one background script');
   assert.equal(f.calls[3].scope, 'global');
   assert.equal(f.calls[3].opts.rollback, false, 'no rollback context is recorded');
+  assert.equal('visibility' in data, false);
   assert.deepEqual(f.instance.reads.slice(0, 2), [['get', 'incident', INC], ['get', 'contract_sla', P1]], 'the record is loaded as its own class');
   assert.deepEqual(f.instance.reads.filter(([kind]) => kind === 'check').slice(0, 3), [['check', 'incident', INC, 'priority=1', true, false],
     ['check', 'incident', INC, 'state=3', true, false], ['check', 'incident', INC, 'state=7', true, false]], 'SLAConditionBase\'s call, case-insensitive by default');
@@ -151,6 +152,9 @@ test('no active definitions on the table runs no script, and more than the limit
   assert.equal(f.calls.some(call => call.script), false);
   assert.deepEqual([data.count, data.case_sensitive], [0, null]);
   assert.match(data.visibility, /ACLs can hide rows/, 'an empty result says why in the data, for JSON readers');
+  const bare = await whySlas(fixture({ taskSlas: [] }).sdk, { task: 'INC0010001' });
+  assert.match(bare.visibility, /No readable task SLAs on the record\. ACLs can hide rows, so a definition shown as not attached may still be attached\./, 'an empty task SLA read is not proof of absence');
+  assert.match(formatSlaWhy(bare), /may still be attached\.\nConditions were matched/);
   assert.match(formatSlaWhy(data), /No readable active SLA definitions on incident\. ACLs can hide rows, so an empty list does not prove there are none\.$/);
   const many = Array.from({ length: 101 }, (_, n) => definition(100 + n, `SLA ${String(n).padStart(3, '0')}`));
   const big = fixture({ definitions: many, taskSlas: Array.from({ length: 101 }, (_, n) => taskSla(300 + n, P2)) });
@@ -176,7 +180,7 @@ test('a missing, malformed or mismatched answer is never reported as a verdict, 
   for (const input of [{ task: 'INC1^ORnumber=INC2' }, { task: '' }, { task: 'INC0010001', definition: 'a^b' }, { task: 'INC1\nx', definition: 'P1 resolution' }]) {
     const f = fixture();
     await assert.rejects(whySlas(f.sdk, input), error => error.code === 'usage_error', JSON.stringify(input));
-    assert.equal(f.calls.filter(call => call.script || call.table !== 'contract_sla').length, 0, `${JSON.stringify(input)} sends no task read and no script`);
+    assert.equal(f.calls.length, 0, `${JSON.stringify(input)} sends nothing`);
   }
 });
 
@@ -186,6 +190,7 @@ test('why is a read to the mutation guard', () => {
 
 test('real CLI runs the posted script on a read-only profile and refuses bad input with no request', async () => {
   const calls = [], instance = platform();
+  let logged = '';
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://fixture.invalid');
     let body = '';
@@ -198,7 +203,7 @@ test('real CLI runs the posted script on a read-only profile and refuses bad inp
       const form = new URLSearchParams(body);
       calls.at(-1).form = Object.fromEntries(form);
       res.writeHead(200, { 'Content-Type': 'text/html' });
-      return res.end(`<PRE>${instance.run(form.get('script')).replace(/&/g, '&amp;').replace(/"/g, '&quot;')}<BR></PRE>`);
+      return res.end(`<PRE>${logged}${instance.run(form.get('script')).replace(/&/g, '&amp;').replace(/"/g, '&quot;')}<BR></PRE>`);
     }
     if (url.pathname.startsWith('/api/now/table/')) return json(200, { result: await fixture().sdk.listStrict(url.pathname.split('/').pop(), url.searchParams) });
     return json(404, { error: { message: 'not found' } });
@@ -221,6 +226,7 @@ test('real CLI runs the posted script on a read-only profile and refuses bad inp
     assert.equal(posted[0].form.record_for_rollback, undefined, 'no rollback context');
     assert.equal(posted[0].form.sys_scope, 'global');
     assert.deepEqual(instance.unexpected, []);
+    logged = 'Evaluator: org.mozilla.javascript.EcmaError: "brokenInclude" is not defined.\n'; // a condition's javascript: value the platform logged and ran past
     const human = await run(['slas', 'why', 'INC0010001', 'P2 resolution', '--format', 'styled']);
     assert.match(human.stdout, /Why SLAs attach to INC0010001 \(incident\)[\s\S]*P2 resolution \[0+b\]\n {4}start no match, pause no match, stop no match\n {4}Not attached: the start condition does not match the record\./);
     const before = calls.length;
