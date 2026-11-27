@@ -92,7 +92,7 @@ test('import maps on a staging table reads its maps, then their field maps and s
   assert.match(text, /^Transform maps reading u_staging \(2\)/);
   assert.match(text, /Staged users \[c{32}\] u_staging -> sys_user, order 100\n/);
   assert.match(text, /Old users \[d{32}\] u_staging -> sys_user, order 200 \(inactive\)/);
-  assert.match(text, /Coalesce on email: a row whose email matches an existing sys_user record updates it; any other row inserts a new one\./);
+  assert.match(text, /Coalesce on email: a row whose email matches an existing sys_user record updates it; a row with no match inserts a new one\./);
   assert.match(text, /No coalesce field: every row inserts a new record\./);
   assert.match(text, /u_email +email +yes +no +create/);
   assert.match(text, /u_name +name +no +yes/);
@@ -117,7 +117,7 @@ test('import maps --scripts reads and prints the map script, field map source sc
   assert.match(text, /Map script: off \(Run script is not set\)\n {6}target\.active = true;/, 'a stored body that does not run says so');
 });
 
-test('import maps says how empty coalesce values behave, field-level Coalesce empty fields first', async () => {
+test('import maps shows Create new record on empty coalesce fields and each Coalesce empty fields field map', async () => {
   const onEmpty = { create_new_record_on_empty_coalesce_fields: ref('true') };
   const sdk = fakeSdk(staged({ sys_transform_map: () => [map(MAP, onEmpty), map(OLD, onEmpty)],
     sys_transform_entry: [entry(2, 'email', { coalesce: ref('true'), coalesce_empty_fields: ref('true') }), entry(5, 'user_name', { map: ref(OLD), coalesce: ref('true') })] }));
@@ -125,8 +125,8 @@ test('import maps says how empty coalesce values behave, field-level Coalesce em
   assert.equal(data.maps[0].field_maps[0].coalesce_empty_fields, true);
   const [staging, old] = formatImportMaps(data).split('\n\n').slice(1);
   assert.match(staging, /Coalesce empty fields on email: an empty value matches an existing record where that field is empty\./);
-  assert.doesNotMatch(staging, /all empty inserts/, 'Coalesce empty fields overrides the map setting');
-  assert.match(old, /A row whose coalesce fields are all empty inserts a new record\./);
+  assert.match(old, /Create new record on empty coalesce fields: yes\./);
+  assert.doesNotMatch(old, /Coalesce empty fields on/);
 });
 
 test('import maps falls back to a map name, and a sys_id reads that map alone', async () => {
@@ -146,6 +146,7 @@ test('import maps falls back to a map name, and a sys_id reads that map alone', 
     ['sys_transform_script', `mapIN${MAP}^ORDERBYorder`],
   ]);
   assert.equal(one.matched_by, 'sys_id');
+  assert.match(formatImportMaps(one), /No field map is visible to this identity, so its coalesce fields are unknown\./, 'no field map read is not proof of no coalesce');
 });
 
 test('import maps says not found rather than reporting an empty table', async () => {
@@ -217,7 +218,7 @@ test('real CLI reads import maps with JSON, --get, human output and strict valid
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-import-maps-'));
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-import-maps-')));
   fs.mkdirSync(path.join(dir, 'servicenow'));
   fs.writeFileSync(path.join(dir, 'servicenow/config.json'), JSON.stringify({ default_profile: 'fixture', profiles: { fixture: { instance_url: `http://127.0.0.1:${server.address().port}`, auth_method: 'basic', read_only: true } } }));
   const env = loopbackFixtureEnv({ HOME: dir, XDG_CONFIG_HOME: dir, XDG_CACHE_HOME: dir, JSN_DATA_HOME: path.join(dir, 'data'), SN_USERNAME: 'fixture', SN_PASSWORD: 'fixture-secret', JSN_NO_VERSION_CHECK: '1', JSN_NO_SKILL_CHECK: '1', JSN_NO_HEADER: '1', JSN_NO_PROMPTS: '1' });

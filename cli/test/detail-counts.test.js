@@ -108,9 +108,10 @@ test('import show names import maps for the set\'s staging table', async t => {
   const sdk = new SDKClient('https://fixture.example.service-now.com', {});
   sdk.request = async endpoint => new URL(endpoint).pathname === '/api/now/table/sys_import_set'
     ? { result: [{ ...record, table_name: 'u_staging' }] } : { result: { stats: { count: '2' } } };
-  const { lines } = await run('import', sdk, t);
-  assert.deepEqual(lines, ['  Import rows: 2', `    → jsn records list --table sys_import_set_row --query "sys_import_set=${id}" --limit 200`,
-    '  Transform maps: jsn import maps u_staging']);
+  const { app, lines } = await run('import', sdk, t);
+  assert.deepEqual(lines, ['  Import rows: 2', `    → jsn records list --table sys_import_set_row --query "sys_import_set=${id}" --limit 200`]);
+  assert.deepEqual(app.lastOk.opts.breadcrumbs, [{ action: 'maps', cmd: 'jsn import maps u_staging', description: 'Transform maps of its staging table' },
+    { action: 'list', cmd: 'jsn import list', description: 'Back to all import' }]);
 });
 
 test('group detail counts overlap with at most two active requests', async t => {

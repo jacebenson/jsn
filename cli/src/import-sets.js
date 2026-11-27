@@ -413,15 +413,15 @@ export function formatImportMaps(data) {
   const body = text => String(text).split(/\r?\n/).map(line => `      ${line}`.trimEnd());
   for (const m of data.maps) {
     lines.push('', `${m.name} [${m.sys_id}] ${m.source_table} -> ${m.target_table}, order ${m.order ?? '?'}${m.active ? '' : ' (inactive)'}`);
-    lines.push(`  Run business rules: ${yes(m.run_business_rules)}. Enforce mandatory fields: ${m.enforce_mandatory_fields || '(not set)'}. Copy empty fields: ${yes(m.copy_empty_fields)}.`);
+    lines.push(`  Run business rules: ${yes(m.run_business_rules)}. Enforce mandatory fields: ${m.enforce_mandatory_fields || '(not set)'}. Copy empty fields: ${yes(m.copy_empty_fields)}.`,
+      `  Create new record on empty coalesce fields: ${yes(m.create_new_record_on_empty_coalesce_fields)}.`);
     lines.push(`  Map script: ${m.run_script ? 'runs' : 'off (Run script is not set)'}`);
     if (m.script) lines.push(...body(m.script));
-    lines.push(m.coalesce.length
-      ? `  Coalesce on ${m.coalesce.join(', ')}: a row whose ${m.coalesce.join(' and ')} ${m.coalesce.length > 1 ? 'match' : 'matches'} an existing ${m.target_table} record updates it; any other row inserts a new one.`
+    lines.push(!m.field_maps.length ? '  No field map is visible to this identity, so its coalesce fields are unknown.'
+      : m.coalesce.length ? `  Coalesce on ${m.coalesce.join(', ')}: a row whose ${m.coalesce.join(' and ')} ${m.coalesce.length > 1 ? 'match' : 'matches'} an existing ${m.target_table} record updates it; a row with no match inserts a new one.`
       : '  No coalesce field: every row inserts a new record.');
     const empty = m.field_maps.filter(f => f.coalesce && f.coalesce_empty_fields).map(f => f.target_field);
     if (empty.length) lines.push(`  Coalesce empty fields on ${empty.join(', ')}: an empty value matches an existing record where that field is empty.`);
-    else if (m.create_new_record_on_empty_coalesce_fields) lines.push('  A row whose coalesce fields are all empty inserts a new record.');
     lines.push(`  Field maps (${m.field_maps.length}):`);
     if (m.field_maps.length) {
       const width = Math.max(20, ...m.field_maps.map(f => f.source_field.length + 1));

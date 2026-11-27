@@ -35,8 +35,11 @@ export const importCmd = (wrap) => withWrites(buildDevCmd('import', 'sys_import_
         if (error.code === 'invalid_aggregate_count') throw error;
         console.log(`  Import rows: (unavailable)`);
       }
+    },
+    showBreadcrumbs: (record) => {
       const table = getStringField(record, 'table_name') || '';
-      if (table) console.log(`  Transform maps: jsn import maps ${quoteShellArg(table)}`);
+      return [...(table ? [{ action: 'maps', cmd: `jsn import maps ${quoteShellArg(table)}`, description: 'Transform maps of its staging table' }] : []),
+        { action: 'list', cmd: 'jsn import list', description: 'Back to all import' }];
     },
   }), wrap);
 
