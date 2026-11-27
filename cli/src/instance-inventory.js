@@ -188,7 +188,7 @@ export async function compareInstanceInventory(argv, app, kind, emit = true) {
 
 export const inventoryCompareCommand = (wrap, kind) => ({
   command: kind === 'plugins' ? 'compare [id]' : 'compare', describe: `Compare ${kind === 'store' ? 'Store application' : 'plugin'} inventories across explicit profiles (read-only)`,
-  builder: p => (kind === 'plugins' ? p.positional('id', { type: 'string', describe: 'Compare only this plugin and every plugin it requires on --source' }).strict() : p).option('source', { type: 'string', demandOption: true, describe: 'Source profile alias, desired baseline for --target' })
+  builder: p => (kind === 'plugins' ? p.positional('id', { type: 'string', describe: 'Compare only this plugin and every plugin it requires on --source' }) : p).strict().option('source', { type: 'string', demandOption: true, describe: 'Source profile alias, desired baseline for --target' })
     .option('target', { alias: 'destination', type: 'string', demandOption: true, describe: 'Target profile to align to the desired --source baseline' })
     .option('max-pages', { type: 'number', default: 30, describe: 'Per-side page budget, 200 rows/page (1–100); limits remain incomplete' })
     .epilogue(`Align target to source without changing either instance:\njsn compare --source pdi --target vendor\n${kind === 'plugins' ? 'jsn plugins compare com.snc.pa.premium --source pdi --target vendor\n' : ''}jsn compare --source pdi --target vendor --json\njsn compare --source pdi --target vendor --get data.inventories.store.coverage\nIncomplete coverage exits 1 and recommends investigating access, not installing or removing. Numeric versions are ordered conservatively; newer target versions require review, never automatic downgrade.`),

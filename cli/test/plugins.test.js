@@ -78,6 +78,8 @@ test('malformed, denied and inconsistent responses are never reported as a tree'
     'the same row twice': found => [...found, ...found],
     'a row without an id': found => found.map(row => ({ ...row, id: '' })),
     'a non-object row': () => ['com.example.root'],
+    // A field ACL can drop requires from the row; read as no requirements, the tree would look complete.
+    'a row without requires': found => found.map(({ requires: _requires, ...row }) => row),
   };
   for (const [name, reply] of Object.entries(cases)) await assert.rejects(readDependencyTree(fixtureSdk(graph, reply), 'com.example.root'), /Malformed v_plugin response/, name);
   const denied = { listStrict: async () => { throw Object.assign(new Error('Forbidden'), { status: 403 }); } };
@@ -329,6 +331,8 @@ test('real CLI shows the tree read-only with JSON, --get, human output and stric
     assert.deepEqual([narrowed.data.tree.plugin, narrowed.data.records.length, narrowed.data.counts.matching], ['com.example.root', 4, 4]);
     const before = calls.length;
     for (const args of [['show', 'bad^id'], ['show'], ['show', 'com.example.root', '--typo'], ['compare', 'com.example.a', 'com.example.b', '--source', 'fixture', '--target', 'fixture']]) await assert.rejects(run(['plugins', ...args, '--json']), undefined, JSON.stringify(args));
+    // jsn compare and jsn store compare take no id, so a stray one is refused rather than ignored.
+    for (const args of [['compare'], ['store', 'compare']]) await assert.rejects(run([...args, 'com.example.a', '--source', 'fixture', '--target', 'fixture', '--json']), error => error.code === 2, JSON.stringify(args));
     assert.equal(calls.length, before);
     await assert.rejects(run(['plugins', 'show', 'com.example.absent', '--json']), error => error.code === 1 && /Error \(not_found\): Plugin not found: com\.example\.absent[\s\S]*does not show it is absent or inactive/.test(error.stderr));
     const installBefore = calls.length;

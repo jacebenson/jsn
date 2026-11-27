@@ -21,6 +21,8 @@ export function validatePluginId(id) {
 function plugin(row) {
   const id = raw(row?.id), active = raw(row?.active);
   if (active !== 'active' && active !== 'inactive') throw malformed(`${id || 'a row'} has an unknown active value`);
+  // An empty requires is a leaf; a missing one was not read, so the tree would look complete when it is not.
+  if (!Object.hasOwn(row, 'requires')) throw malformed(`${id || 'a row'} has no requires field`);
   const requires = raw(row.requires).split(',').map(dep => dep.trim()).filter(Boolean);
   if (requires.some(dep => !ID.test(dep))) throw malformed(`${id} requires an id jsn cannot read`);
   const value = field => raw(row[field]) || null;
