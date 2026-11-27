@@ -373,8 +373,9 @@ stage, breach flag, start, planned end (breach) and stop times in UTC, business
 elapsed and percentage, business time left and active flag. The record is found
 through `task`, so a number of any task table works, and a number two tables
 share is refused with each one's table and sys_id. Task SLAs are joined by the
-record's sys_id and read at most 100 at a time. All three are reads and work on
-read-only profiles.
+record's sys_id; it returns the first 100 by start time and says when more
+exist. An unreadable breach flag is reported as unknown, and an empty result
+says ACLs can hide rows. All three are reads and work on read-only profiles.
 
 ## Find a REST API
 

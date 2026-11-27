@@ -33,7 +33,7 @@ export function slasCmd(wrap) {
       handler: wrap(async (argv, app) => {
         app.requireInstance();
         const data = await taskSlas(app.sdk, argv.task);
-        respond(app, data, 'task', `${data.task.number || data.task.sys_id}: ${data.count} task SLA(s), ${data.breached} breached${data.more ? ', more not shown' : ''}`);
+        respond(app, data, 'task', `${data.task.number || data.task.sys_id}: ${data.count} task SLA(s)${data.count ? `, ${data.breached} breached` : ''}${data.breach_unknown ? `, ${data.breach_unknown} breach unknown` : ''}${data.more ? ', more not shown' : ''}`);
       }),
     }),
   };

@@ -5,6 +5,8 @@ import { errNotFound, errUsage } from './errors.js';
 const SYS_ID = /^[0-9a-f]{32}$/;
 const TABLE = /^[a-z][a-z0-9_]{0,79}$/;
 const TASK_LIMIT = 100;
+const EMPTY_LIST = 'No readable SLA definitions on this page. ACLs can hide rows, so an empty page does not prove there are none.';
+const EMPTY_TASK = 'No readable task SLAs. ACLs can hide rows, so an empty list does not prove there are none.';
 const LIST_FIELDS = 'sys_id,name,collection,type,target,duration_type,duration,schedule_source,schedule,schedule_source_field,active,sys_scope';
 export const SLA_FIELDS = {
   list: LIST_FIELDS,
@@ -52,7 +54,7 @@ export async function listSlas(sdk, { table, active, limit = 50, offset = 0 } = 
   const rows = await read(sdk, 'contract_sla', query, SLA_FIELDS.list, limit + 1, offset);
   const records = rows.slice(0, limit).map(definition);
   const hasMore = rows.length > limit;
-  return { records, count: records.length, pagination: { limit, offset, has_more: hasMore, next_offset: hasMore ? offset + limit : null } };
+  return { records, count: records.length, pagination: { limit, offset, has_more: hasMore, next_offset: hasMore ? offset + limit : null }, ...(records.length ? {} : { visibility: EMPTY_LIST }) };
 }
 
 export async function showSla(sdk, identifier) {
@@ -89,7 +91,8 @@ export async function taskSlas(sdk, identifier) {
   const rows = await read(sdk, 'task_sla', `task=${task.sys_id}^ORDERBYstart_time^ORDERBYsys_id`, SLA_FIELDS.task_sla, TASK_LIMIT + 1);
   if (rows.some(row => raw(row.task) !== task.sys_id)) throw malformed(`a task_sla row belongs to another task than ${task.sys_id}`);
   const records = rows.slice(0, TASK_LIMIT).map(taskSla);
-  return { task, task_slas: records, count: records.length, breached: records.filter(row => row.has_breached).length, more: rows.length > TASK_LIMIT };
+  return { task, records, count: records.length, breached: records.filter(row => row.has_breached).length, breach_unknown: records.filter(row => row.has_breached === null).length,
+    more: rows.length > TASK_LIMIT, ...(records.length ? {} : { visibility: EMPTY_TASK }) };
 }
 
 const CANCEL = { no_match: 'when the start condition stops matching', on_condition: 'when the cancel condition matches', never: 'never' };
@@ -129,13 +132,13 @@ function taskSlaLines(t) {
 export function formatSlas(data, mode) {
   if (mode === 'show') return ['SLA definition (read-only)', ...showLines(data)].join('\n');
   if (mode === 'task') {
-    const lines = [`Task SLAs on ${data.task.number || data.task.sys_id} (${data.task.table}) [${data.task.sys_id}] (read-only; times in UTC)`, ...data.task_slas.flatMap(taskSlaLines)];
-    if (!data.count) lines.push('No readable task SLAs. ACLs can hide rows, so an empty list does not prove there are none.');
+    const lines = [`Task SLAs on ${data.task.number || data.task.sys_id} (${data.task.table}) [${data.task.sys_id}] (read-only; times in UTC)`, ...data.records.flatMap(taskSlaLines)];
+    if (!data.count) lines.push(EMPTY_TASK);
     if (data.more) lines.push(`More than ${TASK_LIMIT} task SLAs; only the first ${TASK_LIMIT} by start time are shown.`);
     return lines.join('\n');
   }
   const lines = ['SLA definitions (read-only)', ...data.records.map(d => `  ${definitionLine(d)}`)];
-  if (!data.count) lines.push('No readable SLA definitions on this page. ACLs can hide rows, so an empty page does not prove there are none.');
+  if (!data.count) lines.push(EMPTY_LIST);
   lines.push(`Page: ${data.count} definition(s), offset ${data.pagination.offset}${data.pagination.has_more ? `; more available, next offset ${data.pagination.next_offset}` : '; no further readable rows'}.`);
   return lines.join('\n');
 }

@@ -72,6 +72,9 @@ test('list reads definitions with an explicit field list, filters by table and a
   assert.match(human, /Priority 2 resolution \(8 hour\) \[0+b\]: incident, SLA \(resolution\), relative duration End of next business day on schedule 8-5 weekdays; scope Global/);
   assert.match(human, /Old case SLA \[0+c\] \(inactive\): sn_customerservice_case, SLA \(resolution\), 8 Hours on no schedule \(24x7\)/);
   assert.match(human, /Page: 3 definition\(s\), offset 0; no further readable rows\./);
+  assert.equal('visibility' in data, false);
+  const none = await listSlas(fixtureSdk({ contract_sla: [] }), { table: 'incident' });
+  assert.match(none.visibility, /ACLs can hide rows, so an empty page does not prove there are none/, 'an empty page says why in the data, for JSON readers');
 });
 
 test('show gives one definition with its conditions, schedule, time zone source, retroactive start and flow', async () => {
@@ -103,10 +106,10 @@ test('task resolves the record through task by number or sys_id and reads its ta
     ['task', 'number=inc0010001^ORDERBYsys_id', SLA_FIELDS.task, '2'],
     ['task_sla', `task=${INC}^ORDERBYstart_time^ORDERBYsys_id`, SLA_FIELDS.task_sla, '101']]);
   assert.deepEqual(data.task, { sys_id: INC, number: 'INC0010001', table: 'incident' });
-  assert.deepEqual(data.task_slas[0], { sys_id: id(20), definition: { sys_id: P1, name: 'Priority 1 resolution (1 hour)' }, stage: 'in_progress', has_breached: true, active: true,
+  assert.deepEqual(data.records[0], { sys_id: id(20), definition: { sys_id: P1, name: 'Priority 1 resolution (1 hour)' }, stage: 'in_progress', has_breached: true, active: true,
     start_time: '2026-11-24 23:14:50', end_time: null, planned_end_time: '2026-12-02 11:00:00', business_elapsed: '18 Hours', business_percentage: 4886.12, business_time_left: '0 Seconds' });
-  assert.equal(data.task_slas[2].has_breached, true, 'the 2010 engine\'s breached stage counts as breached');
-  assert.deepEqual([data.count, data.breached, data.more], [3, 2, false]);
+  assert.equal(data.records[2].has_breached, true, 'the 2010 engine\'s breached stage counts as breached');
+  assert.deepEqual([data.count, data.breached, data.breach_unknown, data.more, 'visibility' in data], [3, 2, 0, false, false]);
   const human = formatSlas(data, 'task');
   assert.match(human, /^Task SLAs on INC0010001 \(incident\) \[0+1\] \(read-only; times in UTC\)/);
   assert.match(human, /Priority 1 resolution \(1 hour\) \[0+a\]: in progress, breached\n {4}started 2026-11-24 23:14:50, breach 2026-12-02 11:00:00; business elapsed 18 Hours \(4886\.12%\), 0 Seconds left/);
@@ -116,13 +119,14 @@ test('task resolves the record through task by number or sys_id and reads its ta
   assert.equal(query(bySysId.calls[0]), `sys_id=${CASE}^ORDERBYsys_id`);
   assert.equal(query(bySysId.calls[1]), `task=${CASE}^ORDERBYstart_time^ORDERBYsys_id`);
   assert.deepEqual([empty.task.table, empty.count], ['sn_customerservice_case', 0]);
+  assert.match(empty.visibility, /ACLs can hide rows, so an empty list does not prove there are none/, 'an empty result says why in the data, for JSON readers');
   assert.match(formatSlas(empty, 'task'), /No readable task SLAs\. ACLs can hide rows, so an empty list does not prove there are none\./);
   const many = await taskSlas(fixtureSdk({ task_sla: Array.from({ length: 101 }, (_, n) => taskSla(100 + n, P1, 'P1')) }), 'INC0010001');
   assert.deepEqual([many.count, many.more], [100, true]);
   assert.match(formatSlas(many, 'task'), /More than 100 task SLAs; only the first 100 by start time are shown\./);
   const { has_breached: _hidden, ...denied } = taskSla(23, P1, 'P1');
   const unknown = await taskSlas(fixtureSdk({ task_sla: [denied] }), 'INC0010001');
-  assert.deepEqual([unknown.task_slas[0].has_breached, unknown.breached], [null, 0], 'an unreadable breach flag is unknown, never false');
+  assert.deepEqual([unknown.records[0].has_breached, unknown.breached, unknown.breach_unknown], [null, 0, 1], 'an unreadable breach flag is unknown, never false');
   assert.match(formatSlas(unknown, 'task'), /P1 \[0+a\]: in progress, breach unknown\n/);
 });
 
@@ -183,6 +187,10 @@ test('real CLI runs on a read-only profile with JSON, --get, human output and st
     assert.equal(JSON.parse((await run(['slas', 'show', id(10), '--get', 'data.conditions.start.query'])).stdout), 'active=true^priority=2^EQ');
     const task = JSON.parse((await run(['slas', 'task', 'INC0010001', '--json'])).stdout);
     assert.deepEqual([task.data.count, task.data.breached], [3, 2]);
+    assert.match((await run(['slas', 'task', 'INC0010001', '--format', 'markdown'])).stdout, /^INC0010001: 3 task SLA\(s\), 2 breached\n\n\| sys_id \| definition \| stage \| has_breached \|/);
+    const csv = (await run(['slas', 'task', 'INC0010001', '--format', 'csv'])).stdout.split('\n');
+    assert.match(csv[0], /^sys_id,definition,stage,has_breached,active,/, 'CSV tabulates the task SLA rows');
+    assert.equal(csv.filter(Boolean).length, 4);
     const human = await run(['slas', 'task', 'INC0010001', '--format', 'styled']);
     assert.match(human.stdout, /Task SLAs on INC0010001 \(incident\)[\s\S]*Priority 1 resolution \(1 hour\) \[0+a\]: in progress, breached/);
     const shown = await run(['slas', 'show', 'Priority 1 resolution (1 hour)', '--format', 'styled']);
