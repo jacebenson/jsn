@@ -9,6 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readDependencyTree, formatPluginTree, TREE_LIMITS } from '../src/plugins.js';
+import { compareInstanceInventory } from '../src/instance-inventory.js';
 import { loopbackCredentialArgs, loopbackFixtureEnv } from './support/loopback-credential-fixture.mjs';
 
 // Raw v_plugin values: active is active/inactive and requires is comma-separated plugin ids.
@@ -102,6 +103,50 @@ test('reads are bounded: ids chunk at 100, and a deep or wide tree stops and say
   const capped = await readDependencyTree(huge, 'com.example.root');
   assert.equal(huge.calls.length, 1);
   assert.deepEqual([capped.complete, capped.limit_reached], [false, 'nodes']);
+});
+
+// Serves the inventory read (a count, then pages) and the tree read (exact ids) from one row set.
+function inventorySdk(rows) {
+  const calls = [];
+  return { calls, baseURL: 'http://fixture', request: async () => (calls.push('count'), { result: { stats: { count: String(rows.length) } } }), listStrict: async (_table, params) => {
+    const get = key => params instanceof URLSearchParams ? params.get(key) : params[key];
+    const query = get('sysparm_query');
+    calls.push(query);
+    if (query.startsWith('idIN')) return rows.filter(row => query.slice(4).split(',').includes(row.id));
+    return rows.slice(Number(get('sysparm_offset')), Number(get('sysparm_offset')) + 200);
+  } };
+}
+const local = row => ({ sys_id: `local-${row.id}`, ...row });
+const profiles = sdks => ({ config: { profiles: { pdi: { instance_url: 'https://pdi.example.test' }, vendor: { instance_url: 'https://vendor.example.test' } } }, getSDKForProfile: (_instance, { profileName }) => sdks[profileName] });
+
+test('plugins compare <id> narrows the comparison to the plugin and its tree read on the source', async () => {
+  const source = [...graph, plugin('com.example.unrelated')].map(local);
+  const target = [plugin('com.example.root', [], { version: '2.0.0' }), graph[1], plugin('com.example.c', [], { active: 'inactive' }), plugin('com.example.unrelated'), plugin('com.example.extra')].map(local);
+  const sdks = { pdi: inventorySdk(source), vendor: inventorySdk(target) };
+  const data = await compareInstanceInventory({ source: 'pdi', target: 'vendor', id: 'com.example.root', maxPages: 30 }, profiles(sdks), 'plugins', false);
+  assert.deepEqual(data.records.map(row => [row.id, row.status]), [['com.example.a', 'matching'], ['com.example.b', 'source_only'], ['com.example.c', 'different'], ['com.example.root', 'different']]);
+  assert.deepEqual(data.tree, { plugin: 'com.example.root', count: 4, complete: true, unlisted: ['com.hidden.core'] });
+  assert.deepEqual(data.counts, { matching: 1, different: 2, source_only: 1, target_only: 0, unknown: 0 });
+  assert.equal(data.complete, true);
+  assert.equal(sdks.vendor.calls.some(query => typeof query === 'string' && query.startsWith('idIN')), false);
+  assert.match(data._formatted, /Narrowed to com\.example\.root and the 4 plugins it requires on pdi; 1 not listed in v_plugin there are not compared/);
+
+  const whole = await compareInstanceInventory({ source: 'pdi', target: 'vendor', maxPages: 30 }, profiles({ pdi: inventorySdk(source), vendor: inventorySdk(target) }), 'plugins', false);
+  assert.equal(whole.records.length, 6);
+  assert.equal(Object.hasOwn(whole, 'tree'), false);
+  assert.doesNotMatch(whole._formatted, /Narrowed/);
+
+  const chain = Array.from({ length: TREE_LIMITS.depth + 2 }, (_, i) => local(plugin(`com.example.p${i}`, [`com.example.p${i + 1}`])));
+  const cut = await compareInstanceInventory({ source: 'pdi', target: 'vendor', id: 'com.example.p0', maxPages: 30 }, profiles({ pdi: inventorySdk(chain), vendor: inventorySdk(chain) }), 'plugins', false);
+  assert.deepEqual([cut.complete, cut.tree.complete, cut.records.length], [false, false, TREE_LIMITS.depth + 1]);
+  assert.match(cut._formatted, /\(INCOMPLETE tree\)/);
+
+  for (const [id, code] of [['bad^id', 'usage_error'], ['com.example.absent', 'not_found']]) {
+    const failing = { pdi: inventorySdk(source), vendor: inventorySdk(target) };
+    await assert.rejects(compareInstanceInventory({ source: 'pdi', target: 'vendor', id, maxPages: 30 }, profiles(failing), 'plugins', false), error => error.code === code, id);
+    assert.equal(failing.vendor.calls.length, 0, id);
+    assert.equal(failing.pdi.calls.length, code === 'usage_error' ? 0 : 1, id);
+  }
 });
 
 test('real CLI shows the tree read-only with JSON, --get, human output and strict validation', async () => {

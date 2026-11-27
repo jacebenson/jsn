@@ -416,6 +416,7 @@ read. It is a read and works on read-only profiles.
 jsn plugins show com.glide.ui.ng.amb
 jsn plugins show com.snc.pa.premium --get data.inactive
 jsn plugins show com.snc.pa.premium --json
+jsn plugins compare com.snc.pa.premium --source pdi --target vendor
 ```
 
 `show` reads `v_plugin` by plugin id (never its `sys_id`, which differs on some rows) and walks
@@ -423,7 +424,8 @@ jsn plugins show com.snc.pa.premium --json
 a tree cut short says so and is marked incomplete. A plugin required more than once is read once,
 and a cycle (including a plugin that requires itself) is named, not followed. `inactive` lists
 the dependencies that are not active. An id `v_plugin` does not list is reported as not listed,
-with its state unknown, never as missing or not installed. It is a read and works on read-only
+with its state unknown, never as missing or not installed. `compare <id>` narrows `jsn plugins
+compare` to the plugin and the tree read on `--source`. Both are reads and work on read-only
 profiles.
 
 ## Choose output
