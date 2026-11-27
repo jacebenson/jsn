@@ -2,8 +2,8 @@
 // Display labels are presentation only; every lookup and parent check uses raw sys_ids.
 import { errNotFound, errUsage } from './errors.js';
 
-const SYS_ID = /^[0-9a-f]{32}$/;
-const TABLE = /^[a-z][a-z0-9_]{0,79}$/;
+export const SYS_ID = /^[0-9a-f]{32}$/;
+export const TABLE = /^[a-z][a-z0-9_]{0,79}$/;
 const TASK_LIMIT = 100;
 const EMPTY_LIST = 'No readable SLA definitions on this page. ACLs can hide rows, so an empty page does not prove there are none.';
 const EMPTY_TASK = 'No readable task SLAs. ACLs can hide rows, so an empty list does not prove there are none.';

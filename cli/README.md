@@ -359,6 +359,8 @@ jsn slas list --table incident --active
 jsn slas show "Priority 1 resolution (4 hour)" --format styled
 jsn slas task INC0010001
 jsn slas task INC0010001 --get data.breached
+jsn slas why INC0010001
+jsn slas why INC0010001 "Priority 1 resolution (4 hour)" --format styled
 ```
 
 `list` reads SLA definitions (`contract_sla`) with their table, type and target,
@@ -376,6 +378,20 @@ share is refused with each one's table and sys_id. Task SLAs are joined by the
 record's sys_id; it returns the first 100 by start time and says when more
 exist. An unreadable breach flag is reported as unknown, and an empty result
 says ACLs can hide rows. All three are reads and work on read-only profiles.
+
+`why <number|sys_id> [definition]` tests each active definition on the record's
+own table (the SLA engine matches the table exactly), or the one named, and says
+whether it is attached or why it would not attach: inactive, another table, no
+start condition, the start condition not matching, or the stop or cancel
+condition matching too. One background script loads the record and each
+definition and tests the start, pause and stop conditions (and resume or cancel
+when they are set to a condition) with the call the engine's `SLAConditionBase`
+makes, honouring `com.snc.sla.condition.case_sensitive`; it writes nothing and
+records no rollback context. Conditions are tested against the record as saved,
+so a changes operator reads as no match. A definition with its own condition
+class is decided by that class, so only its condition strings are tested, and
+contract and service offering rules are not tested. It needs a profile that can
+run background scripts and tests at most 100 definitions.
 
 ## Find a REST API
 
