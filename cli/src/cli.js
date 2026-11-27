@@ -329,6 +329,7 @@ export function buildCLI() {
     .command(deferredFamily('setup', wrap))
     .command(deferredFamily('auth', wrap))
     .command(deferredFamily('updatesets', wrap))
+    .command(deferredFamily('app', wrap))
     .command(deferredFamily('scopes', wrap))
     .command(deferredFamily('domains', wrap))
     // CORE

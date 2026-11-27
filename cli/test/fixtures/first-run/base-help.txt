@@ -30,7 +30,7 @@ jsn --all-commands --help for details
   CONFIGURATION    setup auth updatesets scopes midservers platform
   DEVELOPER        scan atf eval fixscripts rest graphql codesearch docs
                    document diff perf skill version
-  OTHER            cases workflows attachments store plugins compare
+  OTHER            app cases workflows attachments store plugins compare
                    subscriptions skipped-updates customizations upgrade discover
 
 EXAMPLES

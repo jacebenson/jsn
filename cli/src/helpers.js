@@ -5,7 +5,7 @@ import readline from 'node:readline';
 import { paginatedSearch } from './paginated-search.js';
 import { isTTY, FormatAuto } from './output.js';
 import { getActiveProfile } from './config.js';
-import { errConfirmationRequired, isTerminalAuthError } from './errors.js';
+import { AppError, CodeConfirmationRequired, errConfirmationRequired, isTerminalAuthError } from './errors.js';
 
 /**
  * Detect whether a human is actually available to answer interactive
@@ -117,6 +117,36 @@ export function buildRerunCommand(argv = {}, { rerun = null } = {}) {
   if (argv?.profile && !joined.includes('--profile')) parts.push('--profile', quoteShellArg(argv.profile));
   if (argv?.instance && !joined.includes('--instance')) parts.push('--instance', quoteShellArg(argv.instance));
   return parts.join(' ');
+}
+
+/**
+ * Confirm a command that writes instance state and is keyed off `--yes`.
+ *
+ * This is the `--yes` family used by commands whose write target is only known
+ * after local work (`updatesets import`, `app deploy`): the approval is a
+ * statement about the target that was displayed, so a prompt only runs when a
+ * human is present, a piped/agent invocation is refused with the exact rerun
+ * command, and machine output (`--json`, `--get`, an explicit `--format`) never
+ * turns into an interactive question.
+ *
+ * @param {object} argv — parsed args (reads `yes`, `json`, `get`, `format`)
+ * @param {object} app — app instance (accepted for symmetry with the other
+ *   confirmation helpers; this family does not consult profile preferences)
+ * @param {string} question — e.g. `Install app "Demo" 1.0.0 on https://…?`
+ * @param {object} [options] — { rerun } complete rerun command or token array
+ * @returns {Promise<boolean>} true when the action may proceed
+ * @throws AppError(confirmation_required) when refused or unavailable
+ */
+export async function confirmWrite(argv, app, question, { rerun = null } = {}) {
+  if (argv.yes) return true;
+  if (!canPrompt() || argv.json || argv.get || (argv.format && argv.format !== FormatAuto)) {
+    throw new AppError(CodeConfirmationRequired, `${question} — confirmation required. Pass --yes after approving this target.`,
+      `Rerun: ${buildRerunCommand(argv, { rerun })}`);
+  }
+  // Loaded on demand: this helper is reachable from every command module, and
+  // only an interactive confirmation needs the prompt engine.
+  const { confirm } = await import('./prompts.js');
+  return confirm({ message: question, default: false });
 }
 
 /**
