@@ -1,22 +1,22 @@
 {
-  "commit": "16b1fac5 + connections registration",
-  "note": "Help regenerated after adding the connections family to ACCESS: 12 bytes more, so the cap rises to 1976 + 948. json entry left from the previous combined recording - only help is asserted.",
+  "commit": "16b1fac5 + usercriteria and connections registration",
+  "note": "Help, quiet, csv, markdown and get regenerated from the actual CLI after usercriteria joined ACCESS and main's connections family landed next to it; the ACCESS row wrapped, so the help byte cap rises to exactly the measured 1976 + 980. The json entry is left from the previous combined recording - only help is asserted.",
   "command": "piped (non-TTY) invocation from cli/, JSN_NO_VERSION_CHECK=1 JSN_NO_SKILL_CHECK=1, throwaway XDG_CONFIG_HOME",
   "bytes": {
-    "help": 2924,
+    "help": 2956,
     "json": 80647,
-    "quiet": 2924,
-    "csv": 2924,
-    "markdown": 2924,
-    "get": 2924
+    "quiet": 2956,
+    "csv": 2956,
+    "markdown": 2956,
+    "get": 2956
   },
   "sha256": {
-    "help": "de835b3ebdf59713f8985d77d3444e0504a0c85e277be4b8ddea4569861d21bf",
+    "help": "8bad1967629038071e4a6c8c59d3e2b5f3b365f90d4ac813036134d79e8e2811",
     "json": "3f25ecd8bb10c9bebb0e80e9a9456bdabe66e15495ae8e9d1e3d10a2c38f5c92",
-    "quiet": "de835b3ebdf59713f8985d77d3444e0504a0c85e277be4b8ddea4569861d21bf",
-    "csv": "de835b3ebdf59713f8985d77d3444e0504a0c85e277be4b8ddea4569861d21bf",
-    "markdown": "de835b3ebdf59713f8985d77d3444e0504a0c85e277be4b8ddea4569861d21bf",
-    "get": "de835b3ebdf59713f8985d77d3444e0504a0c85e277be4b8ddea4569861d21bf"
+    "quiet": "8bad1967629038071e4a6c8c59d3e2b5f3b365f90d4ac813036134d79e8e2811",
+    "csv": "8bad1967629038071e4a6c8c59d3e2b5f3b365f90d4ac813036134d79e8e2811",
+    "markdown": "8bad1967629038071e4a6c8c59d3e2b5f3b365f90d4ac813036134d79e8e2811",
+    "get": "8bad1967629038071e4a6c8c59d3e2b5f3b365f90d4ac813036134d79e8e2811"
   },
   "json_command_count": 92
 }

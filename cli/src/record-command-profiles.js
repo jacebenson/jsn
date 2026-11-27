@@ -34,6 +34,11 @@ export default {
     options: { singular: 'view', scopeValidation: true } },
   privileges: { table: 'sys_scope_privilege', aliases: ['privilege', 'priv'], columns: ['source_scope', 'target_scope', 'target_name', 'operation', 'status'],
     options: { singular: 'privilege', scopeValidation: true } },
+  usercriteria: { table: 'user_criteria', aliases: ['uc'], columns: ['name', 'active', 'match_all', 'sys_scope'],
+    options: { singular: 'criteria record', scopeValidation: true },
+    relationships: { essential: [
+      { name: 'available_for', table: 'sc_cat_item_user_criteria_mtom', foreignKey: 'user_criteria', limit: 100, orderBy: 'sc_cat_item', columns: ['sc_cat_item'] },
+      { name: 'not_available_for', table: 'sc_cat_item_user_criteria_no_mtom', foreignKey: 'user_criteria', limit: 100, orderBy: 'sc_cat_item', columns: ['sc_cat_item'] }] } },
   uxscripts: { table: 'sys_ux_lib_source_script', aliases: ['uxscript', 'ux'], columns: ['name', 'active', 'sys_scope'],
     options: { singular: 'UX script', scopeValidation: true } },
   catalogscripts: { table: 'catalog_script_client', aliases: ['catalogscript'], columns: ['name', 'table', 'active', 'sys_scope'],
