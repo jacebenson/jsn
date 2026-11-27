@@ -475,7 +475,10 @@ function evaluateMetadata(literal, bindings) {
    }
   })()`;
   try {
-    const json = runInContext(snippet, createContext(sandbox), { timeout: 1000, displayErrors: false });
+    // `afterEvaluate` runs microtasks the metadata scheduled inside the same
+    // timeout, so a promise chain cannot keep working after the call returns.
+    const json = runInContext(snippet, createContext(sandbox, { microtaskMode: 'afterEvaluate' }),
+      { timeout: 1000, displayErrors: false });
     return { ok: true, metadata: JSON.parse(json) };
   } catch (thrown) {
     // A string here is what the snippet re-threw. Anything else is the VM's own
@@ -527,6 +530,17 @@ function startsStatement(tokens, index) {
  * followed by the name, at brace/paren/bracket depth zero. Names declared
  * inside a function, block or class body are not top-level.
  */
+/**
+ * True when `source` holds at least one executable token.
+ *
+ * Comments and whitespace alone tokenize to nothing, so a metadata-only record
+ * with a header comment above its export is not mistaken for unused code.
+ */
+export function hasCode(source) {
+  const { tokens, error } = tokensOf(source);
+  return !error && tokens.length > 0;
+}
+
 export function topLevelDeclarations(source) {
   const { tokens, error } = tokensOf(source);
   if (error) return [];

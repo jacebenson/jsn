@@ -480,6 +480,13 @@ for (const rejection of PACKAGE_REJECTIONS) {
   });
 }
 
+test('a self-referencing app.version is reported, never thrown', () => {
+  const version = [];
+  version.push(version);
+  const errors = validatePackageTarget(bareProject({ name: 'Demo', scope: 'x_1_demo', sys_id: APP_SYS_ID, version })).join('\n');
+  assert.match(errors, /app\.yaml: app\.version of type sequence is not a packageable version/);
+});
+
 test('an unusable clock is refused before anything is built', (t) => {
   const { project } = packageProject(t);
   assert.throws(() => buildAppPackage(project, { now: new Date('not a date') }), (error) => {

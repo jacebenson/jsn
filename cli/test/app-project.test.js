@@ -7,6 +7,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { readAppProject, validateAppProject } from '../src/app-project.js';
@@ -785,6 +786,43 @@ test('a .js body nothing claims is refused instead of dropped', (t) => {
   // points at a .js file, so the code above the export would be lost.
   const root = writeAppProject(t, jsProject('var DemoRule = 1;', singleFileMetadata({ script: undefined })));
   expectInvalid(root, /the script body above "export default" is not used by any field/);
+});
+
+test('a metadata-only record with a header comment is still valid', (t) => {
+  // The comment above the export is kept in the body but tokenizes to nothing,
+  // so it is not unclaimed code: the record ships its metadata alone.
+  const source = `// the metadata below is the whole record\nexport default ${serializeMetadata(singleFileMetadata({ script: undefined }))};\n`;
+  const root = writeAppProject(t, { raw: { [JS_RULE]: source } });
+  const [record] = readAppProject(root).records;
+  assert.deepEqual(record.fields, { name: 'Rule' });
+  assert.deepEqual(record.code, {});
+});
+
+test('an inline script that starts with a slash is code, not an absolute path', (t) => {
+  // `/^active$/.test(...)` cannot be a path: a path holds no parentheses.
+  const line = '/^active$/.test("a");';
+  const root = writeAppProject(t, { code: baseCode, records: oneRecord({ code: undefined, script: line }) });
+  assert.deepEqual(readAppProject(root).records[0].code, { script: { path: null, text: line } });
+});
+
+test('a record file that links outside the project is refused', (t) => {
+  const root = writeAppProject(t, { code: baseCode, records: {} });
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-outside-'));
+  t.after(() => fs.rmSync(outside, { recursive: true, force: true }));
+  const target = path.join(outside, 'rule.json');
+  fs.writeFileSync(target, JSON.stringify(baseRecord));
+  fs.mkdirSync(path.join(root, 'records', 'sys_script'), { recursive: true });
+  fs.symlinkSync(target, path.join(root, 'records', 'sys_script', 'rule.json'));
+  expectInvalid(root, /records\/sys_script\/rule\.json: cannot read file \(EOUTSIDE\)/);
+});
+
+test('a non-regular app.yaml is refused instead of blocking the build', { skip: process.platform === 'win32' }, (t) => {
+  const root = writeAppProject(t, { code: baseCode, records: oneRecord() });
+  const manifest = path.join(root, 'app.yaml');
+  fs.rmSync(manifest, { force: true });
+  const made = spawnSync('mkfifo', [manifest], { encoding: 'utf8' });
+  if (made.status !== 0) return t.skip('mkfifo is unavailable');
+  expectInvalid(root, /app\.yaml: cannot read app\.yaml \(ENOTREG\)/);
 });
 
 test('a quoted string may continue across CRLF after a backslash', (t) => {

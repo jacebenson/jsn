@@ -127,7 +127,15 @@ export function validatePackageTarget(project) {
     errors.push('app.yaml: app.version is required for the package backend '
       + '(a packaged app carries a version on the target instance)');
   } else if (typeof app.version !== 'string' || !VERSION_NAME.test(app.version.trim())) {
-    errors.push(`app.yaml: app.version ${JSON.stringify(app.version)} is not a packageable version `
+    // A non-string never earned a print: JSON.stringify throws on a YAML alias
+    // that refers to itself, and the reader must reach its diagnostics instead.
+    let shown;
+    try {
+      shown = JSON.stringify(app.version);
+    } catch {
+      shown = `of type ${Array.isArray(app.version) ? 'sequence' : typeof app.version}`;
+    }
+    errors.push(`app.yaml: app.version ${shown} is not a packageable version `
       + '(expected a string like "1.0.0": letters, digits, ".", "_", "+" and "-", with no spaces or path separators)');
   }
 

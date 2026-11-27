@@ -63,7 +63,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { load as loadYaml } from 'js-yaml';
 import { AppError } from './errors.js';
-import { extractRecordSource, recordSymbolName, topLevelDeclarations } from './app-record-js.js';
+import { extractRecordSource, hasCode, recordSymbolName, topLevelDeclarations } from './app-record-js.js';
 
 export const APP_PROJECT_VERSION = 1;
 export const PROJECT_BACKENDS = ['update-set', 'package'];
@@ -127,6 +127,18 @@ function insideRoot(root, target) {
   return relative.split(path.sep).join('/');
 }
 
+/** Read a project file that must be an ordinary file inside the project root. */
+function readProjectFile(root, file) {
+  const stats = fs.statSync(file); // ENOENT / EACCES as before
+  // A FIFO or a device would block or stream; only files and directories are
+  // input, and a directory still reports EISDIR from the read.
+  if (!stats.isFile() && !stats.isDirectory()) throw Object.assign(new Error('not a regular file'), { code: 'ENOTREG' });
+  // A link inside the project can point outside it, so read the canonical path.
+  const realFile = containedRealPath(root, file);
+  if (realFile === null) throw Object.assign(new Error('the path leaves the project through a link'), { code: 'EOUTSIDE' });
+  return readUtf8(realFile);
+}
+
 function readUtf8(file) {
   // Buffer.toString('utf8') keeps a leading BOM and every original byte of a
   // valid UTF-8 file, which is exactly what lifted script bodies need — but it
@@ -148,6 +160,9 @@ function readUtf8(file) {
  * there: a path-shaped string is an error, anything else is script text.
  */
 function looksLikePath(value) {
+  // A string holding characters no path can contain is inline JavaScript, not a
+  // missing file: `script: '/^active$/.test(value);'` is not an absolute path.
+  if (!PATH_CHARS.test(value.trim())) return false;
   if (path.isAbsolute(value)) return true;
   if (/^\.\.?[\\/]/.test(value)) return true;
   if (/\.(?:js|cjs|mjs)$/i.test(value)) return true;
@@ -169,7 +184,7 @@ export function validateAppProject(dir = '.') {
   let doc;
   let yamlFailed = false;
   try {
-    const text = readUtf8(appYamlFile);
+    const text = readProjectFile(root, appYamlFile);
     try {
       doc = loadYaml(text);
     } catch (error) {
@@ -282,7 +297,7 @@ function validateJsonRecord({ root, table, tableDir, file, errors, seenSysIds })
   const display = `records/${table}/${file}`;
   let raw;
   try {
-    const text = readUtf8(filePath);
+    const text = readProjectFile(root, filePath);
     try {
       raw = JSON.parse(text);
     } catch (error) {
@@ -304,7 +319,7 @@ function validateSingleFileRecord({ root, table, tableDir, file, errors, seenSys
   const display = `records/${table}/${file}`;
   let source;
   try {
-    source = readUtf8(path.join(tableDir, file));
+    source = readProjectFile(root, path.join(tableDir, file));
   } catch (error) {
     errors.push(`${display}: cannot read file (${error.code || oneLine(error.message)})`);
     return null;
@@ -369,7 +384,7 @@ function assembleRecord({ root, table, file, display, raw, errors, seenSysIds, b
   // A `.js` record ships the body above `export default` only when a field
   // names a declaration in it. With neither a claim nor a path elsewhere, the
   // code would be dropped and the metadata shipped alone, so refuse it here.
-  if (body !== null && body.trim() !== '' && claims.length === 0 && resolved.length === 0) {
+  if (body !== null && claims.length === 0 && resolved.length === 0 && hasCode(body)) {
     errors.push(`${display}: the script body above "export default" is not used by any field `
       + '(name a declaration with script or code.<field>, or point that field at a .js file)');
   }
@@ -561,6 +576,10 @@ function resolveCodePath({ root, display, label, value, errors }) {
  * like a path and does not resolve to a file is an error — never script text.
  */
 function resolveScriptValue({ root, display, value, errors }) {
+  // A value holding characters no path can contain is one line of code, never a
+  // reference: `script: '/^active$/.test(value);'` must reach the fallback
+  // below instead of failing as an absolute path.
+  if (!PATH_CHARS.test(value.trim())) return { path: null, text: value };
   if (path.isAbsolute(value)) {
     errors.push(`${display}: script must be relative to the project root, not absolute (${value})`);
     return null;
