@@ -120,6 +120,10 @@ test('task resolves the record through task by number or sys_id and reads its ta
   const many = await taskSlas(fixtureSdk({ task_sla: Array.from({ length: 101 }, (_, n) => taskSla(100 + n, P1, 'P1')) }), 'INC0010001');
   assert.deepEqual([many.count, many.more], [100, true]);
   assert.match(formatSlas(many, 'task'), /More than 100 task SLAs; only the first 100 by start time are shown\./);
+  const { has_breached: _hidden, ...denied } = taskSla(23, P1, 'P1');
+  const unknown = await taskSlas(fixtureSdk({ task_sla: [denied] }), 'INC0010001');
+  assert.deepEqual([unknown.task_slas[0].has_breached, unknown.breached], [null, 0], 'an unreadable breach flag is unknown, never false');
+  assert.match(formatSlas(unknown, 'task'), /P1 \[0+a\]: in progress, breach unknown\n/);
 });
 
 test('invalid input is refused before any request', async () => {

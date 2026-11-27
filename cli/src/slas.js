@@ -78,9 +78,9 @@ export async function findTask(sdk, identifier) {
 }
 
 const percent = value => raw(value) === '' || !Number.isFinite(Number(raw(value))) ? null : Number(raw(value));
-// The 2010 engine kept a breach in stage rather than has_breached.
+// The 2010 engine kept a breach in stage rather than has_breached. An unreadable flag is null, never false.
 const taskSla = row => ({ sys_id: raw(row.sys_id), definition: ref(row.sla), stage: raw(row.stage) || null,
-  has_breached: raw(row.has_breached) === 'true' || raw(row.stage) === 'breached', active: raw(row.active) === 'true',
+  has_breached: raw(row.stage) === 'breached' || raw(row.has_breached) === 'true' || (raw(row.has_breached) === 'false' ? false : null), active: raw(row.active) === 'true',
   start_time: raw(row.start_time) || null, end_time: raw(row.end_time) || null, planned_end_time: raw(row.planned_end_time) || null,
   business_elapsed: shown(row.business_duration) || null, business_percentage: percent(row.business_percentage), business_time_left: shown(row.business_time_left) || null });
 
@@ -122,7 +122,7 @@ function showLines(d) {
 
 function taskSlaLines(t) {
   const percentText = t.business_percentage === null ? '' : ` (${t.business_percentage}%)`;
-  return [`  ${named(t.definition)}: ${(t.stage || 'no stage').replace(/_/g, ' ')}, ${t.has_breached ? 'breached' : 'not breached'}${t.active ? '' : ', inactive'}`,
+  return [`  ${named(t.definition)}: ${(t.stage || 'no stage').replace(/_/g, ' ')}, ${t.has_breached ? 'breached' : t.has_breached === false ? 'not breached' : 'breach unknown'}${t.active ? '' : ', inactive'}`,
     `    started ${t.start_time || '(none)'}, breach ${t.planned_end_time || '(none)'}${t.end_time ? `, stopped ${t.end_time}` : ''}; business elapsed ${t.business_elapsed || '(none)'}${percentText}, ${t.business_time_left || '(none)'} left`];
 }
 
