@@ -4,11 +4,11 @@ import { diffUpdateSets } from '../update-set-diff.js';
 import path from 'node:path';
 import { inspectUpdateSetXML, updateSetFilename, MAX_UPDATE_SET_BYTES } from '../update-set-xml.js';
 import { editor, confirm } from '../prompts.js';
-import { formatRecordForDisplay, getStringField, interactiveList, assertSafeExactMatch, canPrompt, buildRerunCommand, verifyWriteBack, quoteShellArg } from '../helpers.js';
+import { formatRecordForDisplay, getStringField, interactiveList, assertSafeExactMatch, canPrompt, buildRerunCommand, confirmWrite, verifyWriteBack, quoteShellArg } from '../helpers.js';
 import { getActiveProfile } from '../config.js';
 import { FormatAuto } from '../output.js';
 import { getCurrentApplication, getCurrentUpdateSet, requireCurrentUserSysId, setCurrentApplication, setCurrentUpdateSet } from '../context.js';
-import { AppError, CodeConfirmationRequired, errAPI, errUsage, errConfirmationRequired } from '../errors.js';
+import { errAPI, errUsage, errConfirmationRequired } from '../errors.js';
 import { resolveScope } from './scopes.js';
 import { unwrapSysId } from '../resolve-record.js';
 import { assertNoUnresolvedProblems, DEFAULT_OPERATION_TIMEOUT_MS } from '../update-set-apply.js';
@@ -140,11 +140,17 @@ async function fetchRetrievedUpdateSet(app, sysID) {
 // sys_update_set_source carries `username` and a two-way-encrypted `password`.
 // Neither is ever requested: the source listing needs identity and reachability,
 // not credentials, and the CLI must never print a stored password.
-const UPDATE_SET_SOURCE_FIELDS = 'sys_id,name,url,type,active,instance_id,instance_name,short_description';
+// Only columns sys_update_set_source actually carries: an unknown field name makes
+// the whole Table read a 400, so nothing here is guessed from another table.
+const UPDATE_SET_SOURCE_FIELDS = 'sys_id,name,url,type,active,short_description';
 
-/** Strip embedded userinfo from a stored URL before it reaches output. */
+/**
+ * Strip embedded userinfo from a stored URL before it reaches output. The match
+ * runs to the last '@' in the authority: a password that itself contains an
+ * unencoded '@' otherwise leaves its tail behind in the printed URL.
+ */
 export function redactSourceUrl(value) {
-  return String(value || '').replace(/\/\/[^/@\s]+@/, '//');
+  return String(value || '').replace(/\/\/[^/?#\s]*@/, '//');
 }
 
 function normalizeUpdateSetSource(record) {
@@ -155,8 +161,7 @@ function normalizeUpdateSetSource(record) {
     url: redactSourceUrl(getStringField(record, 'url')),
     type: getStringField(record, 'type'),
     active: active === '' ? null : active.toLowerCase() === 'true',
-    instance_id: getStringField(record, 'instance_id'),
-    instance_name: getStringField(record, 'instance_name'),
+    host: (() => { try { return new URL(getStringField(record, 'url')).host || null; } catch { return null; } })(),
     short_description: getStringField(record, 'short_description'),
   };
 }
@@ -209,12 +214,7 @@ async function findRetrievedByRemoteSysId(app, remoteSysId) {
  * @returns {Promise<boolean>} false when the human declined
  */
 async function confirmUpdateSetMutation(argv, app, question, rerun) {
-  if (argv.yes) return true;
-  if (!canPrompt() || argv.json || argv.get || (argv.format && argv.format !== FormatAuto)) {
-    throw new AppError(CodeConfirmationRequired, `${question} — confirmation required. Pass --yes after approving this target.`,
-      `Rerun: ${buildRerunCommand(argv, { rerun })}`);
-  }
-  return confirm({ message: question, default: false });
+  return confirmWrite(argv, app, question, { rerun });
 }
 
 function timeoutFrom(argv) {
@@ -1068,7 +1068,7 @@ export function updateSetsCmd(wrap) {
             }
             const state = remoteState(verified);
             if (!['loaded', 'previewed'].includes(state)) {
-              throw errAPI(200, `Retrieve reported "${progress.label}" but the retrieved update set is in state "${state || 'unknown'}"; expected loaded.\nThe outcome is unknown; inspect Retrieved Update Sets before retrying.`);
+              throw errAPI(200, `Retrieve reported "${progress.label}" but the retrieved update set is in state "${state || 'unknown'}"; expected loaded or previewed.\nThe outcome is unknown; inspect Retrieved Update Sets before retrying.`);
             }
             const name = getStringField(verified, 'name');
             const sysID = getStringField(verified, 'sys_id');
@@ -1081,7 +1081,7 @@ export function updateSetsCmd(wrap) {
               retrieve: { status: progress.label, percent_complete: progress.percent_complete, message: progress.message, tracked: progress.tracked !== false },
               cleanup_retrieved: false,
             }, {
-              summary: `Retrieved "${name}" from source "${source.name}" (state: ${state}); not previewed or committed`,
+              summary: `Retrieved "${name}" from source "${source.name}" (state: ${state}); ${state === 'previewed' ? 'already previewed, not committed' : 'not previewed or committed'}`,
               breadcrumbs: [{ action: 'preview', cmd: `jsn updatesets preview ${quoteShellArg(sysID)}`, description: 'Preview against this instance before committing' }],
             });
           }),
@@ -1104,9 +1104,10 @@ export function updateSetsCmd(wrap) {
             if (!argv.ordered && identifiers.length !== 1) {
               throw errUsage('commit takes one retrieved update set. Pass --ordered to commit several in a fixed order.');
             }
+            // The instance guard comes before either branch: the ordered path writes too.
+            app.requireInstance();
             if (argv.ordered) return commitOrderedUpdateSets(argv, app, identifiers);
 
-            app.requireInstance();
             const target = await resolveRetrievedUpdateSet(app, identifiers[0]);
             const sysID = getStringField(target, 'sys_id');
             const name = getStringField(target, 'name');

@@ -548,7 +548,8 @@ loaded count, visible-row/ACL coverage, truncation and an exact retrieval hint.
 become successful empty arrays. Profile hooks remain composable. Generic get
 and supplementary metadata/counts are separate and never fetch these children
 implicitly. UI policies declare actions as essential, replacing console-only
-output with the same children in JSON and human record sections.
+output with the same children in JSON and human record sections. Roles declare
+their directly contained roles from `sys_user_role_contains`.
 
 ## Constrained table views
 

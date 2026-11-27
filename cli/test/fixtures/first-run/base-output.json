@@ -1,22 +1,22 @@
 {
-  "commit": "batch land: combined help recording",
-  "note": "Regenerated from the combined CLI after landing this batch; one recording covers what each PR recorded on its own.",
+  "commit": "re-recorded on current main after merging #708, #707, the app family, usercriteria and connections",
+  "note": "Regenerated from the combined CLI after the merge; one recording covers what each PR recorded on its own. Help is asserted byte-for-byte; the json entry is informational and still from the app-family recording.",
   "command": "piped (non-TTY) invocation from cli/, JSN_NO_VERSION_CHECK=1 JSN_NO_SKILL_CHECK=1, throwaway XDG_CONFIG_HOME",
   "bytes": {
-    "help": 2905,
-    "json": 80647,
-    "quiet": 2905,
-    "csv": 2905,
-    "markdown": 2905,
-    "get": 2905
+    "help": 2960,
+    "json": 87868,
+    "quiet": 2960,
+    "csv": 2960,
+    "markdown": 2960,
+    "get": 2960
   },
   "sha256": {
-    "help": "f8e40c5e3fc5e1dba5d802bade1c59152b39cd9ef90d9751b4cc646db2fe7e14",
-    "json": "3f25ecd8bb10c9bebb0e80e9a9456bdabe66e15495ae8e9d1e3d10a2c38f5c92",
-    "quiet": "f8e40c5e3fc5e1dba5d802bade1c59152b39cd9ef90d9751b4cc646db2fe7e14",
-    "csv": "f8e40c5e3fc5e1dba5d802bade1c59152b39cd9ef90d9751b4cc646db2fe7e14",
-    "markdown": "f8e40c5e3fc5e1dba5d802bade1c59152b39cd9ef90d9751b4cc646db2fe7e14",
-    "get": "f8e40c5e3fc5e1dba5d802bade1c59152b39cd9ef90d9751b4cc646db2fe7e14"
+    "help": "f1c05aa2884f34d9901f291d92b7bb18926f093f44813ee10e4368cb014e8016",
+    "json": "0335af96b49bf88a9a46a79cc3f8c24d464dd0ed2ac7ec354f4db53c37c56a04",
+    "quiet": "f1c05aa2884f34d9901f291d92b7bb18926f093f44813ee10e4368cb014e8016",
+    "csv": "f1c05aa2884f34d9901f291d92b7bb18926f093f44813ee10e4368cb014e8016",
+    "markdown": "f1c05aa2884f34d9901f291d92b7bb18926f093f44813ee10e4368cb014e8016",
+    "get": "f1c05aa2884f34d9901f291d92b7bb18926f093f44813ee10e4368cb014e8016"
   },
-  "json_command_count": 92
+  "json_command_count": 96
 }

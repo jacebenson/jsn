@@ -202,8 +202,17 @@
     "access": {
       "why": "users access says which sys_user flag or failed sign-in stops a user signing in; show prints the record without judging it, roles answers what a user may do once signed in, and check or status would not say that the subject is sign-in."
     },
+    "allow": {
+      "why": "privileges allow sets one Restricted Caller Access request to Allowed, the status name the platform uses; approve would suggest an approval record, and update would hide which field changes."
+    },
+    "backlog": {
+      "why": "events backlog answers which ready events are overdue versus scheduled and which sys_trigger job drains each queue; list returns rows without queue/state counts or processor next actions, and aggregate counts groups but cannot say which ready event has a passed process_on."
+    },
     "basic-auth": {
       "why": "users basic-auth gives one enforcement verdict per account the platform recorded using Basic Auth. list returns generic user records, show reads one user, and users roles lists role names, but none of them reports the Basic Auth decision or whether enforcement blocks the account."
+    },
+    "connections": {
+      "why": "connections names the http_connection family the way aliases names sys_alias; list and show are its verbs, and aliases (a CRUD table command over sys_alias) cannot hold read-only connection verbs without mixing writes into a read-only view."
     },
     "deleted": {
       "why": "records deleted reads Deleted Records and joins each entry to its own table and its delete recovery by raw sys_id; list reads one table's rows and cannot say whether a deleted record is back."
@@ -244,6 +253,12 @@
     "queue": {
       "why": "list reads one table's newest page and show reads one record; neither aggregates a backlog over a window, so queue names the read that answers how much is stuck and for how long."
     },
+    "references": {
+      "why": "records references lists every record that holds one record's sys_id; related would suggest the form's configured related lists, which miss conditions, properties and document ID fields, and usage would suggest the platform's dependency views of application files."
+    },
+    "reprocess": {
+      "why": "events reprocess queues a copy of a recorded event again through the platform's own UI action script; update would write a payload the caller supplies to the existing row, and create would invent a new event instead of replaying the recorded one."
+    },
     "retrieve": {
       "why": "retrieve pulls a completed set from a configured remote instance through the CICD API; import loads XML already on disk and cannot reach the source, while create makes a local capture set."
     },
@@ -265,13 +280,25 @@
     "userroles": {
       "why": "userroles writes direct sys_user_has_role rows for chosen users; users roles only reads them, and grouproles grants through a group, which reaches every member rather than one user."
     },
+    "usercriteria": {
+      "why": "usercriteria names user_criteria the way roles names sys_user_role; acls and access-analyzer cover table, record and field access, never the criteria that decide who sees a catalog item."
+    },
     "why": {
       "why": "why explains the per-record cause for one artifact - why a scheduled job did not run, why an email was ignored, why a flow, field or column did not apply, why a notification was not sent. show prints the configuration record, status reports across records without testing one, and inspect reads history rather than explaining cause."
+    },
+    "app": {
+      "why": "The project noun for a shared on-disk record format that both ad hoc uploads and packaged apps use; records reads instance rows and updatesets manages instance sets, while neither names the local directory format, and appmenu/appmodules are navigation tables."
+    },
+    "build": {
+      "why": "build compiles a validated local project into one artifact in a single step; export downloads an existing update set from an instance, create makes instance rows, and neither reads app.yaml or writes anything without an instance."
+    },
+    "deploy": {
+      "why": "deploy is the instance-side counterpart of build: it installs the package that build produced and verifies each record. install names a Store or plugin install and would blur that this ships the local project; create and update write one record, not an application."
     }
   },
   "budgets": {
     "$comment": "Subcommand count per family. A budget is a ratchet, not a ban: when a new command earns its place, raise the number in the same diff and say why in the PR. Adding a family means adding its budget entry.",
-    "total": 466,
+    "total": 483,
     "families": {
       "access-analyzer": 4,
       "acls": 5,
@@ -296,6 +323,7 @@
       "codesearch": 1,
       "columns": 6,
       "compare": 0,
+      "connections": 2,
       "customizations": 6,
       "decisiontables": 6,
       "diff": 1,
@@ -305,6 +333,7 @@
       "domains": 8,
       "email": 7,
       "eval": 1,
+      "events": 4,
       "fixscripts": 6,
       "flows": 18,
       "forms": 2,
@@ -324,9 +353,9 @@
       "perf": 10,
       "platform": 2,
       "plugins": 1,
-      "privileges": 6,
+      "privileges": 7,
       "properties": 5,
-      "records": 19,
+      "records": 21,
       "relationships": 5,
       "requests": 5,
       "rest": 0,
@@ -359,6 +388,7 @@
       "uipolicies": 5,
       "updatesets": 17,
       "upgrade": 1,
+      "usercriteria": 6,
       "userroles": 3,
       "users": 9,
       "uxapplicability": 2,
@@ -366,7 +396,8 @@
       "uxscripts": 5,
       "version": 0,
       "views": 5,
-      "workflows": 2
+      "workflows": 2,
+      "app": 2
     }
   }
 }

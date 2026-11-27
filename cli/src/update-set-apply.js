@@ -74,18 +74,36 @@ export function normalizeProgress(response) {
     label: String(inner.status_label ?? '') || statusWord(status),
     percent_complete: Number.isFinite(percent) ? percent : 0,
     message,
+    // sn_cicd reports the verdict two ways. Preview/commit bodies only carry a
+    // status; a fluent app install also answers `successful: true|false`. Both
+    // are read here so a tracker's own verdict is never inferred from the HTTP
+    // response that started it.
+    successful: booleanFlag(inner.successful),
     progress_id: text(inner?.links?.progress?.id ?? inner.progress_id ?? ''),
     result_id: text(inner?.links?.results?.id ?? inner.result_id ?? ''),
     raw: inner,
   };
 }
 
+/** A tracker flag as a boolean, or null when the body does not carry it. */
+function booleanFlag(value) {
+  if (typeof value === 'boolean') return value;
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  return null;
+}
+
 export function isTerminalProgress(progress) {
+  if (progress.successful !== null && progress.successful !== undefined) return true;
   if (TERMINAL_STATUSES.has(progress.status)) return true;
   return /^(successful|success|complete|completed|failed|failure|error|canceled|cancelled)$/i.test(progress.label);
 }
 
 export function isSuccessfulProgress(progress) {
+  // An explicit verdict outranks the status word: a tracker that says it did
+  // not succeed is a failure even when the operation was dispatched with 200.
+  if (progress.successful === false) return false;
+  if (progress.successful === true) return true;
   if (progress.status === PROGRESS_SUCCESSFUL) return true;
   return /^(successful|success|complete|completed)$/i.test(progress.label);
 }
@@ -105,6 +123,8 @@ export function isSuccessfulProgress(progress) {
  * @param {Function} [options.wait] - sleep seam for tests
  * @param {Function} [options.now] - clock seam for tests
  * @param {Function} [options.onProgress] - called with each normalized update
+ * @param {string} [options.operation] - what is being waited on, for the timeout text
+ * @param {string} [options.inspectHint] - where a human inspects it afterwards
  * @returns {Promise<object>} the last normalized progress
  */
 export async function waitForCicdProgress(sdk, initial, options = {}) {
@@ -114,6 +134,8 @@ export async function waitForCicdProgress(sdk, initial, options = {}) {
     wait = sleep,
     now = Date.now,
     onProgress,
+    operation = 'update set',
+    inspectHint = 'Retrieved Update Sets',
   } = options;
 
   let current = normalizeProgress(initial);
@@ -124,8 +146,8 @@ export async function waitForCicdProgress(sdk, initial, options = {}) {
     if (now() >= deadline) {
       throw new AppError(
         CodeAPI,
-        `Timed out after ${Math.round(timeoutMs / 1000)}s waiting for the update set operation (last status: ${current.label}).\n` +
-        'The operation may still be running on the instance. Inspect Retrieved Update Sets before retrying; jsn does not repeat it.',
+        `Timed out after ${Math.round(timeoutMs / 1000)}s waiting for the ${operation} operation (last status: ${current.label}).\n` +
+        `The operation may still be running on the instance. Inspect ${inspectHint} before retrying; jsn does not repeat it.`,
         '',
         0,
       );
@@ -288,7 +310,9 @@ export async function commitUpdateSets(sdk, sysIDs, options = {}) {
   const params = new URLSearchParams({ remote_update_set_ids: sysIDs.join(',') });
   const endpoint = `${sdk.baseURL}/api/sn_cicd/update_set/commitMultiple?${params.toString()}`;
   return dispatchCicdOperation(sdk, 'commit', endpoint, {
-    body: JSON.stringify({ force_commit: 'false' }),
+    // A real boolean: some providers coerce any non-empty string truthily, which
+    // would turn this safety pin into force_commit=true.
+    body: JSON.stringify({ force_commit: false }),
     what: 'committed',
     ...options,
   });

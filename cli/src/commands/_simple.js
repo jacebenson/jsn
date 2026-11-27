@@ -6,6 +6,7 @@ import { withPrivilegeRequests } from './privilege-requests.js';
 import { withFixScriptRun } from './fixscript-run.js';
 import { withScheduledJobHealth } from './scheduled-job-health.js';
 import { withEmailExtras } from './email-extra.js';
+import { withUserCriteriaCheck } from './usercriteria-check.js';
 // Simple table-based commands — singular names passed for grammar
 // Default columns and aliases match the Go version exactly
 
@@ -109,6 +110,9 @@ export const appMenuCmd = (wrap) => buildProfileCommand('appmenu', wrap);
 // Commands with full CRUD
 export const aclsCmd = (wrap) => buildProfileCommand('acls', wrap);
 export const rolesCmd = (wrap) => buildProfileCommand('roles', wrap);
+export const usercriteriaCmd = (wrap) => withUserCriteriaCheck(buildProfileCommand('usercriteria', wrap, {
+  extraSubcommands: [{ name: 'check', description: 'Whether a user can see a catalog item, and which criteria matched' }],
+}), wrap);
 export const propertiesCmd = (wrap) => buildProfileCommand('properties', wrap);
 
 // New commands for scoped-app tables
@@ -117,7 +121,7 @@ export const appmodulesCmd = (wrap) => buildProfileCommand('appmodules', wrap);
 export const listcontrolsCmd = (wrap) => buildProfileCommand('listcontrols', wrap);
 export const viewsCmd = (wrap) => buildProfileCommand('views', wrap);
 export const privilegesCmd = (wrap) => withPrivilegeRequests(buildProfileCommand('privileges', wrap, {
-  extraSubcommands: [{ name: 'requests', description: 'Restricted Caller Access requests: requested, denied, invalidated or allowed, and where each came from' }],
+  extraSubcommands: [{ name: 'requests', description: 'Restricted Caller Access requests: requested, denied, invalidated or allowed, and where each came from' }, { name: 'allow', description: 'Allow one Restricted Caller Access request, previewed first' }],
 }), wrap);
 export const uxscriptsCmd = (wrap) => buildProfileCommand('uxscripts', wrap);
 export { aliasesCmd } from './aliases.js';

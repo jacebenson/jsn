@@ -89,6 +89,28 @@ export function buildScriptFormBody({ script, csrf, scope, rollback = true, quot
   return formBody;
 }
 
+/**
+ * Read the CSRF token out of a platform upload form page.
+ *
+ * `upload.do?sysparm_target=<table>` renders a form whose hidden `sysparm_ck`
+ * input is the token the multipart POST must carry; the page must also be a
+ * real upload form (it posts to `/sys_upload.do` and has an `attachFile`
+ * input), otherwise the caller is looking at a login page or an error page and
+ * has no CSRF token at all.
+ *
+ * One scrape for every upload path (record XML, update-set XML, app package):
+ * the token name and the form shape are the platform's, not each caller's.
+ *
+ * @param {string} html
+ * @returns {string} the token, or '' when this is not an upload form
+ */
+export function parseUploadFormCSRF(html) {
+  if (typeof html !== 'string') return '';
+  const csrf = html.match(/name=["']sysparm_ck["'][^>]*value=["']([^"']+)["']/i)?.[1];
+  if (!csrf || !/action=["']\/sys_upload\.do["']/i.test(html) || !/name=["']attachFile["']/i.test(html)) return '';
+  return csrf;
+}
+
 // How long the script's request stays open after jsn stops waiting, for the platform's answer to the cancel.
 const SCRIPT_CANCEL_WAIT = 15000;
 // A cancelled script's whole response is the platform's one line, even when it printed before (dev485581).
@@ -1060,8 +1082,8 @@ export class SDKClient {
     const cookies = await this._warmSession();
     const formURL = `${this.baseURL}/upload.do?sysparm_target=sys_remote_update_set`;
     const html = await this.rawRequest(formURL, { method: 'GET', headers: cookies ? { Cookie: cookies } : {} });
-    const csrf = html.match(/name=["']sysparm_ck["'][^>]*value=["']([^"']+)["']/i)?.[1];
-    if (!csrf || !/action=["']\/sys_upload\.do["']/i.test(html) || !/name=["']attachFile["']/i.test(html)) {
+    const csrf = parseUploadFormCSRF(html);
+    if (!csrf) {
       throw errUsage('The native XML upload form is unavailable; no XML was uploaded. Check admin access and session authentication.');
     }
     const form = new FormData();
@@ -1208,6 +1230,9 @@ export class SDKClient {
    *     the instance through cancel_my_transaction.do in the same session, and
    *     the error says whether the platform confirmed it (error.cancel.status).
    *     A caller with neither keeps the client timeout and no cancel.
+   *   - finished (RegExp): what the script prints when it completes. When the
+   *     output matches, errors the platform logged on the way do not throw;
+   *     the caller reports them.
    * @returns {Promise<string>} The script's output text
    */
   async executeScript(script, scope, opts = {}) {
@@ -1259,7 +1284,8 @@ export class SDKClient {
     // The platform ended it (transaction quota, or an admin's kill) before it finished.
     if (cancelledByPlatform(output)) throw new Error(`Background script was cancelled on the instance before it finished: ${output}`);
     const scriptError = detectScriptError(output);
-    if (scriptError) throw new Error(`Background script failed: ${scriptError}`);
+    // opts.finished: the script printed this when it completed, so a logged error it ran past (a user criteria script that threw) is the caller's to report.
+    if (scriptError && !opts.finished?.test(output)) throw new Error(`Background script failed: ${scriptError}`);
     return { output, execution_id: html.match(/sys_script_execution_history\.do\?sys_id=([0-9a-f]{32})/)?.[1] || null };
   }
 

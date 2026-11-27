@@ -337,6 +337,117 @@ jsn records revert sys_script_include <sys_id> --version <sys_update_version sys
   refused. An ACL's roles are files of their own (`sys_security_acl_role`), so
   reverting the ACL leaves them as they are.
 
+## Field history
+
+`jsn records history` lists one record's field changes from `sys_audit`, newest
+first: when (UTC), who, the field, and the old and new value. It only reads.
+
+```bash
+jsn records history incident INC0010001 --identifier-field number
+jsn records history incident <sys_id> --field assigned_to --since 2026-11-01
+jsn records history sys_script_include <sys_id> --limit 5 --json
+```
+
+- The record is resolved like `records journal`, then `sys_audit` is read by
+  `tablename` and `documentkey` (the raw sys_id). Rows are kept under the
+  record's own class, so a record resolved on `task` is read as `incident`.
+- Every read is keyed on the sys_id, bounded by `--limit` (1-200, default 20)
+  with one-row lookahead for `pagination.has_more`, and asks for no total
+  count, because `sys_audit` is one of an instance's largest tables. History
+  sets (`sys_history_set`) are not read; the platform builds them only when
+  someone opens History.
+- A deleted record keeps its audit rows, including a `DELETED` row, so a full
+  sys_id that no longer resolves is still read. It says the record was deleted
+  when the `DELETED` row is on the page, and otherwise that it is not readable
+  now (deleted, or hidden by ACLs). A sys_id with no readable record and no rows
+  is not found.
+- Values are the stored strings: reference fields hold sys_ids, and journal
+  entries appear as `JOURNAL FIELD ADDITION` rows. Human output cuts values
+  past 100 characters; `--json` keeps them whole.
+- An empty history is never reported as "unchanged". It reads the table's
+  audit settings as `jsn tables audit` does and names the one that applies:
+  table auditing off, a field that is excluded, encrypted or a system field,
+  or inserts not audited (`glide.sys.audit_inserts`). Import sets, update set
+  applies, Import XML and upgrades are never audited, and `sys_audit` is
+  admin-read by default, so an ACL-filtered list also comes back empty.
+- A row for another record or field, or a malformed page, fails.
+
+It does not resolve reference sys_ids to names or read `sys_audit_delete`
+(see `records deleted`).
+
+## Where a record is used
+
+`jsn records references` lists every record that holds one record's sys_id, so
+you can see what breaks before deactivating, deleting or renaming it. It only
+reads. It has two modes:
+
+- `--mode data`, the default, finds data that points at the record: incidents,
+  group memberships, catalog answers.
+- `--mode system` finds configuration that points at it: assignment rules,
+  conditions, properties, templates, defaults and, with `--scripts`, script
+  fields.
+
+```bash
+jsn records references sys_user_group <sys_id> --plan
+jsn records references sys_user_group "Service Desk" --identifier-field name --limit 50
+jsn records references sys_user_group "Service Desk" --identifier-field name --mode system --scripts --json
+```
+
+- The record is resolved like `records get`. Its class and every parent class
+  are the tables a reference can point at: a `cmdb_ci` reference can hold a
+  server.
+- `sys_dictionary` gives the `reference` and `glide_list` fields that point at
+  those tables. A table is configuration when it is `sys_metadata` or extends
+  it; data mode counts the fields on other tables and system mode the fields
+  on these, plus their `document_id` fields. A child table repeats an
+  inherited field's dictionary row; only the table that defines it is counted,
+  because a count on the parent covers its children.
+- Data mode adds catalog answers (`sc_item_option`, `question_answer`,
+  `sc_multi_row_question_answer`), `sys_variable_value` (legacy workflow
+  activity variables) and user preferences.
+- System mode adds the places that hold sys_ids as text: business rule, UI
+  policy, data policy, ACL, notification, assignment, approval, SLA, report,
+  filter and decision table conditions; templates; property values; dictionary
+  and override defaults and reference qualifiers; catalog variable defaults
+  (`question`, which `item_option_new` extends); portal widget options and
+  Virtual Agent topics. `--scripts` adds script fields (business rules, script
+  includes, client scripts, UI actions, fix scripts, scheduled jobs and more).
+- Neither mode searches the record's own child items: journal entries,
+  attachments, audit, update records, approvals, translations, emails and the
+  other `document_id` fields on data tables. A task's group approvals still
+  appear, because they point at it through `task.parent`. Log and history
+  tables are left out too. Each is named under not searched.
+- Counts come first, through the Aggregate API, one request at a time in jsn's
+  UI session. A count or row read with no answer in 20 seconds is cancelled on
+  the instance, and three counts that are slow or refused by the instance's
+  rate limit (HTTP 429) stop the run to spare it. A `LIKE` scan of
+  a list field or a data table follows a row count of that table: over 100,000
+  rows it is skipped and listed unless `--include-large`. Rows are
+  read only for nonzero counts, up to `--limit` per source, with a `jsn records
+  list` command for the rest.
+- `--plan` reads the dictionary and prints the count queries without running
+  one. A search that needs more than `--max-requests` (default 2000) count
+  queries is refused before the first count.
+- Ctrl-C stops before the next request and sends the platform's cancel for
+  the count in flight, in the session it runs in. If the instance refuses
+  jsn's UI session, the counts run without it and the output says that
+  neither Ctrl-C nor a slow count can be cancelled there.
+- A failed or denied count is never read as zero. It is listed under not
+  searched, the run is marked `partial`, and the command exits 1. A skipped
+  large table or a stop after slow counts makes the run partial in the same
+  way.
+- A run makes up to a few hundred count queries and can take minutes on a
+  busy instance. `--csv`, `--tsv` and `--markdown` print one row
+  per referring record (`table`, `sys_id`, `label`, `via`), and in data mode
+  a line on stderr says configuration was not searched; `--json` puts the
+  same rows in `data.records`, then what was not searched, and the plan last.
+
+Not searched, and always listed: the record's child items, log tables,
+`sys_created_by` and `sys_updated_by` (user names, not sys_ids), variable model
+tables (searched through `sys_variable_value`), views and rotation shards, and
+any value stored as a display value or name. System mode also lists Flow
+Designer values, which are compressed; try `jsn flows search`.
+
 ## Records engine compatibility contract
 
 Audit for #313, prerequisite to #314–#321. Baseline: origin/main at a3b0e6f.
@@ -355,6 +466,7 @@ This contract precedes implementation and does not declare those issues complete
 | Form views | `src/commands/forms.js` independently reads views, sections, elements | No automatic form/related-list retrieval in current generic get or ticket show. Preserve generic presentation; form-aware presentation belongs to specialized views |
 | `records revert` | `src/records/revert.js`; SDK list, listStrict, executeScript (global) | Reverts one record to its newest base system version or a named earlier version through `GlideappUpdateVersion().revert`, the Revert to this version action's own call, which has no REST API. Refuses with no script run on a malformed `--version`, a version of another record, no base or no single current version, a target equal to or matching the current version, a single `sys_choice` (before any read; its `sys_choice_set` reverts instead), a version holding a row with a non-hex sys_id or an unsafe table name, a row the revert would remove that cannot be read now, or a capture-context scope mismatch; confirms like a non-delete mutation; the script rechecks admin, the target and the current version; the new version's `reverted_from` is read back, and every row the update touches, 100 to a read: the rows the target holds with its values in the changed fields, and the rows only the current version held gone |
 | `records undelete` | `src/record-undelete.js`; SDK listStrict, executeScript (global); with `--with-related`, aggregate and the AJAXRollbackWorker processor through `src/eval-rollback.js` | Restores the newest `sys_audit_delete` copy of one record, found by table and original sys_id, through `GlideAuditDelete().undelete`, the Undelete Record action's own call, which has no REST API. Refuses with no script run when no copy is recorded, the copy does not match, the record exists, or a verified capture context's scope differs from the copy's; confirms like `delete`; the script checks admin, the copy and the absence again and prints a marker; the record is read back. Attachments and cascade-deleted records are not restored, and references other records held to it may stay cleared. `--with-related` is the Undelete With Related action: it reads the entry's delete recovery and rollback context (recorded only when a script deletes the record) and previews, by table and operation, the recorded operations it reverts; it refuses with nothing written when there is no recovery, it cannot be read or nothing is left to restore. With `--yes` it checks admin, starts the worker for that entry, follows its execution tracker, reads the record back and counts again to show nothing recorded is left unrecovered; a failed, unreadable or timed-out run, a record still missing or operations left unrecovered is an error naming what to check |
+| `records history` | `src/records/history.js`; SDK list (through the resolver), listStrict, and `readTableAudit` from `src/table-audit.js` | Read only. Lists one record's `sys_audit` rows newest first, keyed on `tablename` (the record's own class) and the raw `documentkey`, filtered by `--field` (fieldname) and `--since` (sys_created_on, UTC), bounded by `--limit` with one row of lookahead and no count. A full sys_id that no longer resolves is still read. An empty page reads the table's audit settings to say why, and its summary is that note; a row for another record or field, or a malformed page, is an error |
 | `records deleted` | `src/record-deleted.js`; SDK listStrict | Read only. Lists `sys_audit_delete` newest first, filtered by `--table` (tablename), `--by` (sys_created_by), `--since` (sys_created_on, UTC) and `--query`, bounded by `--limit` with one row of lookahead. For each row reads its own table by the raw documentkey to say whether the record is back, leaving the answer unknown when that table cannot be read; joins `delete_recovery` to `sys_delete_recovery` and its `sys_rollback_context` by raw sys_id and marks a recovery usable while the recovery is not recovered and the context is recorded. A denied or malformed `sys_audit_delete` read is an error, and an empty page says it proves nothing (the table is admin-read and keyed by the record's own table). The payload is not read |
 
 ### Observable data and calls

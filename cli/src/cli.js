@@ -329,6 +329,7 @@ export function buildCLI() {
     .command(deferredFamily('setup', wrap))
     .command(deferredFamily('auth', wrap))
     .command(deferredFamily('updatesets', wrap))
+    .command(deferredFamily('app', wrap))
     .command(deferredFamily('scopes', wrap))
     .command(deferredFamily('domains', wrap))
     // CORE
@@ -347,6 +348,7 @@ export function buildCLI() {
     .command(deferredFamily('scheduledjobs', wrap))
     .command(deferredFamily('asyncrules', wrap))
     .command(deferredFamily('triggers', wrap))
+    .command(deferredFamily('events', wrap))
     // AUTOMATION — In Memory
     .command(deferredFamily('rules', wrap))
     .command(deferredFamily('decisiontables', wrap))
@@ -363,7 +365,9 @@ export function buildCLI() {
     .command(deferredFamily('b4rules', wrap))
     .command(deferredFamily('roles', wrap))
     .command(deferredFamily('privileges', wrap))
+    .command(deferredFamily('usercriteria', wrap))
     .command(deferredFamily('aliases', wrap))
+    .command(deferredFamily('connections', wrap))
     .command(deferredFamily('groups', wrap))
     .command(deferredFamily('groupmembers', wrap))
     .command(deferredFamily('grouproles', wrap))

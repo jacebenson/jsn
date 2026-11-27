@@ -128,12 +128,13 @@ const deferredFamilies = {
   appmenu: profileFamily("appmenu", "./commands/_simple.js", "appMenuCmd"),
   acls: profileFamily("acls", "./commands/_simple.js", "aclsCmd"),
   roles: profileFamily("roles", "./commands/roles.js", "rolesCmd"),
+  usercriteria: profileFamily("usercriteria", "./commands/_simple.js", "usercriteriaCmd", { noImpersonateSubcommands: ["check"] }),
   properties: profileFamily("properties", "./commands/_simple.js", "propertiesCmd"),
   relationships: profileFamily("relationships", "./commands/_simple.js", "relationshipsCmd"),
   appmodules: profileFamily("appmodules", "./commands/_simple.js", "appmodulesCmd"),
   listcontrols: profileFamily("listcontrols", "./commands/_simple.js", "listcontrolsCmd"),
   views: profileFamily("views", "./commands/_simple.js", "viewsCmd"),
-  privileges: profileFamily("privileges", "./commands/_simple.js", "privilegesCmd"),
+  privileges: profileFamily("privileges", "./commands/_simple.js", "privilegesCmd", { mutationSubcommands: ["allow"] }),
   uxscripts: profileFamily("uxscripts", "./commands/_simple.js", "uxscriptsCmd"),
   catalogscripts: profileFamily("catalogscripts", "./commands/_simple.js", "catalogscriptsCmd"),
   cataloguipolicies: profileFamily("cataloguipolicies", "./commands/_simple.js", "cataloguipoliciesCmd"),
@@ -166,6 +167,19 @@ const deferredFamilies = {
 // Hand-written families declare their root identity here, once. The command
 // module spreads this same object instead of publishing a second copy.
 
+  "events": {
+    definition: {
+      command: "events [subcommand]",
+      describe: "Inspect the event log, its backlog and reprocess a recorded event",
+    },
+    capabilities: {
+      queryTable: "sysevent",
+      mutationContext: "operational",
+      mutationSubcommands: ["reprocess"],
+      localPreviewSubcommands: ["reprocess"],
+    },
+    module: "./commands/events.js", exportName: "eventsCmd",
+  },
   "tower": {
     definition: {
       command: "tower",
@@ -447,6 +461,14 @@ const deferredFamilies = {
     },
     module: "./commands/_simple.js", exportName: "aliasesCmd",
   },
+  "connections": {
+    definition: {
+      command: "connections [subcommand]",
+      describe: "Inspect HTTP connections and the credentials they use; secrets are never read (read-only)",
+    },
+    capabilities: { queryTable: "http_connection", mutationSubcommands: [] },
+    module: "./commands/connections.js", exportName: "connectionsCmd",
+  },
   "restmessage": {
     definition: {
       command: "restmessage [subcommand]",
@@ -517,6 +539,24 @@ const deferredFamilies = {
       localPreviewSubcommands: ["import"],
     },
     module: "./commands/updatesets.js", exportName: "updateSetsCmd",
+  },
+  "app": {
+    definition: {
+      command: "app [subcommand]",
+      describe: "Build a local app project into a deployable artifact, or deploy the package backend to an instance",
+    },
+    capabilities: {
+      noInstance: true,
+      skipDailyChecks: true,
+      // `app` reads and builds locally with no instance. `deploy` installs a
+      // package, so it is a mutation: declared here so the instance requirement,
+      // read-only refusal and help all derive from this one declaration.
+      mutationSubcommands: ["deploy"],
+      // An install writes application records, not a record in a chosen table:
+      // there is no capture context (scope + update set) to verify.
+      mutationContextExemptSubcommands: ["deploy"],
+    },
+    module: "./commands/app.js", exportName: "appCmd",
   },
   "scopes": {
     definition: {

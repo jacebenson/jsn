@@ -45,6 +45,10 @@ to each role: a direct grant, a chain of contained roles, or a group. Groups
 appear by the name the platform prints; the API returns no sys_ids. A missing,
 denied or malformed reply is an error, never an empty answer.
 
+`jsn roles show <role>` also lists the roles that role directly contains, read
+from `sys_user_role_contains` on the role's raw sys_id (first 100, with
+`has_more`). Nested contains are not expanded; `--no-essential` skips the read.
+
 ## Why a user cannot sign in
 
 ```sh
@@ -89,6 +93,7 @@ admin may have forced it, and then says what still blocks.
 jsn privileges requests                                  # requested, denied, invalidated
 jsn privileges requests --target-scope x_acme_core --status all
 jsn privileges requests --source-scope "Payroll Sync" --json
+jsn privileges allow <request>                           # preview; add --yes to write
 ```
 
 A call that Restricted Caller Access blocks files a `sys_restricted_caller_access`
@@ -113,6 +118,10 @@ search; a limit reached is reported as not found within the bound, and a miss
 exits 1. The scripts write no records of their own, but they run server-side code
 as `jsn eval` does, so read-only profiles refuse `find` and it needs a user who
 may run background scripts.
+`privileges allow` sets one request to Allowed, refuses one that already is,
+and reads it back, exiting nonzero unless the row says Allowed. With
+application administration on, only the target application's admins can allow
+it. The row is an application file, so the write needs a capture context.
 
 ## Record version history
 
@@ -141,6 +150,19 @@ runs the platform's Revert to this version in a background script after a
 confirmation that names the fields it changes, then reads back the new current
 version and the live record. Records created on the instance have no base.
 
+```sh
+jsn records history incident INC0010001 --identifier-field number
+jsn records history incident <sys_id> --field assigned_to --since 2026-11-01
+jsn records history incident <sys_id> --get data.changes.0.user
+```
+
+`records history` lists one record's field changes from `sys_audit`, newest
+first: when (UTC), who, field, old and new value. Each read is keyed on the
+record's raw sys_id and bounded (`--limit` 1-200). A deleted record's history
+still reads by sys_id. An empty history names the audit setting that applies
+(table or field not audited, inserts not audited) and is never reported as
+unchanged. Read-only.
+
 ## Group membership
 
 ```sh
@@ -163,6 +185,26 @@ jsn customizations revert --scope sn_hr_core --confirm <token>
 `customizations revert` does the same for every customised file of a Store or
 repository application, 100 files a run, after a preview and its token. Files
 added on the instance are listed, never deleted.
+
+## Where a record is used
+
+```sh
+jsn records references sys_user_group <sys_id> --plan
+jsn records references sys_user_group "Service Desk" --identifier-field name
+jsn records references sys_user_group "Service Desk" --identifier-field name --mode system --scripts --json
+```
+
+Lists every record that holds the record's sys_id. The default, `--mode data`,
+searches reference and list fields on ordinary tables, catalog answers and
+workflow variable values. `--mode system` searches configuration: fields on
+tables that extend `sys_metadata`, conditions and encoded queries, properties,
+templates and defaults, with script fields under `--scripts`. Neither mode
+searches the record's own child items (journal, attachments, audit, approvals)
+or log tables. Counts run one at a time before any rows are read; a count with
+no answer in 20 seconds is cancelled on the instance, and three slow or
+rate-limited counts stop the run. Tables over 100,000 rows are scanned only with `--include-large`. The
+output ends with what was not searched; a run with a gap is partial and exits
+1. Flows are not searched. Read-only.
 
 ## Saved Access Analyzer evidence
 
@@ -222,6 +264,38 @@ and reports only a request that appeared during the run; if none appeared, the
 command fails rather than pointing at an older saved analysis. Because `run` can
 persist, the whole subcommand is declared write-class for read-only profiles.
 
+## User criteria
+
+```sh
+jsn usercriteria list --query "active=true"
+jsn usercriteria show "Any user for KB"
+jsn usercriteria create -f name="Service desk only" -f group=<group_sys_id> \
+  --expect-scope global --expect-update-set "Catalog access"
+jsn usercriteria check abel.tuter "Request a laptop"
+```
+
+Replace `<group_sys_id>` with the group's sys_id.
+
+`usercriteria` (alias `uc`) reads and writes `user_criteria`. `show` also lists
+the catalog items that name the criteria in their Available for
+(`sc_cat_item_user_criteria_mtom`) and Not available for
+(`sc_cat_item_user_criteria_no_mtom`) lists, up to 100 of each, joined on the
+criteria's raw sys_id; `--no-essential` skips both reads. A criteria record is a
+customization, so `create`, `update` and `delete` need `--expect-scope` and
+`--expect-update-set`, as other customization writes do, and `update` and
+`delete` refuse a record outside the current application scope.
+
+`check <user> <item>` says whether the user can see the catalog item and which of
+its active Available for and Not available for criteria match them; Not available
+for overrides Available for. Criteria scripts run only on the server, so it runs
+one background script that asks the evaluators the platform's User Criteria
+Diagnostics uses. The script writes nothing and records no rollback context; the
+instance logs the run, as it does every background script. When the verdict
+differs from what the criteria alone predict, it says something else decided,
+such as the admin role. Criteria scripts that read the session
+instead of `user_id` evaluate as you. Category and catalog criteria are not
+checked, and knowledge articles are not covered.
+
 ## Outbound email notifications
 
 ```sh
@@ -261,6 +335,22 @@ automation). It sends no email, and it reports `sys_email`, `sysevent` and
 `syslog_email` counts before and after the call so a write would be visible.
 Its answer contains no recipient rows and does not explain inclusion or
 exclusion; use `why` for that.
+
+## HTTP connections and their credentials
+
+```sh
+jsn connections list --limit 50
+jsn connections show "<connection name>" --format styled
+jsn connections show <sys_id> --get data.credential.table
+```
+
+`list` reads `http_connection` with its connection alias, URL or host, active
+flag, and its credential's name, type and table. `show` gives one connection
+and, for an OAuth 2.0 credential, adds its OAuth profile, grant type and
+Application Registry entry. Every read names its fields, so passwords, keys, client secrets
+and tokens are never requested; `oauth_entity` and `oauth_credential` are never
+read. A credential row hidden by ACLs keeps its name with type `null`; a 403 on
+any read fails the command rather than giving partial results.
 
 ## Find a REST API
 
