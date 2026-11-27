@@ -461,6 +461,14 @@ const deferredFamilies = {
     },
     module: "./commands/_simple.js", exportName: "aliasesCmd",
   },
+  "connections": {
+    definition: {
+      command: "connections [subcommand]",
+      describe: "Inspect HTTP connections and the credentials they use; secrets are never read (read-only)",
+    },
+    capabilities: { queryTable: "http_connection", mutationSubcommands: [] },
+    module: "./commands/connections.js", exportName: "connectionsCmd",
+  },
   "restmessage": {
     definition: {
       command: "restmessage [subcommand]",

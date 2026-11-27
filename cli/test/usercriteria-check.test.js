@@ -24,7 +24,7 @@ const criteria = (sysId, name, active = true) => ({ user_criteria: sysId, user_c
 const READS = { GlideRecord: ['addQuery', 'addNotNullQuery', 'orderBy', 'setLimit', 'query', 'next', 'getValue', 'getDisplayValue'], gs: ['print'],
   GlideUser: ['getUserByID'], user: ['isDefault'], GlideappCatalogItem: ['get'], item: ['canViewCheck'], SNC: ['UserCriteriaLoader'], UserCriteriaLoader: ['getMatchingCriteria'] };
 function platform({ available = [criteria(LAPTOP, 'Laptop users'), criteria(STAFF, 'Staff')], notAvailable = [], matching = [], canView = true, guest = false } = {}) {
-  const unexpected = [], reads = [], printed = [];
+  const unexpected = [], reads = [], printed = [], userIds = new WeakMap();
   const guard = (label, target) => new Proxy(target, { get(t, name) {
     if (typeof name === 'string' && !READS[label].includes(name)) unexpected.push(`${label}.${name}`);
     return t[name] ?? (() => {});
@@ -40,8 +40,8 @@ function platform({ available = [criteria(LAPTOP, 'Laptop users'), criteria(STAF
   const context = {
     GlideRecord,
     gs: guard('gs', { print: line => printed.push(`*** Script: ${line}`) }),
-    GlideUser: guard('GlideUser', { getUserByID: userId => { reads.push(['user', userId]); return guard('user', { isDefault: () => guest }); } }),
-    GlideappCatalogItem: guard('GlideappCatalogItem', { get: itemId => { reads.push(['item', itemId]); return guard('item', { canViewCheck: () => canView }); } }),
+    GlideUser: guard('GlideUser', { getUserByID: userId => { reads.push(['user', userId]); const record = guard('user', { isDefault: () => guest }); userIds.set(record, userId); return record; } }),
+    GlideappCatalogItem: guard('GlideappCatalogItem', { get: itemId => { reads.push(['item', itemId]); return guard('item', { canViewCheck: (force, context, userRecord) => { reads.push(['can_view', userIds.get(userRecord)]); return canView; } }); } }),
     SNC: guard('SNC', { UserCriteriaLoader: guard('UserCriteriaLoader', { getMatchingCriteria: (userId, ids) => { reads.push(['match', userId, [...ids]]); return ids.filter(i => matching.includes(i)); } }) }),
   };
   return { unexpected, reads, run: script => { vm.runInNewContext(script, context); return printed.join('\n'); } };
@@ -73,6 +73,8 @@ test('reads the item\'s active criteria, asks the platform which match, and says
   assert.ok(f.instance.reads.some(([table, name, field, value]) => table === 'sc_cat_item_user_criteria_no_mtom' && name === 'addQuery' && field === 'sc_cat_item' && value === ITEM));
   assert.deepEqual(f.instance.reads.find(([kind]) => kind === 'match'), ['match', USER, [LAPTOP, STAFF]]);
   assert.deepEqual(f.instance.reads.find(([kind]) => kind === 'item'), ['item', ITEM]);
+  assert.deepEqual(f.instance.reads.find(([kind]) => kind === 'can_view'), ['can_view', USER],
+    'canViewCheck is asked about the user the criteria were evaluated for');
   assert.deepEqual(f.instance.unexpected, [], 'the script makes no call outside its reads');
   assert.equal(data.can_view, true);
   assert.deepEqual(data.available_for, [{ sys_id: LAPTOP, name: 'Laptop users', matched: true }, { sys_id: STAFF, name: 'Staff', matched: false }]);

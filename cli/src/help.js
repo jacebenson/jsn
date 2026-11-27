@@ -102,6 +102,7 @@ const ACCESS_COMMANDS = [
   { name: 'privileges', alias: 'priv', desc: 'Scope privileges' },
   { name: 'usercriteria', alias: 'uc', desc: 'User criteria (who can see catalog items)' },
   { name: 'aliases', alias: 'als', desc: 'Connection & credential aliases' },
+  { name: 'connections', desc: 'HTTP connections and the credentials they use (read-only)' },
   { name: 'groups', alias: 'group', desc: 'Manage groups' },
   { name: 'groupmembers', alias: 'gm', desc: 'Group memberships' },
   { name: 'grouproles', alias: 'gr', desc: 'Group roles' },
