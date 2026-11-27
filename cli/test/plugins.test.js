@@ -258,11 +258,21 @@ test('install --yes activates one plugin, waits on its tracker and verifies ever
   assert.match(f.data._formatted, /tracker f{32}, Successful[\s\S]*Verified: v_plugin shows all 3 active\./);
 });
 
+test('install --yes follows a tracker that came back with a warning, since the activation was queued', async () => {
+  // dev485581 answered a licensable plugin's activation with this error text and a tracker, then activated it.
+  const warning = '[WARNING] Plugin being activated requires a license, will not allow activation in production';
+  const f = installFixture({ activation: { result: { ...accepted.result, error: warning } } });
+  await f.run({ ids: ['com.example.root'], yes: true });
+  assert.equal(f.sent.filter(s => s.url.includes('/activate')).length, 1);
+  assert.deepEqual([f.data.verified, f.data.activation_warning], [true, warning]);
+  assert.match(f.data._formatted, /\nInstance warning: \[WARNING\] Plugin being activated requires a license/);
+});
+
 test('install --yes never reports a rejected, failed, unreadable or unverified activation as success', async () => {
   const forbidden = () => Object.assign(new Error('Forbidden'), { status: 403 });
   const cases = [
     ['api_error', { activation: { result: 'text' } }],
-    ['plugin_activation_rejected', { activation: { result: { error: 'Plugin is not entitled', status: '3', links: { progress: { id: TRACKER } } } } }],
+    ['plugin_activation_rejected', { activation: { result: { error: 'Plugin ID is not valid', status: '3' } } }],
     ['plugin_activation_unknown', { activation: { result: { status: '0', links: {} } } }],
     ['plugin_activation_failed', { progress: ['3'] }],
     ['plugin_activation_failed', { progress: ['3'], readback: () => { throw forbidden(); } }],
