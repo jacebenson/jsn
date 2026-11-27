@@ -125,7 +125,7 @@ export async function planActivation(sdk, ids) {
 }
 
 // One plugin through the CI/CD API, then the tracker, then v_plugin. A tracker alone is never success.
-export async function activatePlugin(sdk, plan, { pollIntervalMs, timeoutMs, wait } = {}) {
+export async function activatePlugin(sdk, plan, { pollIntervalMs, timeoutMs } = {}) {
   const [id] = plan.requested;
   const response = await sdk.request(`${sdk.baseURL}/api/sn_cicd/plugin/${encodeURIComponent(id)}/activate`, { method: 'POST' });
   const result = response?.result;
@@ -136,7 +136,7 @@ export async function activatePlugin(sdk, plan, { pollIntervalMs, timeoutMs, wai
       `Read jsn plugins show ${id} before retrying; jsn never resends an activation.`);
   }
   let progress;
-  try { progress = await waitForOperation(sdk, tracker, { pollIntervalMs, timeoutMs, ...(wait ? { wait } : {}) }); }
+  try { progress = await waitForOperation(sdk, tracker, { pollIntervalMs, timeoutMs }); }
   catch (error) {
     throw new AppError('plugin_progress_unavailable', `Activation of ${id} was started (tracker ${tracker}) but its progress could not be read: ${error.message}. It may still be running.`,
       `Read jsn store status ${tracker} and jsn plugins show ${id}; do not resend.`);
@@ -157,7 +157,7 @@ export async function activatePlugin(sdk, plan, { pollIntervalMs, timeoutMs, wai
 
 export function formatActivation(data) {
   const lines = [data.tracker_id ? `Activation of ${data.requested[0]}: tracker ${data.tracker_id}, ${data.status_label ?? data.status ?? 'status unknown'}${data.wait_timed_out ? ' (still running when the wait ended)' : ''}` : `Install ${data.requested.join(', ')}: preview, nothing sent`];
-  lines.push(data.plugins.length ? 'Plugins to activate, required plugins first:' : 'No inactive plugin to activate.');
+  lines.push(data.plugins.length ? `Plugins ${data.refusals.length ? 'activation would need' : 'to activate'}, required plugins first:` : 'No inactive plugin to activate.');
   data.plugins.forEach((plugin, i) => lines.push(`  ${i + 1}. ${plugin.id}  ${plugin.name ?? 'unnamed'} ${plugin.version ?? 'version unknown'}${plugin.required_by_request ? ', required' : ''}`));
   if (data.unlisted.length) lines.push(`Not listed in v_plugin, state unknown: ${data.unlisted.join(', ')}`);
   if (data.cycles.length) lines.push(`Cycles, not followed: ${data.cycles.map(([a, b]) => `${a} -> ${b}`).join(', ')}`);

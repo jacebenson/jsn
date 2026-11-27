@@ -2,7 +2,7 @@ import { deferredFamilyDefinition } from '../command-families.js';
 import { inventoryCompareCommand } from '../instance-inventory.js';
 import { readDependencyTree, formatPluginTree, planActivation, activatePlugin, formatActivation } from '../plugins.js';
 import { boundedPoll, boundedTimeout } from '../store.js';
-import { quoteShellArg } from '../helpers.js';
+import { buildRerunCommand } from '../helpers.js';
 import { AppError, errUsage } from '../errors.js';
 
 const showCommand = wrap => ({
@@ -35,11 +35,13 @@ const installCommand = wrap => ({
     app.requireInstance();
     const plan = await planActivation(app.sdk, ids);
     const refused = plan.refusals.map(r => `${r.id}: ${r.reason}`).join('; ');
+    // Hints re-pin --profile/--instance so following one cannot activate on another instance.
+    const pinned = (...tokens) => buildRerunCommand(argv, { rerun: ['plugins', ...tokens] });
     if (!argv.yes) {
-      const rerun = plan.requested.length === 1 && !plan.refusals.length ? ['jsn', 'plugins', 'install', plan.requested[0], '--yes'].map(quoteShellArg).join(' ') : null;
+      const rerun = plan.requested.length === 1 && !plan.refusals.length ? pinned('install', plan.requested[0], '--yes') : null;
       const data = { dry_run: true, sent: false, ...plan, rerun };
       Object.defineProperty(data, '_formatted', { value: formatActivation(data), enumerable: false });
-      return app.ok(data, { summary: `Dry run: ${plan.plugins.length} plugin(s) would be activated${refused ? `; refused: ${refused}` : ''}; nothing sent`,
+      return app.ok(data, { summary: refused ? `Dry run: nothing can be activated; refused: ${refused}; nothing sent` : `Dry run: ${plan.plugins.length} plugin(s) would be activated; nothing sent`,
         breadcrumbs: rerun ? [{ action: 'install', cmd: rerun, description: 'Activate it' }] : [] });
     }
     if (plan.refusals.length) throw errUsage(`Not activated: ${refused}. Nothing was sent.`);
@@ -48,14 +50,14 @@ const installCommand = wrap => ({
     const [id] = plan.requested;
     if (!data.wait_timed_out && !data.succeeded) {
       throw new AppError('plugin_activation_failed', `Activation of ${id} failed (tracker ${data.tracker_id}): ${data.status_message || data.status_label || data.error || 'the tracker reported failure'}.`,
-        `Read jsn plugins show ${id}; some required plugins may already be active. jsn never resends an activation.`);
+        `Read ${pinned('show', id)}; some required plugins may already be active. jsn never resends an activation.`);
     }
     if (data.still_inactive?.length) {
       throw new AppError('plugin_verification_failed', `Tracker ${data.tracker_id} reported success, but v_plugin still shows ${data.still_inactive.join(', ')} inactive.`,
-        `Read jsn plugins show ${id}; a reported success is not a completed activation.`);
+        `Read ${pinned('show', id)}; a reported success is not a completed activation.`);
     }
     app.ok(data, { summary: data.wait_timed_out ? `Activation of ${id} still running after ${argv.timeout}s (tracker ${data.tracker_id}); not verified` : `Activated ${id} and ${data.plugins.length - 1} required plugin(s); verified on v_plugin`,
-      breadcrumbs: [{ action: 'show', cmd: `jsn plugins show ${id}`, description: 'Read the plugin and its tree again' }, ...(data.wait_timed_out ? [{ action: 'status', cmd: `jsn store status ${data.tracker_id}`, description: 'Read the tracker again' }] : [])] });
+      breadcrumbs: [{ action: 'show', cmd: pinned('show', id), description: 'Read the plugin and its tree again' }, ...(data.wait_timed_out ? [{ action: 'status', cmd: buildRerunCommand(argv, { rerun: ['store', 'status', data.tracker_id] }), description: 'Read the tracker again' }] : [])] });
     if (data.wait_timed_out) process.exitCode = 1;
   }),
 });
