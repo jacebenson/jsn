@@ -160,7 +160,7 @@ test('missing, ambiguous, denied, malformed and mismatched answers are never rep
   }
   const empty = await listSlas(fixtureSdk({ contract_sla: [] }));
   assert.match(formatSlas(empty, 'list'), /does not prove there are none/);
-  assert.equal(isMutationCommand(['slas', 'list']) || isMutationCommand(['slas', 'show']) || isMutationCommand(['slas', 'task']), false);
+  for (const verb of ['list', 'show', 'task']) assert.equal(isMutationCommand({ _: ['slas', verb] }), false, verb);
 });
 
 test('real CLI runs on a read-only profile with JSON, --get, human output and strict validation', async () => {
