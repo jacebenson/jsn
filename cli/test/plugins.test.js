@@ -75,6 +75,8 @@ test('malformed, denied and inconsistent responses are never reported as a tree'
     'the same row twice': found => [...found, ...found],
     'a row without an id': found => found.map(row => ({ ...row, id: '' })),
     'a non-object row': () => ['com.example.root'],
+    // A field ACL can drop requires from the row; read as no requirements, the tree would look complete.
+    'a row without requires': found => found.map(({ requires: _requires, ...row }) => row),
   };
   for (const [name, reply] of Object.entries(cases)) await assert.rejects(readDependencyTree(fixtureSdk(graph, reply), 'com.example.root'), /Malformed v_plugin response/, name);
   const denied = { listStrict: async () => { throw Object.assign(new Error('Forbidden'), { status: 403 }); } };
