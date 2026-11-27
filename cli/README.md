@@ -410,6 +410,22 @@ found, and an endpoint whose host is a variable is listed as not matched. Basic 
 default, records no headers. Credential headers and query values are redacted and bodies are never
 read. It is a read and works on read-only profiles.
 
+## Plugins and their dependencies
+
+```sh
+jsn plugins show com.glide.ui.ng.amb
+jsn plugins show com.snc.pa.premium --get data.inactive
+jsn plugins show com.snc.pa.premium --json
+```
+
+`show` reads `v_plugin` by plugin id (never its `sys_id`, which differs on some rows) and walks
+`requires` one level per query until every dependency is read, up to 50 levels and 2000 plugins;
+a tree cut short says so and is marked incomplete. A plugin required more than once is read once,
+and a cycle (including a plugin that requires itself) is named, not followed. `inactive` lists
+the dependencies that are not active. An id `v_plugin` does not list is reported as not listed,
+with its state unknown, never as missing or not installed. It is a read and works on read-only
+profiles.
+
 ## Choose output
 
 Use the default terminal view for people, `--csv` or `--tsv` for flat rows, and `--json` when scripts need pagination, context, or errors. CSV/TSV do not fetch more pages or preserve both reference IDs and labels. Pagination notices go to stderr only when more results are explicitly known; silence does not prove completeness. JSON retains reference objects only if the command has not already flattened them. See [output details](https://jsn.jace.pro/docs/output/).

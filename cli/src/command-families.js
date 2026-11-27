@@ -686,7 +686,7 @@ const deferredFamilies = {
   "plugins": {
     definition: {
       command: "plugins",
-      describe: "Inspect platform plugin differences across instances",
+      describe: "Show a plugin with its nested dependencies, and compare plugins across instances",
     },
     capabilities: {
       skipContextHeader: true,

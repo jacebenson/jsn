@@ -38,6 +38,7 @@ Discover commands with `jsn --help`, `jsn discover "search words"`, and
 | Load an import set | `jsn import load <table> --file rows.json\|csv` |
 | What a user can see | `--impersonate <user_name>` on a read |
 | Why a user cannot reach a record | `jsn access-analyzer check --user <u> --table <t> --record <id>` |
+| A plugin and everything it requires | `jsn plugins show <id>` |
 | Documentation | `jsn docs "query"` or `jsn docs --path <path>` |
 
 Every write in that table previews first; `--yes` on a delete needs the count its
