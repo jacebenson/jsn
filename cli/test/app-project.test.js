@@ -692,8 +692,12 @@ test('the script may contain comments, regexes, strings and braces without confu
 });
 
 test('the script body is never evaluated, imported or required at build time', (t) => {
+  // An absolute path outside the fixture: the assertion watches that exact file,
+  // so a silent write cannot land somewhere the test never looks.
+  const target = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'jsn-side-effect-')), 'pwned');
+  t.after(() => fs.rmSync(path.dirname(target), { recursive: true, force: true }));
   const body = [
-    "require('node:fs').writeFileSync('pwned', 'the script body ran');",
+    `require('node:fs').writeFileSync(${JSON.stringify(target)}, 'the script body ran');`,
     "import('node:fs');",
     "throw new Error('the script body was evaluated');",
     'process.exit(9);',
@@ -704,7 +708,7 @@ test('the script body is never evaluated, imported or required at build time', (
   const [record] = readAppProject(root).records;
 
   assert.equal(record.code.script.text, body);
-  assert.equal(fs.existsSync(path.join(root, 'pwned')), false, 'no side effect from the script');
+  assert.equal(fs.existsSync(target), false, 'no side effect from the script');
 });
 
 test('a .js record written entirely with CRLF line endings reads the same', (t) => {
@@ -779,6 +783,19 @@ test('a postfix update leaves an operand, so the next slash divides', (t) => {
   const body = 'var i = 4;\nvar half = i++ / 2;\nvar quarter = --i / 2;\n';
   const root = writeAppProject(t, jsProject(body, singleFileMetadata({ script: sym('half') })));
   assert.equal(readAppProject(root).records[0].code.script.text, body);
+});
+
+test('a regex after a control block is not read as division', (t) => {
+  // `}` closing `if (ready) {}` ends a statement, so `/a}b/` is a regex: its `}`
+  // must not change the nesting depth and hide the declaration below it.
+  const body = 'if (ready) {}\n/a}b/.test("a}b");\nvar after = 1;\n';
+  const root = writeAppProject(t, jsProject(body, singleFileMetadata({ script: sym('after') })));
+  assert.equal(readAppProject(root).records[0].code.script.text, body);
+
+  // An object literal still leaves an operand, so this `/` divides.
+  const divided = 'var x = { a: 1 } / 2;\nvar y = x;\n';
+  const object = writeAppProject(t, jsProject(divided, singleFileMetadata({ script: sym('y') })));
+  assert.equal(readAppProject(object).records[0].code.script.text, divided);
 });
 
 test('a .js body nothing claims is refused instead of dropped', (t) => {

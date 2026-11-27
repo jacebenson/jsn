@@ -31,6 +31,7 @@ export const DEFAULT_APP_YAML = [
 export const TRICKY_SCRIPT = '\uFEFFvar DemoRule = function (current) {\r\n'
   + 'var gr = current.addQuery("active", "true");\r\n'
   + 'if (1 < 2 && gr.hasNext()) { gs.info("]]> framed"); }\r\n'
+  + 'var amp = "a & b";\r\n'
   + '// \u4e2d\u6587 \u00e9\r\n'
   + '};\r\n';
 

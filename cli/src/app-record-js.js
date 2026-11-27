@@ -71,7 +71,11 @@ function regexAllowed(previous) {
     // An update (`i++`, `--i`) always leaves an operand behind it, so a `/`
     // that follows one divides: `i++ / 2`.
     if (previous.value === '++' || previous.value === '--') return false;
-    return ![')', ']', '}'].includes(previous.value);
+    // A `}` that closed a block ends a statement, so `if (x) {} /re/` starts a
+    // regular expression; a `}` that closed an object literal leaves an operand,
+    // so `{ a: 1 } / 2` divides. Function bodies keep the operand reading.
+    if (previous.value === '}') return previous.blockEnd === true;
+    return ![')', ']'].includes(previous.value);
   }
   if (previous.type === 'ident') {
     // `of` starts a regular expression only as the operator of a for…of header.
@@ -80,6 +84,21 @@ function regexAllowed(previous) {
   }
   // A number, string, template literal or regex is an operand: `/` divides.
   return false;
+}
+
+/**
+ * Whether a `{` opens a statement block rather than an object literal.
+ *
+ * A `{` after `;`, `{`, `}`, or a control condition's `)` is a block. After an
+ * operator, `(`, `,`, `:`, `return` and the like it is an object. A function
+ * body (`) {`) is treated as an object so a following `/` still divides, which
+ * is what `var f = function () {} / 2` needs; `if (ready) {} /re/` is the case
+ * the control flag separates out.
+ */
+function opensBlock(previous) {
+  if (!previous) return true;
+  if (previous.type === 'punct') return [';', '{', '}'].includes(previous.value) || (previous.value === ')' && previous.control === true);
+  return previous.type === 'ident' && ['else', 'do', 'try', 'finally'].includes(previous.value);
 }
 
 /** Skip a body, collecting nothing, and report the tokens a caller asked for. */
@@ -120,7 +139,9 @@ class SourceScanner {
    */
   code(inTemplate, sink) {
     const source = this.source;
-    let braces = 0;
+    // One entry per open `{`: true when it opened a block, false for an object
+    // literal. The length is the depth the template scanner needs.
+    const braces = [];
     // What each open `(` belongs to: null, or the control keyword whose
     // condition it opens (`for (… of …)` needs the difference).
     const parens = [];
@@ -176,13 +197,10 @@ class SourceScanner {
         this.emit({ type: 'number', value: number[0], start, end: this.index }, sink);
         continue;
       }
-      if (char === '{') braces += 1;
-      if (inTemplate && char === '}') {
-        if (braces === 0) {
-          this.index += 1;
-          return; // the `}` belongs to the template, not to the code
-        }
-        braces -= 1;
+      if (char === '{') braces.push(opensBlock(this.previous));
+      if (inTemplate && char === '}' && braces.length === 0) {
+        this.index += 1;
+        return; // the `}` belongs to the template, not to the code
       }
       // `++` and `--` are one token: `i++ / 2` divides, and two single `+`
       // characters would leave the `/` looking like the start of a regex.
@@ -194,6 +212,7 @@ class SourceScanner {
       }
       this.index += 1;
       const token = { type: 'punct', value: char, start, end: this.index };
+      if (char === '}') token.blockEnd = braces.pop() === true;
       if (char === '(') {
         parens.push(pendingControl);
         pendingControl = null;
