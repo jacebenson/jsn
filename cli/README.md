@@ -271,6 +271,7 @@ jsn usercriteria list --query "active=true"
 jsn usercriteria show "Any user for KB"
 jsn usercriteria create -f name="Service desk only" -f group=<group_sys_id> \
   --expect-scope global --expect-update-set "Catalog access"
+jsn usercriteria check abel.tuter "Request a laptop"
 ```
 
 Replace `<group_sys_id>` with the group's sys_id.
@@ -283,6 +284,17 @@ criteria's raw sys_id; `--no-essential` skips both reads. A criteria record is a
 customization, so `create`, `update` and `delete` need `--expect-scope` and
 `--expect-update-set`, as other customization writes do, and `update` and
 `delete` refuse a record outside the current application scope.
+
+`check <user> <item>` says whether the user can see the catalog item and which of
+its active Available for and Not available for criteria match them; Not available
+for overrides Available for. Criteria scripts run only on the server, so it runs
+one background script that asks the evaluators the platform's User Criteria
+Diagnostics uses. The script writes nothing and records no rollback context; the
+instance logs the run, as it does every background script. When the verdict
+differs from what the criteria alone predict, it says something else decided,
+such as the admin role. Criteria scripts that read the session
+instead of `user_id` evaluate as you. Category and catalog criteria are not
+checked, and knowledge articles are not covered.
 
 ## Outbound email notifications
 

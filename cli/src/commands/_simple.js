@@ -6,6 +6,7 @@ import { withPrivilegeRequests } from './privilege-requests.js';
 import { withFixScriptRun } from './fixscript-run.js';
 import { withScheduledJobHealth } from './scheduled-job-health.js';
 import { withEmailExtras } from './email-extra.js';
+import { withUserCriteriaCheck } from './usercriteria-check.js';
 // Simple table-based commands — singular names passed for grammar
 // Default columns and aliases match the Go version exactly
 
@@ -109,7 +110,9 @@ export const appMenuCmd = (wrap) => buildProfileCommand('appmenu', wrap);
 // Commands with full CRUD
 export const aclsCmd = (wrap) => buildProfileCommand('acls', wrap);
 export const rolesCmd = (wrap) => buildProfileCommand('roles', wrap);
-export const usercriteriaCmd = (wrap) => buildProfileCommand('usercriteria', wrap);
+export const usercriteriaCmd = (wrap) => withUserCriteriaCheck(buildProfileCommand('usercriteria', wrap, {
+  extraSubcommands: [{ name: 'check', description: 'Whether a user can see a catalog item, and which criteria matched' }],
+}), wrap);
 export const propertiesCmd = (wrap) => buildProfileCommand('properties', wrap);
 
 // New commands for scoped-app tables
