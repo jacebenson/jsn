@@ -180,6 +180,8 @@ test('real CLI shows the tree read-only with JSON, --get, human output and stric
     assert.deepEqual([narrowed.data.tree.plugin, narrowed.data.records.length, narrowed.data.counts.matching], ['com.example.root', 4, 4]);
     const before = calls.length;
     for (const args of [['show', 'bad^id'], ['show'], ['show', 'com.example.root', '--typo'], ['compare', 'com.example.a', 'com.example.b', '--source', 'fixture', '--target', 'fixture']]) await assert.rejects(run(['plugins', ...args, '--json']), undefined, JSON.stringify(args));
+    // jsn compare and jsn store compare take no id, so a stray one is refused rather than ignored.
+    for (const args of [['compare'], ['store', 'compare']]) await assert.rejects(run([...args, 'com.example.a', '--source', 'fixture', '--target', 'fixture', '--json']), error => error.code === 2, JSON.stringify(args));
     assert.equal(calls.length, before);
     await assert.rejects(run(['plugins', 'show', 'com.example.absent', '--json']), error => error.code === 1 && /Error \(not_found\): Plugin not found: com\.example\.absent[\s\S]*does not show it is absent or inactive/.test(error.stderr));
     const reads = calls.filter(call => call.pathname.startsWith('/api/now/table/'));
