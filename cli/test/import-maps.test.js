@@ -92,7 +92,7 @@ test('import maps on a staging table reads its maps, then their field maps and s
   assert.match(text, /^Transform maps reading u_staging \(2\)/);
   assert.match(text, /Staged users \[c{32}\] u_staging -> sys_user, order 100\n/);
   assert.match(text, /Old users \[d{32}\] u_staging -> sys_user, order 200 \(inactive\)/);
-  assert.match(text, /Coalesce on email: a row whose email matches an existing sys_user record updates it; a row with no match inserts a new one\./);
+  assert.match(text, /Coalesce on email: a row whose email matches an existing sys_user record updates it; a row with no match inserts a new one, unless its coalesce fields are all empty\./);
   assert.match(text, /No coalesce field: every row inserts a new record\./);
   assert.match(text, /u_email +email +yes +no +create/);
   assert.match(text, /u_name +name +no +yes/);
@@ -120,12 +120,15 @@ test('import maps --scripts reads and prints the map script, field map source sc
 test('import maps shows Create new record on empty coalesce fields and each Coalesce empty fields field map', async () => {
   const onEmpty = { create_new_record_on_empty_coalesce_fields: ref('true') };
   const sdk = fakeSdk(staged({ sys_transform_map: () => [map(MAP, onEmpty), map(OLD, onEmpty)],
-    sys_transform_entry: [entry(2, 'email', { coalesce: ref('true'), coalesce_empty_fields: ref('true') }), entry(5, 'user_name', { map: ref(OLD), coalesce: ref('true') })] }));
+    sys_transform_entry: [entry(2, 'email', { coalesce: ref('true'), coalesce_empty_fields: ref('true') }), entry(3, 'name', { coalesce: ref('true') }),
+      entry(4, 'start_date', { coalesce: ref('true') }), entry(5, 'user_name', { map: ref(OLD), coalesce: ref('true') })] }));
   const data = await readImportMaps(sdk, 'u_staging');
   assert.equal(data.maps[0].field_maps[0].coalesce_empty_fields, true);
   const [staging, old] = formatImportMaps(data).split('\n\n').slice(1);
   assert.match(staging, /Coalesce empty fields on email: an empty value matches an existing record where that field is empty\./);
+  assert.match(staging, /Coalesce on email, name, start_date: a row whose email, name and start_date match an existing sys_user record updates it; a row with no match inserts a new one\./);
   assert.match(old, /Create new record on empty coalesce fields: yes\./);
+  assert.match(old, /a row with no match inserts a new one\./, 'empty coalesce rows insert when the map says so');
   assert.doesNotMatch(old, /Coalesce empty fields on/);
 });
 

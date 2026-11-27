@@ -417,10 +417,11 @@ export function formatImportMaps(data) {
       `  Create new record on empty coalesce fields: ${yes(m.create_new_record_on_empty_coalesce_fields)}.`);
     lines.push(`  Map script: ${m.run_script ? 'runs' : 'off (Run script is not set)'}`);
     if (m.script) lines.push(...body(m.script));
-    lines.push(!m.field_maps.length ? '  No field map is visible to this identity, so its coalesce fields are unknown.'
-      : m.coalesce.length ? `  Coalesce on ${m.coalesce.join(', ')}: a row whose ${m.coalesce.join(' and ')} ${m.coalesce.length > 1 ? 'match' : 'matches'} an existing ${m.target_table} record updates it; a row with no match inserts a new one.`
-      : '  No coalesce field: every row inserts a new record.');
     const empty = m.field_maps.filter(f => f.coalesce && f.coalesce_empty_fields).map(f => f.target_field);
+    const keys = m.coalesce.length > 1 ? `${m.coalesce.slice(0, -1).join(', ')} and ${m.coalesce.at(-1)} match` : `${m.coalesce[0]} matches`;
+    lines.push(!m.field_maps.length ? '  No field map is visible to this identity, so its coalesce fields are unknown.'
+      : m.coalesce.length ? `  Coalesce on ${m.coalesce.join(', ')}: a row whose ${keys} an existing ${m.target_table} record updates it; a row with no match inserts a new one${m.create_new_record_on_empty_coalesce_fields || empty.length ? '' : ', unless its coalesce fields are all empty'}.`
+      : '  No coalesce field: every row inserts a new record.');
     if (empty.length) lines.push(`  Coalesce empty fields on ${empty.join(', ')}: an empty value matches an existing record where that field is empty.`);
     lines.push(`  Field maps (${m.field_maps.length}):`);
     if (m.field_maps.length) {
