@@ -244,8 +244,8 @@ async function readRows(sdk, table, query, fields, limit) {
   }
   return rows;
 }
-async function readMatching(sdk, table, field, value, fields, limit = 1) {
-  const rows = await readRows(sdk, table, `${field}=${value}`, fields, limit);
+async function readMatching(sdk, table, field, value, fields, limit = 1, order = '') {
+  const rows = await readRows(sdk, table, `${field}=${value}${order}`, fields, limit);
   if (rows.some(row => raw(row[field]).toLowerCase() !== value.toLowerCase())) throw new Error(`${table} ${value} read back as a different record.`);
   return rows;
 }
@@ -343,6 +343,94 @@ export function formatImportRuns(data) {
     for (const r of data.error_rows.rows) lines.push(`  row ${r.row ?? '?'}: ${r.message || '(no message)'}`);
     if (!data.error_rows.rows.length) lines.push(data.runs[0].errors ? '  none visible to this identity (see the note below)' : '  none');
     if (data.error_rows.has_more) lines.push('  More error rows exist; raise --errors to see them.');
+  }
+  for (const note of data.notes) lines.push('', note);
+  return `${lines.join('\n')}\n`;
+}
+
+// Transform maps for `import maps`: maps by staging table, name or sys_id, then their field maps and scripts by raw map sys_id.
+const MAP_FIELDS = 'sys_id,name,source_table,target_table,active,order,run_business_rules,enforce_mandatory_fields,copy_empty_fields,create_new_record_on_empty_coalesce_fields,run_script';
+const ENTRY_FIELDS = 'sys_id,map,source_field,target_field,coalesce,use_source_script,choice_action,date_format';
+const SCRIPT_FIELDS = 'sys_id,map,when,order,active';
+const MAX_MAPS = 50, MAX_ENTRIES = 1000, MAX_SCRIPTS = 200;
+// The order transform events fire: once at the start, per row around the field maps, once at the end.
+const WHEN = ['onStart', 'onBefore', 'onForeignInsert', 'onChoiceCreate', 'onReject', 'onAfter', 'onComplete'];
+const flag = value => raw(value) === 'true';
+
+/** Transform maps that read a staging table (or one map by name or sys_id), each with its field maps and transform scripts. */
+export async function readImportMaps(sdk, target, { scripts = false } = {}) {
+  if (typeof target !== 'string' || !target.trim()) throw errUsage('Name a staging table, a transform map name, or a transform map sys_id.');
+  if (target.includes('^')) throw errUsage('The staging table or map name cannot contain ^, which would change the query.');
+  if (/\p{Cc}/u.test(target)) throw errUsage('The staging table or map name cannot contain control characters.');
+  const id = target.trim();
+  const fields = scripts ? `${MAP_FIELDS},script` : MAP_FIELDS;
+  const order = '^ORDERBYorder^ORDERBYname';
+  let matchedBy = /^[0-9a-f]{32}$/i.test(id) ? 'sys_id' : 'source_table';
+  let rows = await readMatching(sdk, 'sys_transform_map', matchedBy, id, fields, MAX_MAPS + 1, order);
+  if (!rows.length && matchedBy === 'source_table') {
+    matchedBy = 'name';
+    rows = await readMatching(sdk, 'sys_transform_map', 'name', id, fields, MAX_MAPS + 1, order);
+  }
+  if (!rows.length) throw errNotFoundHint('Transform map', id, 'Pass a staging table, a transform map name or a sys_id (jsn records list --table sys_transform_map). Maps hidden by ACLs are not visible.');
+  const maps = rows.slice(0, MAX_MAPS).map(m => ({ sys_id: raw(m.sys_id), name: raw(m.name), source_table: raw(m.source_table), target_table: raw(m.target_table),
+    active: flag(m.active), order: count(m.order), run_business_rules: flag(m.run_business_rules), enforce_mandatory_fields: raw(m.enforce_mandatory_fields),
+    copy_empty_fields: flag(m.copy_empty_fields), create_new_record_on_empty_coalesce_fields: flag(m.create_new_record_on_empty_coalesce_fields),
+    run_script: flag(m.run_script), ...(scripts ? { script: raw(m.script) } : {}), coalesce: [], field_maps: [], transform_scripts: [] }));
+  // The ids go into an IN query, so a malformed one could widen it.
+  if (maps.some(m => !/^[0-9a-f]{32}$/.test(m.sys_id))) throw new Error('sys_transform_map returned an unexpected sys_id.');
+  const byId = new Map(maps.map(m => [m.sys_id, m]));
+  const children = async (table, childFields, sort, limit, what) => {
+    const found = await readRows(sdk, table, `mapIN${[...byId.keys()].join(',')}^ORDERBY${sort}`, childFields, limit + 1);
+    if (found.some(row => !byId.has(raw(row.map)))) throw new Error(`${table} returned a ${what} of another transform map.`);
+    return found;
+  };
+  const entries = await children('sys_transform_entry', scripts ? `${ENTRY_FIELDS},source_script` : ENTRY_FIELDS, 'target_field', MAX_ENTRIES, 'field map');
+  for (const e of entries.slice(0, MAX_ENTRIES)) {
+    byId.get(raw(e.map)).field_maps.push({ sys_id: raw(e.sys_id), source_field: raw(e.source_field), target_field: raw(e.target_field), coalesce: flag(e.coalesce),
+      use_source_script: flag(e.use_source_script), choice_action: raw(e.choice_action), date_format: raw(e.date_format), ...(scripts ? { source_script: raw(e.source_script) } : {}) });
+  }
+  const events = await children('sys_transform_script', scripts ? `${SCRIPT_FIELDS},script` : SCRIPT_FIELDS, 'order', MAX_SCRIPTS, 'script');
+  for (const s of events.slice(0, MAX_SCRIPTS)) {
+    byId.get(raw(s.map)).transform_scripts.push({ sys_id: raw(s.sys_id), when: raw(s.when), order: count(s.order), active: flag(s.active), ...(scripts ? { script: raw(s.script) } : {}) });
+  }
+  const rank = when => WHEN.includes(when) ? WHEN.indexOf(when) : WHEN.length;
+  for (const m of maps) {
+    m.coalesce = m.field_maps.filter(f => f.coalesce).map(f => f.target_field);
+    m.transform_scripts.sort((a, b) => rank(a.when) - rank(b.when) || (a.order ?? 0) - (b.order ?? 0));
+  }
+  const notes = [rows.length > MAX_MAPS && `More than ${MAX_MAPS} transform maps match; pass one map's sys_id to read the others.`,
+    entries.length > MAX_ENTRIES && `More than ${MAX_ENTRIES} field maps; the list is cut. Pass one map's sys_id to read fewer at a time.`,
+    events.length > MAX_SCRIPTS && `More than ${MAX_SCRIPTS} transform scripts; the list is cut. Pass one map's sys_id to read fewer at a time.`].filter(Boolean);
+  return { target: id, matched_by: matchedBy, maps, has_more: rows.length > MAX_MAPS, field_maps_has_more: entries.length > MAX_ENTRIES,
+    scripts_has_more: events.length > MAX_SCRIPTS, notes };
+}
+
+export function formatImportMaps(data) {
+  const heading = { source_table: 'Transform maps reading', name: 'Transform maps named', sys_id: 'Transform map' }[data.matched_by];
+  const lines = [`${heading} ${data.target} (${data.maps.length})`];
+  const yes = value => value ? 'yes' : 'no';
+  const body = text => String(text).split(/\r?\n/).map(line => `      ${line}`.trimEnd());
+  for (const m of data.maps) {
+    lines.push('', `${m.name} [${m.sys_id}] ${m.source_table} -> ${m.target_table}, order ${m.order ?? '?'}${m.active ? '' : ' (inactive)'}`);
+    lines.push(`  Run business rules: ${yes(m.run_business_rules)}. Enforce mandatory fields: ${m.enforce_mandatory_fields || '(not set)'}. Copy empty fields: ${yes(m.copy_empty_fields)}.`);
+    lines.push(`  Map script: ${m.run_script ? 'runs' : 'off (Run script is not set)'}`);
+    if (m.script) lines.push(...body(m.script));
+    lines.push(m.coalesce.length
+      ? `  Coalesce on ${m.coalesce.join(', ')}: a row whose ${m.coalesce.join(' and ')} ${m.coalesce.length > 1 ? 'match' : 'matches'} an existing ${m.target_table} record updates it; any other row inserts a new one.`
+      : '  No coalesce field: every row inserts a new record.');
+    if (m.create_new_record_on_empty_coalesce_fields) lines.push('  A row whose coalesce fields are empty inserts a new record.');
+    lines.push(`  Field maps (${m.field_maps.length}):`);
+    if (m.field_maps.length) {
+      const width = Math.max(20, ...m.field_maps.map(f => f.source_field.length + 1));
+      lines.push(`    ${'SOURCE'.padEnd(width)} ${'TARGET'.padEnd(width)} COALESCE  SCRIPTED  CHOICE  DATE FORMAT`);
+      for (const f of m.field_maps) lines.push(`    ${f.source_field.padEnd(width)} ${f.target_field.padEnd(width)} ${yes(f.coalesce).padEnd(9)} ${yes(f.use_source_script).padEnd(9)} ${f.choice_action.padEnd(7)} ${f.date_format}`.trimEnd());
+      for (const f of m.field_maps.filter(f => f.source_script)) lines.push(`    ${f.target_field} source script:`, ...body(f.source_script));
+    }
+    lines.push(`  Transform scripts (${m.transform_scripts.length}):`);
+    for (const s of m.transform_scripts) {
+      lines.push(`    ${s.when.padEnd(16)} ${String(s.order ?? '?').padEnd(6)} ${s.active ? '' : 'inactive'}`.trimEnd());
+      if (s.script) lines.push(...body(s.script));
+    }
   }
   for (const note of data.notes) lines.push('', note);
   return `${lines.join('\n')}\n`;

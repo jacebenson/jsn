@@ -253,6 +253,9 @@
     "queue": {
       "why": "list reads one table's newest page and show reads one record; neither aggregates a backlog over a window, so queue names the read that answers how much is stuck and for how long."
     },
+    "maps": {
+      "why": "import maps reads the transform maps (sys_transform_map) that turn a staging table's rows into target records, with their field maps and transform scripts; list and show read import sets, runs reads transform history, and transform runs the maps rather than describing them."
+    },
     "references": {
       "why": "records references lists every record that holds one record's sys_id; related would suggest the form's configured related lists, which miss conditions, properties and document ID fields, and usage would suggest the platform's dependency views of application files."
     },
@@ -295,7 +298,7 @@
   },
   "budgets": {
     "$comment": "Subcommand count per family. A budget is a ratchet, not a ban: when a new command earns its place, raise the number in the same diff and say why in the PR. Adding a family means adding its budget entry.",
-    "total": 482,
+    "total": 483,
     "families": {
       "access-analyzer": 4,
       "acls": 5,
@@ -338,7 +341,7 @@
       "groupmembers": 3,
       "grouproles": 3,
       "groups": 5,
-      "import": 5,
+      "import": 6,
       "incidents": 5,
       "includes": 5,
       "knowledge": 2,
