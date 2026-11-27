@@ -113,6 +113,7 @@ test('task resolves the record through task by number or sys_id and reads its ta
   const human = formatSlas(data, 'task');
   assert.match(human, /^Task SLAs on INC0010001 \(incident\) \[0+1\] \(read-only; times in UTC\)/);
   assert.match(human, /Priority 1 resolution \(1 hour\) \[0+a\]: in progress, breached\n {4}started 2026-11-24 23:14:50, breach 2026-12-02 11:00:00; business elapsed 18 Hours \(4886\.12%\), 0 Seconds left/);
+  assert.match(human, /Old engine \[[0-9a-f]{32}\]: breached\n/, 'the breached stage is not said twice');
   assert.match(human, /Priority 2 resolution \(8 hour\) \[0+b\]: completed, not breached, inactive\n {4}started [^\n]*, stopped 2026-11-25 01:00:00;/);
   const bySysId = fixtureSdk({ task_sla: [] });
   const empty = await taskSlas(bySysId, CASE);

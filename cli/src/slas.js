@@ -125,7 +125,7 @@ function showLines(d) {
 
 function taskSlaLines(t) {
   const percentText = t.business_percentage === null ? '' : ` (${t.business_percentage}%)`;
-  return [`  ${named(t.definition)}: ${(t.stage || 'no stage').replace(/_/g, ' ')}, ${t.has_breached ? 'breached' : t.has_breached === false ? 'not breached' : 'breach unknown'}${t.active ? '' : ', inactive'}`,
+  return [`  ${named(t.definition)}: ${(t.stage || 'no stage').replace(/_/g, ' ')}${t.stage === 'breached' ? '' : `, ${t.has_breached ? 'breached' : t.has_breached === false ? 'not breached' : 'breach unknown'}`}${t.active ? '' : ', inactive'}`,
     `    started ${t.start_time || '(none)'}, breach ${t.planned_end_time || '(none)'}${t.end_time ? `, stopped ${t.end_time}` : ''}; business elapsed ${t.business_elapsed || '(none)'}${percentText}, ${t.business_time_left || '(none)'} left`];
 }
 
