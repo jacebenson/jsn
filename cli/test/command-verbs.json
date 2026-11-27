@@ -202,6 +202,9 @@
     "access": {
       "why": "users access says which sys_user flag or failed sign-in stops a user signing in; show prints the record without judging it, roles answers what a user may do once signed in, and check or status would not say that the subject is sign-in."
     },
+    "allow": {
+      "why": "privileges allow sets one Restricted Caller Access request to Allowed, the status name the platform uses; approve would suggest an approval record, and update would hide which field changes."
+    },
     "basic-auth": {
       "why": "users basic-auth gives one enforcement verdict per account the platform recorded using Basic Auth. list returns generic user records, show reads one user, and users roles lists role names, but none of them reports the Basic Auth decision or whether enforcement blocks the account."
     },
@@ -268,7 +271,7 @@
   },
   "budgets": {
     "$comment": "Subcommand count per family. A budget is a ratchet, not a ban: when a new command earns its place, raise the number in the same diff and say why in the PR. Adding a family means adding its budget entry.",
-    "total": 466,
+    "total": 467,
     "families": {
       "access-analyzer": 4,
       "acls": 5,
@@ -321,7 +324,7 @@
       "perf": 10,
       "platform": 2,
       "plugins": 1,
-      "privileges": 6,
+      "privileges": 7,
       "properties": 5,
       "records": 20,
       "relationships": 5,

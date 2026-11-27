@@ -683,6 +683,7 @@ Run `jsn` for the full grouped list. Commands are organized by ServiceNow domain
 
 **Access** — `acls`, `roles`, `scopes`, `properties`, `privileges`, `userroles` (list/add/remove direct grants)
 **Access** — `acls`, `roles`, `scopes`, `properties`, `privileges` (and `privileges requests`)
+**Access** — `acls`, `roles`, `scopes`, `properties`, `privileges` (and `privileges requests`, `privileges allow`)
 
 **User Experience** — `forms`, `lists`, `clientscripts`, `uipolicies`, `uiactions`
 

@@ -93,6 +93,7 @@ admin may have forced it, and then says what still blocks.
 jsn privileges requests                                  # requested, denied, invalidated
 jsn privileges requests --target-scope x_acme_core --status all
 jsn privileges requests --source-scope "Payroll Sync" --json
+jsn privileges allow <request>                           # preview; add --yes to write
 ```
 
 A call that Restricted Caller Access blocks files a `sys_restricted_caller_access`
@@ -117,6 +118,10 @@ search; a limit reached is reported as not found within the bound, and a miss
 exits 1. The scripts write no records of their own, but they run server-side code
 as `jsn eval` does, so read-only profiles refuse `find` and it needs a user who
 may run background scripts.
+`privileges allow` sets one request to Allowed, refuses one that already is,
+and reads it back, exiting nonzero unless the row says Allowed. With
+application administration on, only the target application's admins can allow
+it. The row is an application file, so the write needs a capture context.
 
 ## Record version history
 
