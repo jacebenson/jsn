@@ -213,6 +213,11 @@ test('install previews by default: required plugins first, unlisted and cycles n
   // a and c require each other; entered from d, the walk reaches c first, so a comes before it.
   assert.deepEqual(several.data.plugins.map(p => p.id), ['com.example.a', 'com.example.c', 'com.example.d', 'com.example.root']);
   assert.equal(several.data.rerun, null);
+
+  const pinned = installFixture();
+  await pinned.run({ ids: ['com.example.root'], profile: 'pdi', instance: 'https://pdi.example.test' });
+  assert.equal(pinned.data.rerun, 'jsn plugins install com.example.root --yes --profile pdi --instance https://pdi.example.test');
+  assert.deepEqual(pinned.options.breadcrumbs.map(b => b.cmd), [pinned.data.rerun]);
 });
 
 test('install refuses before sending: several ids with --yes, bad input, active, blocked and incomplete trees', async () => {
@@ -221,6 +226,9 @@ test('install refuses before sending: several ids with --yes, bad input, active,
     await assert.rejects(f.run(argv), error => error.code === 'usage_error', JSON.stringify(argv));
     assert.deepEqual([f.reads.length, f.sent.length], [0, 0], JSON.stringify(argv));
   }
+  const absent = installFixture();
+  await assert.rejects(absent.run({ ids: ['com.example.absent'], yes: true }), error => error.code === 'not_found');
+  assert.equal(absent.sent.length, 0);
   const cases = {
     'already active': installGraph().map(row => row.id === 'com.example.root' ? { ...row, active: 'active' } : row),
     'it is required, inactive and its install is blocked': installGraph().map(row => row.id === 'com.example.c' ? { ...row, block_install: 'true' } : row),
@@ -232,6 +240,8 @@ test('install refuses before sending: several ids with --yes, bad input, active,
     await preview.run({ ids: ['com.example.root'] });
     assert.ok(preview.data.refusals.some(r => r.reason === reason), reason);
     assert.equal(preview.data.rerun, null, reason);
+    assert.match(preview.options.summary, /^Dry run: nothing can be activated; refused: .*; nothing sent$/, reason);
+    if (preview.data.plugins.length) assert.match(preview.data._formatted, /Plugins activation would need, required plugins first:/, reason);
     const sent = installFixture({ rows });
     await assert.rejects(sent.run({ ids: ['com.example.root'], yes: true }), error => error.code === 'usage_error' && error.message.includes(reason) && /Nothing was sent/.test(error.message), reason);
     assert.equal(sent.sent.length, 0, reason);
