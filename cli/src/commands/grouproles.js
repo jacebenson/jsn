@@ -1,15 +1,12 @@
 import { formatRecordForDisplay, getStringField, resolveFieldsParam, assertSafeExactMatch, confirmDelete, quoteShellArg } from '../helpers.js';
-import { declareCapabilities } from '../capabilities.js';
+import { deferredFamilyDefinition } from '../command-families.js';
 
 // add/remove write sys_group_has_role; the mutation guard (instance +
 // read-only profile) and the delete confirmation both key off this.
-declareCapabilities('grouproles', { queryTable: 'sys_group_has_role', mutationContext: 'operational', mutationSubcommands: ['add', 'remove'] });
 
 export function groupRolesCmd(wrap) {
   return {
-    command: 'grouproles [subcommand]',
-    aliases: ['grouprole', 'grole', 'gr'],
-    describe: 'Manage group roles',
+    ...deferredFamilyDefinition('grouproles'),
     builder: (yargs) => {
       return yargs
         .command({
@@ -164,7 +161,7 @@ export function groupRolesCmd(wrap) {
         });
     },
     handler: () => {
-      console.log('Manage group roles in sys_user_has_role.');
+      console.log('Manage group roles in sys_group_has_role.');
       console.log('');
       console.log('Available subcommands:');
       console.log('  list                  List group roles');

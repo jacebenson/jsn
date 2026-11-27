@@ -17,6 +17,7 @@ import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
 import fs from 'node:fs';
 import path from 'node:path';
+import { resetWindowsCredentialCache } from '../../src/auth/windows-credential-store.js';
 
 const original = childProcess.execFileSync;
 
@@ -48,14 +49,26 @@ export function readSecureEntries() {
 }
 
 export function installWin32CredentialFixture() {
+  resetWindowsCredentialCache();
   childProcess.execFileSync = function fixture(command, args, options = {}) {
     const name = String(command).split(/[\\/]/).at(-1).toLowerCase();
     if (name !== 'powershell.exe' && name !== 'pwsh.exe') return original.call(this, command, args, options);
     const request = JSON.parse(options.input);
     const mode = process.env.JSN_TEST_SECURE_FAIL || '';
-    if (mode === 'fail-read' && request.operation === 'read') throw new Error('synthetic win32 read failure');
+    if (mode === 'fail-read' && ['read', 'read_many'].includes(request.operation)) throw new Error('synthetic win32 read failure');
     if (mode === 'fail-write' && request.operation === 'write') throw new Error('synthetic win32 write failure');
     const entries = readEntries();
+    if (mode === 'legacy-unreadable' && (request.operation === 'read_many'
+      || request.operation === 'read' && !Object.hasOwn(entries, request.target))) {
+      throw new Error('synthetic unreadable legacy target');
+    }
+    if (request.operation === 'read_many') {
+      return JSON.stringify({ status: 'ok', values: request.targets.map(target => ({
+        target, value: !Object.hasOwn(entries, target) ? null
+          : mode === 'malformed' ? '{not-json'
+            : mode === 'readback-mismatch' ? '{}' : entries[target],
+      })) });
+    }
     if (request.operation === 'read') {
       if (!Object.hasOwn(entries, request.target)) return JSON.stringify({ status: 'missing' });
       if (mode === 'malformed') return JSON.stringify({ status: 'ok', value: '{not-json' });

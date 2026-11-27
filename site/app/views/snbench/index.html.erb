@@ -1,0 +1,30 @@
+<section class="shell results">
+  <h1>snbench: ServiceNow tool benchmark</h1>
+  <p>Jace Benson's benchmark of ServiceNow CLI tools and MCP servers. These results are a snapshot, not a guarantee. <a href="https://github.com/jacebenson/snbench">Benchmark source and rules</a>.</p>
+  <p><%= @runs.size %> runs, <%= @attempt_count %> attempts, <%= @runs.flat_map { |r| r.snbench_attempts.map(&:task) }.uniq.size %> distinct tasks shown.
+  <% if @runs.any? %>Data dates: <%= @runs.map(&:date).min.utc.to_date %> to <%= @runs.map(&:date).max.utc.to_date %> (UTC).<% end %></p>
+  <form method="get" action="/snbench">
+    <% @filters.each do |key, values| %>
+      <label><%= key.capitalize %> <select name="<%= key %>"><option value="">All</option><% values.each do |value| %><option value="<%= value %>" <%= 'selected' if params[key] == value %>><%= value %></option><% end %></select></label>
+    <% end %>
+    <button type="submit">Filter</button> <a href="/snbench">Reset</a>
+  </form>
+  <% if @runs.any? { |run| run.run_id == 'fixture-nop' } %><p>Development sample includes one synthetic nop test fixture, not a measured control run. No measured nop results were available in the source snapshot.</p><% end %>
+  <%= render 'scoreboard' %>
+  <%= render 'matrix' %>
+  <h2>Run aggregates and controls</h2>
+  <p>Attempts are averaged within each task before tasks are averaged. Tasks passed is the sum of task pass fractions, not an integer count of perfect tasks. Each task has equal weight, including across repeated runs in a row. Means are per task attempt, not totals; missing measurements are unavailable, never zero. Input/output tokens exclude separately reported reasoning and cache tokens.</p>
+  <p><span class="badge">agent</span> measures the agent and tool. <span class="badge">oracle</span> proves tasks are solvable. <span class="badge">nop</span> proves checks cannot pass trivially. Controls never contribute to agent rows. Rows also separate benchmark version, task digest and instance build. Different task coverage, budgets, versions and environments are not controlled comparisons.</p>
+  <% if @groups.empty? %><p>No benchmark runs match these filters.</p><% end %>
+  <div class="results-table-wrap"><table class="results-table">
+    <thead><tr><th>Tool / model / runner</th><th>Track</th><th>Tasks passed / attempted</th><th>Pass rate</th><th>Mean tokens in / out</th><th>Mean cost (USD)</th><th>Mean seconds</th><th>Runs / context</th></tr></thead>
+    <tbody><% @groups.each do |key, runs| %>
+      <% summary = SnbenchSummary.new(runs.flat_map { |run| run.snbench_attempts.to_a }) %>
+      <tr><td><%= key[1] %> / <%= key[2].presence || 'none' %> / <%= key[3].presence || 'none' %></td><td><span class="badge"><%= key[0] %></span></td>
+      <td><%= summary.passed.round(2) %> / <%= summary.attempted %></td><td class="snbench-rate"><%= number_to_percentage(summary.mean(:pass) * 100, precision: 1) %></td>
+      <td><%= summary.mean(:input)&.round(1) || 'unavailable' %> / <%= summary.mean(:output)&.round(1) || 'unavailable' %></td>
+      <td><%= summary.mean(:cost_usd)&.round(6) || 'unavailable' %></td><td><%= summary.mean(:seconds)&.round(2) || 'unavailable' %></td>
+      <td><details><summary><%= runs.size %> runs</summary><p><%= key[4] %> · tasks <code><%= key[5] %></code> · <%= key[6] %></p><% runs.each do |run| %><p><%= link_to run.run_id, "/snbench/#{run.run_id}" %><%= ' (synthetic test fixture, not measured)' if run.run_id == 'fixture-nop' %> · <%= run.tool_version %> · budget USD <%= run.budget_usd || 'unknown' %></p><% end %></details></td></tr>
+    <% end %></tbody>
+  </table></div>
+</section>

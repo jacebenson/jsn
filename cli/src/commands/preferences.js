@@ -1,4 +1,5 @@
 import { declareCapabilities } from '../capabilities.js';
+import { deferredFamilyDefinition } from '../command-families.js';
 import { resolveRuntimePreferences, setPreference, unsetPreference, PREFERENCE_KEYS } from '../preferences.js';
 import { errUsageHint } from '../errors.js';
 
@@ -44,9 +45,7 @@ function show(argv, app) {
 
 export function preferencesCmd(wrap) {
   return {
-    command: 'preferences',
-    describe: 'Show or change JSN workflow preferences (operations, testing, update-set naming)',
-    summary: 'Configure JSN workflow opinions installation-wide or per profile',
+    ...deferredFamilyDefinition('preferences'),
     builder: y => y
       .command({
         command: 'show',

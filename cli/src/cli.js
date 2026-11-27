@@ -1,4 +1,4 @@
-import { flowsCmd, workflowsCmd, midserversCmd, subscriptionsCmd, customizationsCmd, skippedUpdatesCmd, docsCmd, perfCmd } from './command-families.js';
+import { accessAnalyzerCmd, deferredFamily, flowsCmd, workflowsCmd, midserversCmd, subscriptionsCmd, customizationsCmd, skippedUpdatesCmd, docsCmd, perfCmd } from './command-families.js';
 import { visibleCommandRegistry } from './command-audience.js';
 // Root CLI using the local yargs-compatible adapter
 
@@ -11,79 +11,26 @@ import { App } from './app.js';
 import { resolveSession, applySession } from './session.js';
 import { renderHelp, renderTips } from './help.js';
 import { isMutationCommand, refreshMutationCommands } from './mutations.js';
+import { impersonationRefusal, confirmImpersonatedWrite, runImpersonated } from './impersonation.js';
 import { maybeShowHome } from './welcome.js';
 import { isLocalPreview, noInstanceCommands, dailyCheckSkipCommands, collectCapabilities, operationOf } from './capabilities.js';
 import { resolveRuntimePreferences } from './preferences.js';
-import { guardExit, exitWithError, AppError, CodeUsage } from './errors.js';
+import { guardExit, exitWithError, AppError, CodeUsage, errUsageHint } from './errors.js';
+import { writesCustomization } from './mutation-context.js';
 import { formatCommandList } from './helpers.js';
 
-// Command modules
+// Command modules. Families register through command-families.js and load
+// their implementation on path resolution; only the modules cli.js itself uses
+// at build time (discover, version, skill) are imported eagerly.
 import { discoverCmd } from './commands/discover.js';
-import { setupCmd } from './commands/setup.js';
-import { preferencesCmd } from './commands/preferences.js';
-import { authCmd } from './commands/auth.js';
-import { recordsCmd } from './commands/records.js';
-import { attachmentsCmd } from './commands/attachments.js';
-import { cmdbCmd } from './commands/cmdb.js';
-import { knowledgeCmd } from './commands/knowledge.js';
-import { snippetsCmd } from './commands/snippets.js';
-import { catalogCmd } from './commands/catalog.js';
-import { incidentsCmd } from './commands/incidents.js';
-import { changesCmd } from './commands/changes.js';
-import { requestsCmd } from './commands/requests.js';
-import { tasksCmd } from './commands/tasks.js';
-import { usersCmd } from './commands/users.js';
-import { groupsCmd } from './commands/groups.js';
-import { groupMembersCmd } from './commands/groupmembers.js';
-import { groupRolesCmd } from './commands/grouproles.js';
-import { ticketsCmd } from './commands/tickets.js';
-import { casesCmd } from './commands/cases.js';
-import { transactionsCmd } from './commands/transactions.js';
 
-import { platformCmd } from './commands/platform.js';
-import { codesearchCmd } from './commands/codesearch.js';
+
 import { versionCmd } from './commands/version.js';
-import { upgradeCmd } from './commands/upgrade.js';
-import { documentCmd } from './commands/document.js';
+
 import { skillCmd, checkSkill } from './commands/skill.js';
 import { getVersion, checkLatest, getReleaseChannel, getInstallCommand } from './commands/version.js';
 
 // Table and platform commands registered at root level for progressive disclosure
-import {
-  actionsCmd, includesCmd, rulesCmd,
-  clientScriptsCmd, uiActionsCmd,
-  tablesCmd, columnsCmd, importCmd,
-  spPagesCmd, spWidgetsCmd, uiPagesCmd, appMenuCmd,
-  aclsCmd, rolesCmd, propertiesCmd,
-  relationshipsCmd, appmodulesCmd, listcontrolsCmd, viewsCmd,
-  privilegesCmd, uxscriptsCmd, aliasesCmd,
-  catalogscriptsCmd, cataloguipoliciesCmd,
-  uipoliciesCmd,
-  scriptactionsCmd, scheduledjobsCmd, asyncrulesCmd, triggersCmd,
-  assignmentsCmd,
-  emailCmd,
-  restmessageCmd, soapmessagesCmd,
-  uimacrosCmd, uxlistsCmd, uxapplicabilityCmd,
-} from './commands/_simple.js';
-import { decisiontablesCmd } from './commands/decisiontables.js';
-import { formsCmd } from './commands/forms.js';
-import { listsCmd } from './commands/lists.js';
-import { updateSetsCmd } from './commands/updatesets.js';
-import { scopesCmd } from './commands/scopes.js';
-import { domainsCmd } from './commands/domains.js';
-import { evalCmd } from './commands/eval.js';
-import { restCmd } from './commands/rest.js';
-import { logsCmd } from './commands/logs.js';
-import { scrapiCmd } from './commands/scrapi.js';
-import { b4rulesCmd } from './commands/b4rules.js';
-import { atfCmd } from './commands/atf.js';
-import { scanCmd } from './commands/scan.js';
-import { storeCmd } from './commands/store.js';
-import { pluginsCmd } from './commands/plugins.js';
-import { compareCmd } from './commands/compare.js';
-import { approvalsCmd } from './commands/approvals.js';
-import { diffCmd } from './commands/diff.js';
-import { graphqlCmd } from './commands/graphql.js';
 
 /**
  * The output format the caller asked for, resolved from PARSED argv.
@@ -128,6 +75,7 @@ function wrap(handler) {
         process.stderr.write('Error: App context not initialized.\n');
         process.exit(1);
       }
+      if (argv.impersonate !== undefined) await confirmImpersonatedWrite(app, argv);
       const caps = collectCapabilities().get(argv._?.[0]) || {};
       app.queryValidation = null;
       if (((typeof argv.query === 'string' && argv.query.trim()) || caps.filteredMutationSubcommands?.includes(argv._?.[1]))
@@ -136,8 +84,14 @@ function wrap(handler) {
         const options = { table: target, query: argv.query, refresh: argv['refresh-metadata'] };
         app.queryValidation = await (isMutationCommand(argv) ? assertWriteQuery : validateReadQuery)(app, options);
       }
-      await app.guardMutationContext(argv);
-      await handler(argv, app);
+      if (argv.impersonate === undefined) {
+        await app.guardMutationContext(argv);
+        await handler(argv, app);
+      } else {
+        // A record write to a sys_metadata table is customization; ancestry is read as the real user, since the target may not read sys_db_object.
+        if (await writesCustomization(app.sdk, argv)) throw errUsageHint(`"jsn ${argv._.join(' ')}" cannot run with --impersonate: it writes customization, which would be captured in that user's update set.`, 'Make customization changes as yourself; --impersonate writes ordinary records.');
+        await runImpersonated(app, argv.impersonate.trim(), () => handler(argv, app));
+      }
     } catch (err) {
       // All error rendering goes through the unified renderer in
       // src/errors.js — exit codes, stream choice, and the JSON envelope
@@ -212,6 +166,8 @@ export function buildCLI() {
       verbose: { type: 'boolean', description: 'Keep machine-output coaching and pretty-print JSON' },
       raw: { type: 'boolean', description: 'Print extracted strings without JSON quotes' },
       'include-reference-links': { type: 'boolean', description: 'Include Table API reference links on reads' },
+      impersonate: { type: 'string', description: 'Run this command as another user (user_name or sys_id) on a private session' },
+      'impersonate-writes': { type: 'boolean', description: 'Allow a write under --impersonate once your user has approved it' },
       styled: {
         type: 'boolean',
         description: 'Force styled output even when piped',
@@ -266,8 +222,9 @@ export function buildCLI() {
       (argv) => {
         const cmd = (argv._[0] || '').toString();
         // Skip-list is derived from command capability declarations
-        // (noInstance: true), not a hand-maintained name list.
-        if (!cmd || noInstanceCommands().has(cmd)) {
+        // (noInstance: true), not a hand-maintained name list. A no-instance
+        // family's mutation (customizations revert) still needs this guard.
+        if (!cmd || (noInstanceCommands().has(cmd) && !isMutationCommand(argv))) {
           return;
         }
         if (isMutationCommand(argv)) {
@@ -301,6 +258,10 @@ export function buildCLI() {
             }
           }
         }
+      },
+      (argv) => {
+        const refusal = argv.impersonate === undefined ? null : impersonationRefusal(argv);
+        if (refusal) guardExit(argv, { code: 'usage', message: `"jsn ${argv._.join(' ')}" cannot run with --impersonate: ${refusal}.`, hint: 'Impersonation runs one instance command as another user, for example: jsn records list --table incident --impersonate abel.tuter' });
       },
     ])
     .middleware(async (argv) => {
@@ -381,111 +342,120 @@ export function buildCLI() {
       // Reads never probe or print runtime context. Writes use the guard result.
     })
     // CONFIGURATION
-    .command(setupCmd(wrap))
-    .command(preferencesCmd(wrap))
-    .command(authCmd(wrap))
-    .command(updateSetsCmd(wrap))
-    .command(scopesCmd(wrap))
-    .command(domainsCmd(wrap))
+    .command(deferredFamily('setup', wrap))
+    .command(deferredFamily('preferences', wrap))
+    .command(deferredFamily('auth', wrap))
+    .command(deferredFamily('updatesets', wrap))
+    .command(deferredFamily('app', wrap))
+    .command(deferredFamily('scopes', wrap))
+    .command(deferredFamily('domains', wrap))
     // CORE
-    .command(incidentsCmd(wrap))
-    .command(changesCmd(wrap))
-    .command(requestsCmd(wrap))
-    .command(tasksCmd(wrap))
-    .command(catalogCmd(wrap))
-    .command(casesCmd(wrap))
+    .command(deferredFamily('incidents', wrap))
+    .command(deferredFamily('changes', wrap))
+    .command(deferredFamily('requests', wrap))
+    .command(deferredFamily('tasks', wrap))
+    .command(deferredFamily('catalogitems', wrap))
+    .command(deferredFamily('cases', wrap))
     // AUTOMATION — Async
     .command(flowsCmd(wrap))
     .command(workflowsCmd(wrap))
-    .command(actionsCmd(wrap))
-    .command(scriptactionsCmd(wrap))
-    .command(scheduledjobsCmd(wrap))
-    .command(asyncrulesCmd(wrap))
-    .command(triggersCmd(wrap))
+    .command(accessAnalyzerCmd(wrap))
+    .command(deferredFamily('actions', wrap))
+    .command(deferredFamily('scriptactions', wrap))
+    .command(deferredFamily('scheduledjobs', wrap))
+    .command(deferredFamily('asyncrules', wrap))
+    .command(deferredFamily('triggers', wrap))
+    .command(deferredFamily('events', wrap))
     // AUTOMATION — In Memory
-    .command(rulesCmd(wrap))
-    .command(decisiontablesCmd(wrap))
-    .command(assignmentsCmd(wrap))
+    .command(deferredFamily('rules', wrap))
+    .command(deferredFamily('decisiontables', wrap))
+    .command(deferredFamily('assignments', wrap))
     // AUTOMATION — Inbound
-    .command(scrapiCmd(wrap))
-    .command(emailCmd(wrap))
+    .command(deferredFamily('scrapi', wrap))
+    .command(deferredFamily('email', wrap))
     // AUTOMATION — Outbound
-    .command(restmessageCmd(wrap))
-    .command(soapmessagesCmd(wrap))
+    .command(deferredFamily('notifications', wrap))
+    .command(deferredFamily('restmessage', wrap))
+    .command(deferredFamily('soapmessages', wrap))
     // ACCESS
-    .command(aclsCmd(wrap))
-    .command(b4rulesCmd(wrap))
-    .command(rolesCmd(wrap))
-    .command(privilegesCmd(wrap))
-    .command(aliasesCmd(wrap))
-    .command(groupsCmd(wrap))
-    .command(groupMembersCmd(wrap))
-    .command(groupRolesCmd(wrap))
-    .command(usersCmd(wrap))
+    .command(deferredFamily('acls', wrap))
+    .command(deferredFamily('b4rules', wrap))
+    .command(deferredFamily('roles', wrap))
+    .command(deferredFamily('privileges', wrap))
+    .command(deferredFamily('usercriteria', wrap))
+    .command(deferredFamily('aliases', wrap))
+    .command(deferredFamily('connections', wrap))
+    .command(deferredFamily('groups', wrap))
+    .command(deferredFamily('groupmembers', wrap))
+    .command(deferredFamily('grouproles', wrap))
+    .command(deferredFamily('userroles', wrap))
+    .command(deferredFamily('users', wrap))
     // USER EXPERIENCE — Shared
-    .command(formsCmd(wrap))
-    .command(listsCmd(wrap))
-    .command(clientScriptsCmd(wrap))
-    .command(uipoliciesCmd(wrap))
-    .command(uiActionsCmd(wrap))
-    .command(viewsCmd(wrap))
-    .command(catalogscriptsCmd(wrap))
-    .command(cataloguipoliciesCmd(wrap))
+    .command(deferredFamily('forms', wrap))
+    .command(deferredFamily('lists', wrap))
+    .command(deferredFamily('clientscripts', wrap))
+    .command(deferredFamily('uipolicies', wrap))
+    .command(deferredFamily('uiactions', wrap))
+    .command(deferredFamily('views', wrap))
+    .command(deferredFamily('catalogscripts', wrap))
+    .command(deferredFamily('cataloguipolicies', wrap))
     // USER EXPERIENCE — Core UI
-    .command(uiPagesCmd(wrap))
-    .command(uimacrosCmd(wrap))
-    .command(listcontrolsCmd(wrap))
+    .command(deferredFamily('uipages', wrap))
+    .command(deferredFamily('uimacros', wrap))
+    .command(deferredFamily('listcontrols', wrap))
     // USER EXPERIENCE — Service Portal
-    .command(spPagesCmd(wrap))
-    .command(spWidgetsCmd(wrap))
+    .command(deferredFamily('sppages', wrap))
+    .command(deferredFamily('spwidgets', wrap))
     // USER EXPERIENCE — Next Experience
-    .command(uxscriptsCmd(wrap))
-    .command(uxlistsCmd(wrap))
-    .command(uxapplicabilityCmd(wrap))
+    .command(deferredFamily('uxscripts', wrap))
+    .command(deferredFamily('uxlists', wrap))
+    .command(deferredFamily('uxapplicability', wrap))
     // USER EXPERIENCE — Navigation
-    .command(appMenuCmd(wrap))
-    .command(appmodulesCmd(wrap))
+    .command(deferredFamily('appmenu', wrap))
+    .command(deferredFamily('appmodules', wrap))
     // DATA — DB Schema
-    .command(tablesCmd(wrap))
-    .command(columnsCmd(wrap))
-    .command(relationshipsCmd(wrap))
+    .command(deferredFamily('tables', wrap))
+    .command(deferredFamily('columns', wrap))
+    .command(deferredFamily('relationships', wrap))
     // DATA — Shared Code, Transforms, Logs
-    .command(includesCmd(wrap))
-    .command(importCmd(wrap))
-    .command(logsCmd(wrap))
-    .command(propertiesCmd(wrap))
+    .command(deferredFamily('includes', wrap))
+    .command(deferredFamily('import', wrap))
+    .command(deferredFamily('logs', wrap))
+    .command(deferredFamily('properties', wrap))
     // DATA
-    .command(cmdbCmd(wrap))
-    .command(knowledgeCmd(wrap))
-    .command(recordsCmd(wrap))
-    .command(attachmentsCmd(wrap))
-    .command(transactionsCmd(wrap))
+    .command(deferredFamily('cmdb', wrap))
+    .command(deferredFamily('knowledge', wrap))
+    .command(deferredFamily('records', wrap))
+    .command(deferredFamily('attachments', wrap))
+    .command(deferredFamily('transactions', wrap))
 
-    .command(platformCmd(wrap))
-    .command(snippetsCmd(wrap))
-    .command(ticketsCmd(wrap))
-    .command(codesearchCmd(wrap))
+    .command(deferredFamily('platform', wrap))
+    .command(deferredFamily('snippets', wrap))
+    .command(deferredFamily('tickets', wrap))
+    .command(deferredFamily('codesearch', wrap))
     // DEVELOPER
-    .command(atfCmd(wrap))
-    .command(scanCmd(wrap))
-    .command(storeCmd(wrap))
-    .command(pluginsCmd(wrap))
-    .command(compareCmd(wrap))
+    .command(deferredFamily('atf', wrap))
+    .command(deferredFamily('scan', wrap))
+    .command(deferredFamily('store', wrap))
+    .command(deferredFamily('plugins', wrap))
+    .command(deferredFamily('compare', wrap))
     .command(subscriptionsCmd(wrap))
-    .command(approvalsCmd(wrap))
+    .command(deferredFamily('approvals', wrap))
     .command(skippedUpdatesCmd(wrap))
     .command(perfCmd(wrap))
     .command(customizationsCmd(wrap))
     .command(midserversCmd(wrap))
-    .command(diffCmd(wrap))
-    .command(graphqlCmd(wrap))
-    .command(evalCmd(wrap))
-    .command(restCmd(wrap))
+    .command(deferredFamily('diff', wrap))
+    .command(deferredFamily('graphql', wrap))
+    .command(deferredFamily('eval', wrap))
+    .command(deferredFamily('fixscripts', wrap))
+    .command(deferredFamily('rest', wrap))
     .command(skillCmd(wrap))
     .command(docsCmd(wrap))
     .command(versionCmd(wrap))
-    .command(upgradeCmd(wrap))
-    .command(documentCmd(wrap))
+    .command(deferredFamily('upgrade', wrap))
+    .command(deferredFamily('document', wrap))
+    .command(deferredFamily('tower', wrap))
     .command(discoverCmd(wrap, (argv) => visibleCommandRegistry(cliInstance.commandRegistry({ details: true }), app.config, argv)))
     .demandCommand(1, 'You must specify a command')
     .onParentDiscovery((argv, { path, subcommands }) => {
@@ -619,3 +589,4 @@ export function buildCLI() {
 export const cli = buildCLI();
 
 export { cancelBackgroundChecks } from './commands/version.js';
+export { impersonating } from './impersonation.js';

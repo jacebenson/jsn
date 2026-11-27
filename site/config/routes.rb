@@ -21,6 +21,8 @@ Rails.application.routes.draw do
     next unless old_url.start_with?('/')
     get old_url, to: redirect(target, status: 301)
   end
+  get '/snbench', to: 'snbench#index'
+  get '/snbench/:run_key', to: 'snbench#show'
   get '/results', to: 'acceptance_results#index'
   get '/results/:run_key', to: 'acceptance_results#show'
   post '/api/acceptance/runs', to: 'acceptance_ingest#create'

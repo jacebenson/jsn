@@ -21,6 +21,15 @@ mock.module('../src/midserver-direct.js', { namedExports: { ...direct,
   detectDirectPlatform: () => native,
   installDirectMidServer: async opts => { installed = opts; events.push('install'); return { name: opts.name, installDir: '/isolated/mid', state, platform: native }; },
 } });
+mock.module('../src/midserver-setup.js', { namedExports: {
+  diagnoseMidAccount: async () => { events.push('account-checked'); },
+  validateMidInstallDirectory: directory => directory,
+} });
+mock.module('../src/midserver-locations.js', { namedExports: {
+  assertMidInstallationLocationAvailable: () => {}, registerMidInstallationDirectory: () => {},
+  resolveMidInstallationDirectory: (_url, _name, { directory } = {}) => directory || '/isolated/mid',
+  forgetMidInstallationDirectory: () => {},
+} });
 const { midserversCmd } = await import('../src/commands/midservers.js');
 const children = [], builder = { command(c) { children.push(c); return builder; } };
 midserversCmd(handler => handler).builder(builder);
@@ -29,25 +38,25 @@ const add = children.find(c => c.command === 'add');
 test('existing instance MID collision blocks direct preparation before any download', async () => {
   events = []; installed = null; native = 'linux'; state = 'prepared';
   await assert.rejects(add.handler({ name: 'oct12', username: 'test-user', 'install-method': 'direct' }, {
-    requireInstance: () => {}, getEffectiveInstance: () => 'https://example.service-now.com',
+    requireInstance: () => {}, getEffectiveInstance: () => 'https://example.service-now.com', output: { getFormat: () => 'json' },
     sdk: { list: async () => [{ sys_id: 'existing', name: 'oct12' }] },
   }), /already exists in ServiceNow/);
   assert.equal(installed, null);
 });
 
-test('direct wizard validates masked credentials before name and explicit runtime decision; no instance writes', async t => {
+test('direct wizard resolves name and location before masked credentials, account checks and runtime decision; no instance writes', async t => {
   for (const scenario of ['cancel', 'prepared', 'started', 'pending']) await t.test(scenario, async () => {
     events = []; installed = null; native = scenario === 'prepared' ? 'windows' : 'linux'; state = scenario === 'pending' ? 'started' : scenario;
     let result, summary;
     const app = {
-      requireInstance: () => {}, getEffectiveInstance: () => 'https://example.service-now.com',
+      requireInstance: () => {}, getEffectiveInstance: () => 'https://example.service-now.com', output: { getFormat: () => 'json' },
       ok: (data, opts) => { result = data; summary = opts.summary; },
       sdk: { list: async (_table, params) => params.get('sysparm_fields') === 'sys_id,name' || scenario === 'pending' ? [] : [{ sys_id: 'abc', name: 'oct12', status: 'Up', validated: { value: 'false', display_value: 'Yes' } }],
         create: () => assert.fail('must not fabricate ECC agents'), update: () => assert.fail('must not validate'), delete: () => assert.fail('must not delete'),
       },
     };
     await add.handler({ username: 'test-user', 'install-method': 'direct', 'wait-timeout': 1, 'wait-interval': 1 }, app);
-    assert.deepEqual(events.slice(0, 4), ['password', 'credentials-validated', 'name', 'decision']);
+    assert.deepEqual(events.slice(0, 5), ['name', 'password', 'credentials-validated', 'account-checked', 'decision']);
     if (scenario === 'cancel') { assert.equal(installed, null); return; }
     assert.equal(installed.releaseName, 'runtime-06-12-2026');
     if (scenario === 'prepared') {

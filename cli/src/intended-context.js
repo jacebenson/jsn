@@ -1,13 +1,35 @@
 // Intent comes from the task, never from the current provider preferences.
 import { assertSafeExactMatch, getStringField } from './helpers.js';
 import { errUsageHint } from './errors.js';
-import { readEffectiveUpdateSet } from './context.js';
+import { readEffectiveApplication, readEffectiveUpdateSet } from './context.js';
 
 const CONTEXT_HINT = 'Supply --expect-scope and --expect-update-set from the task. Select context explicitly with scopes set / updatesets set, then retry. --force never overrides missing or mismatched intent.';
+const GLOBAL_APPLICATION = 'global';
 
 export function contextFailure(message, hint = CONTEXT_HINT) {
   return errUsageHint(message, hint);
 }
+
+/**
+ * Prove Global from the live session when `apps.current_app` is absent.
+ *
+ * ServiceNow represents the Global application selection as the absence of the
+ * preference row, so a missing row is only *evidence* of Global when a fresh
+ * read of the session application picker says so. Anything else — a picker
+ * reporting another application, or a picker that cannot be read — is reported
+ * back as a `note` so the caller refuses instead of silently assuming Global
+ * and capturing the write into the wrong application.
+ */
+async function globalFromSession(sdk) {
+  try {
+    const effective = await readEffectiveApplication(sdk);
+    if (effective.sys_id === GLOBAL_APPLICATION) return { value: GLOBAL_APPLICATION };
+    return { note: `\nThe session application picker reports ${effective.sys_id}, not Global, and no apps.current_app preference is persisted for this user — the selection cannot be treated as Global.` };
+  } catch (error) {
+    return { note: `\nThe session application picker could not be read (${error.message}), so Global cannot be confirmed.` };
+  }
+}
+
 const raw = (record, key) => record?.[key]?.value ?? record?.[key];
 export async function exactContextRecord(sdk, table, field, identifier) {
   if (typeof identifier !== 'string' || !identifier.trim()) throw contextFailure(`Missing intended ${table} identifier.`);
@@ -40,7 +62,7 @@ export async function readWriteContext(sdk) {
    * branch below says what is actually wrong and names the command that fixes
    * it.
    */
-  async function preference({ key, label, remediation, sessionTruth }) {
+  async function preference({ key, label, remediation, sessionTruth, sessionFallback }) {
     let rows;
     try {
       rows = await sdk.list('sys_user_preference', new URLSearchParams({
@@ -53,8 +75,12 @@ export async function readWriteContext(sdk) {
       );
     }
     if (rows.length === 0) {
+      // Only the documented Global representation (absent row + session picker
+      // reporting Global) may recover here; an unproven scope still fails.
+      const fallback = sessionFallback ? await sessionFallback() : null;
+      if (fallback?.value) return fallback.value;
       throw contextFailure(
-        `No ${label} is selected for ${user.user_name}, so there is no capture context to verify this write against.${await sessionNote(sessionTruth)}`,
+        `No ${label} is selected for ${user.user_name}, so there is no capture context to verify this write against.${fallback?.note || ''}${await sessionNote(sessionTruth)}`,
         `Select one first, then rerun the same command: ${remediation}. --expect-scope and --expect-update-set assert an existing selection; they cannot create one.`,
       );
     }
@@ -89,6 +115,7 @@ export async function readWriteContext(sdk) {
     preference({
       key: 'apps.current_app', label: 'application scope',
       remediation: 'jsn scopes set "<scope value or name>"',
+      sessionFallback: () => globalFromSession(sdk),
     }),
     preference({
       key: 'sys_update_set', label: 'update set',

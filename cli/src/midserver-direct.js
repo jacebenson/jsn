@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { midInstallDirectory, normalizeMidName, defaultRun, validateMidCredentials } from './midserver-install.js';
 import { extractMidZip, inspectMidZip } from './midserver-zip.js';
+import { directProcessTransport, ownedDirectProcesses, stopOwnedDirectProcesses, runDirectConsole } from './midserver-direct-processes.js';
 
 const METADATA = '.jsn-mid-direct.json';
 const MAX_ARCHIVE = 1024 * 1024 * 1024;
@@ -202,46 +203,93 @@ export async function followDirectLog(installDir, { writer = chunk => process.st
   }
 }
 
-function uncertainState(metadata) {
-  return `MID '${metadata.name}' runtime state is uncertain after an interrupted lifecycle command. Confirm no vendor MID process from ${metadata.installDir} is running, then rerun; installed files are kept.`;
+function lifecycleGuard(metadata) {
+  if (metadata.platform === 'linux' && metadata.runtime === 'user-background') {
+    if (process.getuid?.() === 0) throw new Error('Run native MID lifecycle commands as a non-root user');
+    refuseNativeService(nativeToken(metadata.instanceURL, metadata.name, metadata.installDir));
+  } else if (metadata.platform !== 'windows' || metadata.runtime !== 'console') {
+    throw new Error('Unsupported MID runtime ownership; files retained');
+  }
+  if (metadata.serviceRegistered !== false) throw new Error('Refusing lifecycle operations on a registered service');
+  // A path-shaped executable is not proof of ownership if an install subtree
+  // was replaced with a symlink/junction after preparation.
+  checkParents(metadata.installDir, metadata.platform);
+  for (const relative of ['', METADATA, 'agent', 'agent/bin', 'agent/jre', 'agent/jre/bin',
+    'agent/bin/mid.sh', 'agent/bin/mid.bat', 'agent/bin/wrapper', 'agent/bin/wrapper-linux-x86-64',
+    'agent/bin/wrapper-windows-x86-64.exe', 'agent/bin/wrapper.exe', 'agent/jre/bin/java', 'agent/jre/bin/java.exe']) {
+    try {
+      if (fs.lstatSync(path.join(metadata.installDir, relative)).isSymbolicLink()) throw new Error('Refusing linked MID runtime path; files retained');
+    } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  }
 }
 
-export function runDirectInstallation(metadata, action, run = defaultRun) {
-  const cwd = path.join(metadata.installDir, 'agent');
+// Read-only reconciliation: callers may use the returned state for preflight,
+// but a refused command must not rewrite metadata just to repair an old label.
+export function reconcileDirectInstallation(metadata, transport = directProcessTransport(metadata)) {
+  lifecycleGuard(metadata);
+  const running = ownedDirectProcesses(metadata, transport.list()).length > 0;
+  return { ...metadata, state: running ? (metadata.platform === 'windows' ? 'console-running' : 'started') : 'prepared' };
+}
+
+export function runDirectInstallation(metadata, action, run = defaultRun, options = {}) {
   if (!['start', 'stop'].includes(action)) throw new Error('Unsupported MID runtime action');
-  if (metadata.state === 'uncertain') throw new Error(uncertainState(metadata));
-  if (metadata.runtime !== 'user-background') {
-    // Windows console runtime: never register a service, never guess at a state.
+  lifecycleGuard(metadata);
+  const transport = options.transport || directProcessTransport(metadata);
+  const actual = reconcileDirectInstallation(metadata, transport);
+  const cwd = path.join(metadata.installDir, 'agent');
+  if (action === 'start' && actual.state !== 'prepared') throw new Error('MID is already started; stop it before starting again');
+  if (metadata.platform === 'windows') {
     if (action === 'stop') {
-      throw new Error(metadata.state === 'console-running' ? 'Windows console MID: stop with Ctrl+C in its owning terminal before removal' : 'Windows console MID is not running');
+      stopOwnedDirectProcesses(metadata, transport);
+      metadata.state = 'prepared'; save(metadata);
+      return metadata;
     }
-    if (metadata.state !== 'prepared') throw new Error('MID is already started; stop it before starting again');
     metadata.state = 'console-running'; save(metadata);
-    try { run('cmd.exe', ['/d', '/s', '/c', 'bin\\mid.bat console'], { cwd }); }
-    catch { throw new Error('Windows MID console failed or was interrupted; runtime state is uncertain. Stop in its owning terminal; files retained.'); }
-    metadata.state = 'prepared'; save(metadata);
-    return metadata;
+    const finish = (failure, result) => {
+      try {
+        const reconciled = reconcileDirectInstallation(metadata, transport);
+        metadata.state = reconciled.state === 'prepared' ? 'prepared' : 'uncertain';
+      } catch { metadata.state = 'uncertain'; }
+      save(metadata);
+      if (metadata.state !== 'prepared') throw new Error('Windows MID console exit is unverified; runtime state is uncertain; files retained. Run stop to retry owned-process cleanup.');
+      if (failure && !['SIGINT', 'SIGTERM'].includes(failure.signal)) throw new Error('Windows MID console failed; owned runtime has exited; files retained.');
+      if (result?.interrupted || failure?.signal) return { ...metadata, interrupted: result?.interrupted || failure.signal };
+      return metadata;
+    };
+    // Existing injected synchronous launchers remain supported. The real console
+    // is asynchronous so signals can be handled and its exit reconciled.
+    let execution;
+    try {
+      execution = options.consoleRun ? options.consoleRun(cwd, () => stopOwnedDirectProcesses(metadata, transport))
+        : run === defaultRun ? runDirectConsole(cwd, { onInterrupt: () => stopOwnedDirectProcesses(metadata, transport) })
+          : run('cmd.exe', ['/d', '/s', '/c', 'bin\\mid.bat console'], { cwd });
+    } catch (error) { return finish(error); }
+    if (execution?.then) return execution.then(result => finish(null, result), error => finish(error));
+    return finish(null, execution);
   }
-  // Never guess at a state an interrupted Linux command left behind; make it explicit.
-  if (['starting', 'stopping', 'console-running'].includes(metadata.state)) {
-    metadata.state = 'uncertain'; save(metadata);
-    throw new Error(uncertainState(metadata));
-  }
-  // Call the native user-owned launcher, never install/register a system service.
-  if (process.getuid?.() === 0) throw new Error('Run native MID lifecycle commands as a non-root user');
-  refuseNativeService(nativeToken(metadata.instanceURL, metadata.name, metadata.installDir));
-  if (action === 'start' && metadata.state !== 'prepared') throw new Error('MID is already started; stop it before starting again');
-  if (action === 'stop' && metadata.state !== 'started') throw new Error('MID is not running');
+  // Even stale/interrupted labels can be recovered using a fresh census. The
+  // vendor launcher remains the only Linux stop mechanism: no guessed PID kill.
+  if (action === 'stop' && actual.state === 'prepared' && metadata.state === 'prepared') return metadata;
   metadata.state = action === 'start' ? 'starting' : 'stopping'; save(metadata);
-  try { run('sh', ['bin/mid.sh', action], { cwd, stdio: 'ignore' }); }
-  catch { throw new Error(`MID ${action} failed; installation retained at ${metadata.installDir}. Inspect local logs.`); }
+  try {
+    run('sh', ['bin/mid.sh', action], { cwd, stdio: 'ignore' });
+    if (action === 'stop' && ownedDirectProcesses(metadata, transport.list()).length) throw new Error('Runtime remains');
+  } catch {
+    metadata.state = 'uncertain'; save(metadata);
+    throw new Error(`MID ${action} failed or exit was not verified; installation retained at ${metadata.installDir}. Inspect local logs.`);
+  }
   metadata.state = action === 'start' ? 'started' : 'prepared'; save(metadata);
   return metadata;
 }
 
-export function removeDirectInstallation(metadata, run = defaultRun) {
-  if (metadata.state === 'uncertain') throw new Error(`Refusing to remove '${metadata.name}': runtime state is uncertain. Inspect ${metadata.installDir} and stop any vendor MID process first.`);
-  if (metadata.state !== 'prepared') runDirectInstallation(metadata, 'stop', run);
+export function removeDirectInstallation(metadata, run = defaultRun, options = {}) {
+  lifecycleGuard(metadata);
+  const transport = options.transport || directProcessTransport(metadata);
+  // Always inspect actual processes, even when the stored state says prepared.
+  const actual = reconcileDirectInstallation(metadata, transport);
+  if (actual.state !== 'prepared' || metadata.state !== 'prepared') runDirectInstallation(metadata, 'stop', run, { ...options, transport });
+  if (ownedDirectProcesses(metadata, transport.list()).length) throw new Error('Owned MID runtime remains; files retained');
+  lifecycleGuard(metadata);
   fs.rmSync(metadata.installDir, { recursive: true });
 }
 

@@ -116,6 +116,21 @@ test('Windows policy never touches cache paths and re-downloads after access rev
   assert.equal((await fs.lstat(options.cacheRoot)).isSymbolicLink(), true);
 });
 
+test('a long definition read reports decoded progress, including failures', async t => {
+  const cacheRoot = await fs.mkdtemp(path.join(process.env.TMPDIR || os.tmpdir(), 'flow-search-'));
+  t.after(() => fs.rm(cacheRoot, { recursive: true, force: true }));
+  const { sdk, definitions } = provider();
+  definitions.set('a'.repeat(32), new Error('403 Forbidden'));
+  const messages = [];
+  await searchFlows({ sdk, cacheRoot, term: 'current', progress: message => messages.push(message) });
+  assert.ok(messages.length >= 2, `expected progress messages, got ${messages.length}`);
+  assert.ok(messages.some(message => /^Reading 2 visible flow definition/.test(message)), messages.join('\n'));
+  const last = messages.at(-1);
+  assert.match(last, /^Decoded 1\/2 flow definition\(s\): \d+ reused from cache, 1 failed, \d+s elapsed\.$/);
+  // Progress is by count, so nothing prints between the counted milestones.
+  assert.equal(messages.filter(message => message.startsWith('Decoded')).length, 2);
+});
+
 test('partial downloads and corrupted encoded definitions remain distinct from decoded coverage', async t => {
   const cacheRoot = await fs.mkdtemp(path.join(process.env.TMPDIR || os.tmpdir(), 'flow-search-'));
   t.after(() => fs.rm(cacheRoot, { recursive: true, force: true }));

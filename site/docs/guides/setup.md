@@ -29,6 +29,37 @@ jsn auth modify <profile>
 
 [Read the full authentication feature](/features/servicenow-cli-auth-setup/).
 
+## Keeping credentials in Bitwarden
+
+Profiles can store the credential in a Bitwarden vault instead of the OS keyring. The CLI uses the `bw` command and the session your vault is already unlocked with:
+
+```bash
+export BW_SESSION="$(bw unlock --raw)"
+jsn auth login dev12345 --name dev --basic        # writes the item
+jsn auth modify --profile dev --credential-store bitwarden
+```
+
+The item is a secure note named `servicenow-cli:<username>@<instance>`; its notes field holds the same credential JSON the keyring stores. `jsn auth status` reports which backend a profile uses. Without `BW_SESSION` a command that needs the vault fails with the export line rather than prompting in the middle of CI; `credential_store` appears in the profile's configuration, and an unknown value is a configuration error rather than a silent fallback to the keyring.
+
+## Headless or locked keyring
+
+Credential storage is the OS keyring: Windows Credential Manager, the macOS login Keychain through `/usr/bin/security`, and libsecret (`secret-tool`) on Linux. Setup and login probe it *before* the first question: they write a throwaway probe value, read it back, and delete it. A binary that is installed but cannot reach an unlocked keyring fails that probe, so a server with no D-Bus session no longer accepts a full set of answers and then refuses to store the credential.
+
+When the probe fails, an interactive run asks one question instead:
+
+- **Install / start the keyring now** — runs the package-manager line for the detected distribution (`apt-get`, `dnf`, `pacman`, `apk`) with your own terminal, then re-checks. Installing does not create a session keyring; a headless host usually still needs one unlocked.
+- **Store credentials in plaintext for this profile** — enables `JSN_ALLOW_PLAINTEXT_CREDENTIAL_STORAGE` for the run, then offers to add the export line to your shell profile behind a removable marker. This is the documented explicit opt-in, not a silent fallback; `jsn auth status` reports the storage mode.
+- **Cancel** — nothing is stored and no instance is contacted.
+
+Non-interactive runs (`--json`, CI, agents) never prompt. They exit before authenticating with the repair command and the plaintext alternative in the error's hint:
+
+```
+Error (auth): Secure credential storage is not usable on this host, so the credential could not be stored.
+Hint: Repair: sudo apt-get install -y libsecret-tools gnome-keyring Plaintext alternative ...
+```
+
+`--print-url` without `--wait-file` only prints the authorization URL, so it is never blocked by storage.
+
 ## Authentication lifecycle review
 
 This document records the issue #209 auth lifecycle contract. It describes the current implementation and the boundaries that regression tests must preserve.
@@ -137,7 +168,7 @@ The focused auth tests cover same-instance username isolation, explicit refresh/
 ### OAuth request transport
 
 OAuth requests prefer JSN's existing cookie-backed UI session by default, including
-Table, Stats and Batch. The normal OAuth bootstrap binds the existing credential
+Table, Stats, Batch and Import Set. The normal OAuth bootstrap binds the existing credential
 to a UI session; data requests then send Cookie and its matching X-UserToken,
 without a Bearer Authorization header. A client reuses its session and shares a
 concurrent bootstrap. No new credential type, browser login or profile migration
@@ -150,8 +181,8 @@ Use the existing environment switch for an explicit header-only opt-out:
 JSN_ALWAYS_WARM_SESSION=0 jsn records list --profile pdi --table sys_properties --columns name --limit 1 --json
 ```
 
-This opt-out applies **only to OAuth requests on stateless-capable Table, Stats
-and Batch routes**. It sends Bearer without Cookie or X-UserToken, even when the
+This opt-out applies **only to OAuth requests on stateless-capable Table, Stats,
+Batch and Import Set routes**. It sends Bearer without Cookie or X-UserToken, even when the
 client already has a session. It cannot disable required UI-session endpoints
 such as GraphQL, processors, attachment upload or the concourse picker. Explicit
 SDK `stateful: true` also takes precedence, so Store comparison continues to use
@@ -174,7 +205,7 @@ user tokens and OAuth credentials are never printed by transport diagnostics.
 
 ### Basic-auth TOTP challenges (#402)
 
-Basic credentials can require TOTP even for Table, Stats and Batch calls. Those
+Basic credentials can require TOTP even for Table, Stats, Batch and Import Set calls. Those
 normal SDK request paths therefore bootstrap Basic login **before** dispatching
 the pending operation. Its policy is unchanged by the OAuth default described
 above. Supplied token credentials retain endpoint-based header auth on stateless

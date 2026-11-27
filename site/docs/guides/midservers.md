@@ -4,6 +4,55 @@ title: MID Server management
 
 Manage MID Servers remotely without attaching to the instance console.
 
+## Installation preflight
+
+Local `midservers add` prints its resolved destination to stderr before downloading
+or creating installation files. Interactive terminals offer a prefilled location;
+Enter accepts it. `--directory` supplies the location for scripted runs. The default
+remains `~/.servicenow/mids/<instance>/<mid-name>`. Destinations must be absolute,
+absent and beneath non-symlink, non-group/world-writable parents (sticky temporary
+roots are permitted). Existing directories are not adopted. The Docker installer
+also accepts an empty private user-owned directory when called programmatically.
+
+After the MID credential probe succeeds, JSN uses its existing authenticated
+session for read-only account, role and Basic Auth property checks. It requires
+`mid_server`, active/unlocked/web-service-only account flags, and checks the actual
+configured `glide.authenticate.basic_auth.allowed_roles` when restrictions are active
+and enforced. Web Services Access Only accounts are exempt under the documented
+Australia policy. The exception table records administrator decisions, not blanket
+permissions. When needed, JSN reads the decision dictionary and actual English
+choice values; missing/ambiguous schema is unknown. A selected decision is not proof
+that its role grant or account conversion has taken effect. JSN never grants roles or changes
+authentication policy. HTTP 401 and 403 remain distinct; neither proves a missing
+role. Credential acceptance, registration Up and manual trust validation are separate.
+
+For SSH installs, `--directory` still names **local ownership metadata**, not the
+remote runtime location. Native SSH setup resolves and validates the target default
+on the target before writing controller metadata or downloading. Interactive setup
+offers that default; `--remote-directory` overrides the native target path. Linux
+uses the target home and Windows uses the target USERPROFILE, both partitioned as
+`.servicenow/mids/<instance>/<mid-name>`. Existing targets, linked ancestors and
+unsafe parents reject. Remote Docker uses owned named volumes, not a target compose
+directory; `--remote-directory` is explicitly rejected for that mode.
+
+Successful setup records a nonsecret private location mapping under
+`~/.servicenow/mid-locations/`, keyed by instance origin, normalized name and SSH
+alias. This is discovery data, never proof of runtime ownership. Lifecycle callers
+resolve it for start/stop/logs/remove and then apply their existing ownership checks.
+Verified teardown forgets the matching mapping; failed teardown retains it. An
+explicit override cannot clear a mapping for a different installation.
+
+Direct lifecycle reconciles persisted state against actual owned processes before
+rejecting a start. Windows console SIGINT/SIGTERM waits for verified owned-process
+exit; stale state alone does not block recovery. Removal stops the owned runtime
+and verifies exit before files and the instance record can be deleted. Unknown
+process identity or failed exit verification retains files and the location mapping.
+
+Policy references: [Basic authentication restriction](https://github.com/ServiceNow/ServiceNowDocs/blob/australia/markdown/platform-security/authentication/basic-auth-restriction.md)
+and [Basic authentication exceptions](https://github.com/ServiceNow/ServiceNowDocs/blob/australia/markdown/platform-security/authentication/basic-auth-exceptions.md).
+These documents identify WSAO exemptions and decision effects; they do not publish
+raw exception-choice enum values, which JSN does not guess.
+
 ## Remote MID management over SSH
 
 JSN runs on a POSIX controller and connects through a preconfigured, noninteractive
@@ -65,6 +114,36 @@ Before every lifecycle operation, JSN checks the daemon identity and ownership
 labels. Existing names, changed engines and missing/mismatched labels stop the
 operation. Stopping/removal failures preserve metadata and block MID-record
 cleanup rather than pretending teardown succeeded.
+
+## ECC queue backlog
+
+`midservers queue` answers "what is waiting for which MID?" without touching a
+MID's runtime. It reads `ecc_queue` through the Stats API and shows one row per
+`agent` routing value, ordered by waiting count and then the age of the oldest
+waiting row:
+
+```sh
+jsn --profile pdi midservers queue
+jsn --profile pdi midservers queue worker1 --older-than 2h --limit 50
+jsn --profile pdi midservers queue --older-than 1d --json --get data.agents
+```
+
+The filter is `queue=output` with `state` at `ready` or `processing`, created
+before the `--older-than` window (default `15m`, also `2h`/`1d`). Rows at
+`queue=input` in `state=error` are counted separately per agent. Each agent is
+joined to its `ecc_agent` row through the `mid.server.<name>` routing value that
+`midservers execute` writes. An agent with no matching `ecc_agent` row is shown
+as unknown, not as zero; a MID absent from the report simply had no rows in
+that window, which is not a health verdict.
+
+Verified on a live instance: `ecc_queue.queue` is the input/output direction
+(`sys_choice` values `input`/`output`), `ecc_queue.topic` is the named work type
+(observed values include `SystemCommand` and `HeartbeatProbe`), and `agent`
+holds `mid.server.<name>` or the broadcast value `mid.server.*`. The command is
+read-only and bounded: `--limit` defaults to 25 agents (maximum 200) and
+`--older-than` is rejected before any request when malformed. The verification
+instance had no waiting output rows during capture, so the backlog table is
+covered by synthetic tests rather than a live sample.
 
 ## Native Windows service
 

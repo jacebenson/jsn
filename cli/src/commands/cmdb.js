@@ -5,6 +5,7 @@
 // Table API GETs). Direction semantics: parent=current → other is child →
 // downstream; child=current → other is parent → upstream.
 
+import { deferredFamilyDefinition } from '../command-families.js';
 import {
   assertSafeExactMatch,
   buildQuerySuffix,
@@ -15,8 +16,6 @@ import {
   resolveFieldsParam,
 } from '../helpers.js';
 import { errNotFound, errUsage } from '../errors.js';
-import { declareCapabilities } from '../capabilities.js';
-declareCapabilities('cmdb', { queryTable: 'cmdb_ci' });
 
 import { cmdbSearchCmd } from './cmdb-search.js';
 
@@ -135,17 +134,22 @@ function relationshipsBreadcrumbs(sysId, ciClass) {
  * display-only and stays with the caller so traversal can recurse through
  * filtered nodes.
  */
-async function fetchRelRows(app, currentId, { direction = 'both', type, hopLimit = 100, classCache = new Map() } = {}) {
-  let records;
-  try {
-    const params = new URLSearchParams();
-    params.set('sysparm_query', `parent=${currentId}^ORchild=${currentId}`);
-    params.set('sysparm_fields', 'parent,child,type');
-    params.set('sysparm_display_value', 'all');
-    params.set('sysparm_limit', String(hopLimit));
-    records = await app.sdk.list('cmdb_rel_ci', params);
-  } catch {
-    return []; // hop fetch failed — report what we have
+async function fetchRelRows(app, currentId, { direction = 'both', type, hopLimit = 100, classCache = new Map(), relCache = new Map() } = {}) {
+  // Cache only successful reads, before direction/type filtering. A failed hop
+  // must still be retried if another direction requests it later in this call.
+  let records = relCache.get(currentId);
+  if (!records) {
+    try {
+      const params = new URLSearchParams();
+      params.set('sysparm_query', `parent=${currentId}^ORchild=${currentId}`);
+      params.set('sysparm_fields', 'parent,child,type');
+      params.set('sysparm_display_value', 'all');
+      params.set('sysparm_limit', String(hopLimit));
+      records = await app.sdk.list('cmdb_rel_ci', params);
+      relCache.set(currentId, records);
+    } catch {
+      return []; // hop fetch failed — report what we have
+    }
   }
 
   const getClass = async (id) => {
@@ -198,13 +202,21 @@ async function fetchRelRows(app, currentId, { direction = 'both', type, hopLimit
 
     rows.push({
       name: otherName || otherId,
-      class: await getClass(otherId),
+      class: '', // Filled after filtering/deduplication, without changing row order.
       type: typeName,
       direction: relDir,
       sys_id: otherId,
       parent: currentId,
     });
   }
+  // Hydrate each distinct, uncached CI once. Bound concurrency even for the
+  // maximum hop size, then assign classes in the original relationship order.
+  const ids = [...new Set(rows.map((row) => row.sys_id))].filter((id) => !classCache.has(id));
+  const chunkSize = 4;
+  for (let offset = 0; offset < ids.length; offset += chunkSize) {
+    await Promise.all(ids.slice(offset, offset + chunkSize).map(getClass));
+  }
+  for (const row of rows) row.class = classCache.get(row.sys_id);
   return rows;
 }
 
@@ -354,8 +366,7 @@ export function formatCMDBShow(root, groups, { instanceURL = '', record } = {}) 
 
 export function cmdbCmd(wrap) {
   return {
-    command: 'cmdb [subcommand]',
-    describe: 'Query the Configuration Management Database (CMDB) — CIs and relationship traversal (read-only)',
+    ...deferredFamilyDefinition('cmdb'),
     // Parent discovery. Without a handler `jsn cmdb` exited 0 having printed
     // nothing: a script reads that as success and a human as a hang. The child
     // list comes from the registry (argv.subcommands), so it cannot drift from
@@ -486,13 +497,14 @@ export function cmdbCmd(wrap) {
             // second command: parents (upstream), children (downstream), and
             // siblings (other children of this CI's parents). Each group is
             // capped at 4 — the relationships command shows everything.
-            const parents = await fetchRelRows(app, root.sys_id, { direction: 'upstream' });
-            const children = await fetchRelRows(app, root.sys_id, { direction: 'downstream' });
+            const caches = { classCache: new Map(), relCache: new Map() };
+            const parents = await fetchRelRows(app, root.sys_id, { direction: 'upstream', ...caches });
+            const children = await fetchRelRows(app, root.sys_id, { direction: 'downstream', ...caches });
             const siblings = [];
             const seenSib = new Set();
             for (const p of parents) {
               if (siblings.length >= SHOW_GROUP_CAP) break;
-              const kids = await fetchRelRows(app, p.sys_id, { direction: 'downstream' });
+              const kids = await fetchRelRows(app, p.sys_id, { direction: 'downstream', ...caches });
               for (const k of kids) {
                 if (k.sys_id === root.sys_id || seenSib.has(k.sys_id)) continue;
                 seenSib.add(k.sys_id);

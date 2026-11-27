@@ -1,0 +1,138 @@
+[
+  {
+    "id": "query-filtered",
+    "category": "query"
+  },
+  {
+    "id": "get-by-number",
+    "category": "query"
+  },
+  {
+    "id": "paging",
+    "category": "query"
+  },
+  {
+    "id": "aggregate-count",
+    "category": "query"
+  },
+  {
+    "id": "display-values",
+    "category": "query"
+  },
+  {
+    "id": "dot-walk",
+    "category": "query"
+  },
+  {
+    "id": "schema-columns",
+    "category": "query"
+  },
+  {
+    "id": "create-record",
+    "category": "write"
+  },
+  {
+    "id": "update-filtered",
+    "category": "write"
+  },
+  {
+    "id": "delete-filtered",
+    "category": "write"
+  },
+  {
+    "id": "ref-by-name",
+    "category": "write"
+  },
+  {
+    "id": "attachment-download",
+    "category": "files"
+  },
+  {
+    "id": "attachment-upload",
+    "category": "files"
+  },
+  {
+    "id": "journal-read",
+    "category": "files"
+  },
+  {
+    "id": "journal-write",
+    "category": "files"
+  },
+  {
+    "id": "background-script",
+    "category": "script"
+  },
+  {
+    "id": "pull-script",
+    "category": "script"
+  },
+  {
+    "id": "push-script",
+    "category": "script"
+  },
+  {
+    "id": "create-script-include",
+    "category": "script"
+  },
+  {
+    "id": "business-rule",
+    "category": "script"
+  },
+  {
+    "id": "code-search",
+    "category": "debug"
+  },
+  {
+    "id": "syslog-read",
+    "category": "debug"
+  },
+  {
+    "id": "audit-history",
+    "category": "debug"
+  },
+  {
+    "id": "table-behaviour",
+    "category": "debug"
+  },
+  {
+    "id": "docs-property-default",
+    "category": "docs"
+  },
+  {
+    "id": "catalog-order",
+    "category": "process"
+  },
+  {
+    "id": "update-set-capture",
+    "category": "lifecycle"
+  },
+  {
+    "id": "update-set-export",
+    "category": "lifecycle"
+  },
+  {
+    "id": "update-set-move",
+    "category": "lifecycle"
+  },
+  {
+    "id": "update-set-import",
+    "category": "lifecycle"
+  },
+  {
+    "id": "atf-run",
+    "category": "lifecycle"
+  },
+  {
+    "id": "instance-scan",
+    "category": "lifecycle"
+  },
+  {
+    "id": "app-install",
+    "category": "lifecycle"
+  },
+  {
+    "id": "app-install-xml",
+    "category": "lifecycle"
+  }
+]

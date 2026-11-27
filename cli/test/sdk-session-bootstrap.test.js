@@ -18,6 +18,7 @@ test('needsUiSession is false only for header-authenticated REST resources', () 
     '/api/now/table/sys_user/abc123',
     '/api/now/stats/incident',
     '/api/now/v1/batch',
+    '/api/now/import/imp_location',
   ]) {
     assert.equal(needsUiSession(`${base}${path}`), false, path);
   }

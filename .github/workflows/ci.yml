@@ -127,6 +127,28 @@ jobs:
       - run: npm --prefix cli ci --ignore-scripts
       - run: npm run test:workflows
 
+  macos-keychain:
+    name: macOS Keychain
+    needs: changes
+    if: needs.changes.outputs.cli == 'true'
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: cli
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 'lts/*'
+          cache: npm
+          cache-dependency-path: cli/package-lock.json
+      - run: npm ci
+      # The only platform that can exercise the real `security` contract (#571).
+      # The full suite is not macOS-clean yet (symlinked /var, PTY driver), so
+      # this job runs the credential-storage suites and nothing else.
+      - name: Keychain store, read back, probe and delete
+        run: node --experimental-test-module-mocks --test test/macos-keychain.test.js test/credential-storage-preflight.test.js
+
   site:
     name: Website tests
     needs: changes

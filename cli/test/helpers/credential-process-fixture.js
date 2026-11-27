@@ -11,9 +11,19 @@ childProcess.execFileSync = function(command, args, options) {
     if (args[0] === 'lookup' || args[0] === 'clear') return '';
     throw new Error('Synthetic secure-store writes unavailable');
   }
+  // macOS Keychain: same synthetic contract as the other two backends.
+  if (name === 'security') {
+    if (args[0] === 'find-generic-password' || args[0] === 'delete-generic-password') {
+      throw Object.assign(new Error('The specified item could not be found in the keychain.'), { status: 44 });
+    }
+    throw new Error('Synthetic secure-store writes unavailable');
+  }
   if (name === 'powershell.exe' || name === 'pwsh.exe') {
     const request = JSON.parse(options.input);
     if (request.operation === 'read' || request.operation === 'delete') return '{"status":"missing"}';
+    if (request.operation === 'read_many') {
+      return JSON.stringify({ status: 'ok', values: request.targets.map(target => ({ target, value: null })) });
+    }
     throw new Error('Synthetic secure-store writes unavailable');
   }
   return original.call(this, command, args, options);

@@ -816,3 +816,21 @@ test('public CLI JSON and human 401/403 failures preserve pinned recovery withou
     fs.rmSync(home, { recursive: true, force: true });
   }
 });
+
+test('an unattended scan run asks for approval without claiming a delete', async () => {
+  const f = fixture();
+  await assert.rejects(
+    () => f.run(['run', '--update-set', 'Test set', '--suite', SUITE]),
+    (error) => {
+      assert.equal(error.code, 'confirmation_required');
+      assert.match(error.message, /writes findings only/);
+      assert.match(error.hint, /This changes instance state\./);
+      assert.match(error.hint, /--force/);
+      assert.doesNotMatch(error.hint, /destructive action/i);
+      return true;
+    },
+  );
+  // Nothing may dispatch or be written before the approval.
+  assert.deepEqual(f.requests, []);
+  assert.deepEqual(f.writes, []);
+});

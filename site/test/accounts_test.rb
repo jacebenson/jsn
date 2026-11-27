@@ -69,6 +69,15 @@ class AccountsTest < Minitest::Test
     get '/account'
     assert_equal 302, last_response.status
   end
+  def test_homepage_offers_a_try_path_and_a_way_to_talk_back
+    get '/'
+    assert_equal 200, last_response.status
+    assert_includes last_response.body, 'npm i -g @jacebenson/jsn'
+    assert_includes last_response.body, 'data-copy="npm i -g @jacebenson/jsn"'
+    assert_includes last_response.body, 'https://discord.gg/42yr57TP96'
+    assert_includes last_response.body, 'https://github.com/jacebenson/jsn/issues'
+    assert_includes last_response.body, 'https://github.com/jacebenson/jsn/pulls'
+  end
   def test_feature_routes_and_stylesheet
     get '/site.css'
     assert_equal 200, last_response.status

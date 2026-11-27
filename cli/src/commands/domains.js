@@ -2,11 +2,10 @@
 // explicit session-* commands manage the server-side browser session instead.
 // Header effectiveness depends on the instance and is not a session switch.
 
+import { deferredFamilyDefinition } from '../command-families.js';
 import { getStringField, interactiveList, assertSafeExactMatch } from '../helpers.js';
-import { declareCapabilities } from '../capabilities.js';
 
 // `domains set` writes the chosen domain into the profile config.
-declareCapabilities('domains', { queryTable: 'domain', mutationContext: 'operational', mutationSubcommands: ['set', 'session-set', 'session-reset'] });
 
 const DETAIL_FIELDS = 'sys_id,name,parent,sys_domain_path,description,active,sys_created_on,sys_updated_on';
 
@@ -182,9 +181,7 @@ export async function formatDomainDetail(app, record) {
 
 export function domainsCmd(wrap) {
   return {
-    command: 'domains [subcommand]',
-    aliases: ['domain', 'dom'],
-    describe: 'Manage domains (domain separation)',
+    ...deferredFamilyDefinition('domains'),
     builder: (yargs) => {
       return yargs
         .command({

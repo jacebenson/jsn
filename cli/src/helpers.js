@@ -5,7 +5,7 @@ import readline from 'node:readline';
 import { paginatedSearch } from './paginated-search.js';
 import { isTTY, FormatAuto } from './output.js';
 import { getActiveProfile } from './config.js';
-import { errConfirmationRequired, isTerminalAuthError } from './errors.js';
+import { AppError, CodeConfirmationRequired, errConfirmationRequired, isTerminalAuthError } from './errors.js';
 
 /**
  * Detect whether a human is actually available to answer interactive
@@ -103,24 +103,65 @@ export function quoteShellArg(value) {
  */
 export function buildRerunCommand(argv = {}, { rerun = null } = {}) {
   let parts;
+  let tokens = null;   // the argv tokens, when the caller supplied them
+  let text = null;     // a complete command string, used verbatim
   if (Array.isArray(rerun) && rerun.length > 0) {
-    parts = ['jsn', ...rerun].map(quoteShellArg);
+    tokens = [...rerun];
+    parts = ['jsn', ...tokens].map(quoteShellArg);
   } else if (typeof rerun === 'string' && rerun.trim()) {
-    parts = [rerun.trim()];
+    text = rerun.trim();
+    parts = [text];
   } else {
-    parts = ['jsn', ...(argv?._ || [])].map(quoteShellArg);
+    tokens = [...(argv?._ || [])];
+    parts = ['jsn', ...tokens].map(quoteShellArg);
   }
-  if (parts.length === 1) return ''; // no path known — nothing worth repeating
-  const joined = parts.join(' ');
+  if (parts.length === 1 && text === null) return ''; // no path known — nothing worth repeating
+  // A selector is present only as its own token (`--profile x`, `--profile=x`).
+  // Matching the joined command would let a directory or query that merely
+  // contains "--profile" suppress the pin, and the hint would then retarget
+  // the default profile or instance.
+  const selects = name => (text === null
+    ? tokens.some(token => String(token) === name || String(token).startsWith(`${name}=`))
+    : new RegExp(`(^|\\s)${name}(=|\\s|$)`).test(text));
   // Re-pin the profile/instance the caller was operating on, so following
   // the hint cannot silently retarget a different instance or profile.
-  if (argv?.profile && !joined.includes('--profile')) parts.push('--profile', quoteShellArg(argv.profile));
-  if (argv?.instance && !joined.includes('--instance')) parts.push('--instance', quoteShellArg(argv.instance));
+  if (argv?.profile && !selects('--profile')) parts.push('--profile', quoteShellArg(argv.profile));
+  if (argv?.instance && !selects('--instance')) parts.push('--instance', quoteShellArg(argv.instance));
   return parts.join(' ');
 }
 
 /**
- * Confirm a destructive action before executing.
+ * Confirm a command that writes instance state and is keyed off `--yes`.
+ *
+ * This is the `--yes` family used by commands whose write target is only known
+ * after local work (`updatesets import`, `app deploy`): the approval is a
+ * statement about the target that was displayed, so a prompt only runs when a
+ * human is present, a piped/agent invocation is refused with the exact rerun
+ * command, and machine output (`--json`, `--get`, an explicit `--format`) never
+ * turns into an interactive question.
+ *
+ * @param {object} argv — parsed args (reads `yes`, `json`, `get`, `format`)
+ * @param {object} app — app instance (accepted for symmetry with the other
+ *   confirmation helpers; this family does not consult profile preferences)
+ * @param {string} question — e.g. `Install app "Demo" 1.0.0 on https://…?`
+ * @param {object} [options] — { rerun } complete rerun command or token array
+ * @returns {Promise<boolean>} true when the action may proceed
+ * @throws AppError(confirmation_required) when refused or unavailable
+ */
+export async function confirmWrite(argv, app, question, { rerun = null } = {}) {
+  if (argv.yes) return true;
+  if (!canPrompt() || argv.json || argv.get || (argv.format && argv.format !== FormatAuto)) {
+    throw new AppError(CodeConfirmationRequired, `${question} — confirmation required. Pass --yes after approving this target.`,
+      `Rerun: ${buildRerunCommand(argv, { rerun })}`);
+  }
+  // Loaded on demand: this helper is reachable from every command module, and
+  // only an interactive confirmation needs the prompt engine.
+  const { confirm } = await import('./prompts.js');
+  return confirm({ message: question, default: false });
+}
+
+/**
+ * Ask for one explicit confirmation.
  *
  * Default posture is ASK: interactive terminals get a y/N prompt;
  * non-interactive invocation (pipes, scripts, AI agents) is rejected
@@ -128,15 +169,19 @@ export function buildRerunCommand(argv = {}, { rerun = null } = {}) {
  * per-instance `skip_confirmations` flag (set via `auth login
  * --skip-confirmations`).
  *
+ * `destructive` only changes the wording of the unattended error: a delete
+ * removes records, while some mutations (running a scan, publishing a flow)
+ * change instance state without removing anything.
+ *
  * @param {object} app — app instance (reads active profile from app.config)
  * @param {object} argv — parsed args (checks argv.force)
  * @param {string} question — e.g. `Delete incident INC0010001?`
  * @param {object} [options] — { rerun } complete rerun command or token
- *   array for the hint (see buildRerunCommand)
+ *   array for the hint (see buildRerunCommand); { destructive }, { cancelMessage }
  * @returns {Promise<boolean>} true when the action may proceed
  * @throws when confirmation is required but denied/unavailable
  */
-export async function confirmDelete(app, argv, question, options = {}) {
+async function requestConfirmation(app, argv, question, { rerun = null, destructive = true, cancelMessage = 'Cancelled' } = {}) {
   const profile = getActiveProfile(app.config);
   if (profile?.skip_confirmations === true) return true;
   if (argv.force) return true;
@@ -148,13 +193,26 @@ export async function confirmDelete(app, argv, question, options = {}) {
     rl.close();
     const response = answer.trim().toLowerCase();
     if (response !== 'y' && response !== 'yes') {
-      throw new Error('Deletion cancelled');
+      throw new Error(cancelMessage);
     }
     return true;
   }
   // No human available (pipes, scripts, AI agents). Fail fast with a
   // structured error an agent can act on — never hang waiting for stdin.
-  throw errConfirmationRequired(question, buildRerunCommand(argv, options));
+  throw errConfirmationRequired(question, buildRerunCommand(argv, { rerun }), { destructive });
+}
+
+/** Confirm a destructive action before executing (records are removed). */
+export async function confirmDelete(app, argv, question, options = {}) {
+  return requestConfirmation(app, argv, question, { ...options, cancelMessage: 'Deletion cancelled' });
+}
+
+/**
+ * Confirm a mutation that is not a delete — it writes instance state (a scan,
+ * a publish) but removes nothing, so its refusal says so.
+ */
+export async function confirmAction(app, argv, question, options = {}) {
+  return requestConfirmation(app, argv, question, options);
 }
 
 
@@ -410,40 +468,59 @@ export async function interactiveList({ app, table, singular, columns, limit = 5
   const pickerFields = pickerColumns.join(',');
   const baseQuery = query ? query + '^' : '';
 
-  // Get total count. A FAILED count is unknown — never zero. Mapping the
+  // Measure the total count and load the first page concurrently. A delayed
+  // count must not hold the picker back: once the first page is ready the
+  // picker opens with an unknown total and reads the live total on its next
+  // render. A FAILED count is still unknown — never zero. Mapping the
   // failure to 0 used to make callers report an invented "empty table"
   // success (or silently return) when the real cause was a 403/network
   // error. Only a measured 0 means empty; otherwise confirm emptiness with
-  // one bounded list request before showing the picker.
-  let totalCount = null;
-  let countError = null;
-  try {
-    totalCount = await app.sdk.aggregateCount(table, query || '');
-  } catch (err) {
-    if (isTerminalAuthError(err)) throw err;
-    countError = err;
-  }
-  if (totalCount === 0) return null; // measured empty
-
-  if (countError) {
+  // one bounded list request.
+  const countState = { total: null };
+  const countOutcome = (async () => {
+    let measured;
     try {
-      const probeParams = new URLSearchParams();
-      probeParams.set('sysparm_limit', '1');
-      probeParams.set('sysparm_display_value', 'all');
-      probeParams.set('sysparm_fields', 'sys_id');
-      if (query) probeParams.set('sysparm_query', query);
-      const probe = await app.sdk.list(table, probeParams);
-      if (!Array.isArray(probe)) throw new Error('list returned a non-array result');
-      if (probe.length === 0) return null; // the list itself confirms empty
+      measured = await app.sdk.aggregateCount(table, query || '');
     } catch (err) {
-      if (isTerminalAuthError(err)) throw err;
-      // Both the count and the list failed — surface the failure instead of
-      // reporting an empty result nobody measured.
-      throw new Error(
-        `Could not list ${table}: ${err.message || err} (aggregate count also failed: ${countError.message || countError})`,
-        { cause: err }
-      );
+      if (isTerminalAuthError(err)) return { error: err };
+      const countError = err;
+      try {
+        const probeParams = new URLSearchParams();
+        probeParams.set('sysparm_limit', '1');
+        probeParams.set('sysparm_display_value', 'all');
+        probeParams.set('sysparm_fields', 'sys_id');
+        if (query) probeParams.set('sysparm_query', query);
+        const probe = await app.sdk.list(table, probeParams);
+        if (!Array.isArray(probe)) throw new Error('list returned a non-array result', { cause: err });
+        if (probe.length === 0) return { empty: true }; // the list itself confirms empty
+        return { unknown: true };
+      } catch (probeError) {
+        if (isTerminalAuthError(probeError)) return { error: probeError };
+        // Both the count and the list failed — surface the failure instead
+        // of reporting an empty result nobody measured.
+        return { error: new Error(
+          `Could not list ${table}: ${probeError.message || probeError} (aggregate count also failed: ${countError.message || countError})`,
+          { cause: probeError }
+        ) };
+      }
     }
+    if (measured === 0) return { empty: true };
+    return { total: measured };
+  })();
+
+  // Let a count that is already settled (a fixture, or a very fast response)
+  // win one macrotask. A real instance count is a network round-trip and
+  // misses this window, so its first page starts without waiting for it.
+  const COUNT_PENDING = Symbol('count-pending');
+  const MEASURED_EMPTY = Symbol('measured-empty');
+  const firstOutcome = await Promise.race([
+    countOutcome,
+    new Promise(resolve => setImmediate(() => resolve(COUNT_PENDING))),
+  ]);
+  if (firstOutcome !== COUNT_PENDING) {
+    if (firstOutcome.empty) return null; // measured empty
+    if (firstOutcome.error) throw firstOutcome.error;
+    if (firstOutcome.total != null) countState.total = firstOutcome.total;
   }
 
   // Paginated source adapter: (term, offset, { signal }) => choices[]
@@ -468,12 +545,50 @@ export async function interactiveList({ app, table, singular, columns, limit = 5
     }));
   }
 
-  const selected = await prompt({
+  // The picker is already open when a delayed count settles. Re-check the
+  // outcome then: a late measured 0 (or a probe that confirms emptiness)
+  // closes the picker, and a late terminal/dual failure surfaces instead of
+  // returning an invented empty result.
+  const pickerAbort = new AbortController();
+  let empty = false;
+  let pickerHandle = null;
+  if (firstOutcome === COUNT_PENDING) {
+    void countOutcome.then(outcome => {
+      if (outcome.empty) {
+        empty = true;
+        pickerAbort.abort(MEASURED_EMPTY);
+        return;
+      }
+      if (outcome.error) {
+        pickerAbort.abort(outcome.error);
+        return;
+      }
+      if (outcome.total != null && outcome.total !== countState.total) {
+        countState.total = outcome.total;
+        pickerHandle?.redraw();
+      }
+    });
+  }
+
+  const picker = {
     message: message || `Select ${singular === 'flow' ? 'a flow' : `a ${singular}`}`,
     pageSize: 10,
-    totalCount,
+    // Live getter: paginatedSearch re-reads this on every render, so the
+    // header gains "(n of N loaded)" the moment the count is measured.
+    get totalCount() { return countState.total; },
     source: serverSource,
-  });
+    onReady(handle) {
+      pickerHandle = handle;
+    },
+  };
+
+  let selected;
+  try {
+    selected = await prompt(picker, { signal: pickerAbort.signal });
+  } catch (error) {
+    if (empty) return null;
+    throw error;
+  }
 
   return selected?.value; // unwrap {name, value}, undefined on cancel
 }

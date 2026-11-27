@@ -1,12 +1,9 @@
-import { declareCapabilities } from '../capabilities.js';
+import { deferredFamilyDefinition } from '../command-families.js';
 import { DOCUMENT_BUDGETS, collectInstanceDocumentation, renderInstanceDocumentation, writeDocumentFile } from '../instance-documentation.js';
-
-declareCapabilities('document', { mutationSubcommands: [], skipDailyChecks: true });
 
 export function documentCmd(wrap) {
   return {
-    command: 'document',
-    describe: 'Create bounded read-only instance configuration documentation',
+    ...deferredFamilyDefinition('document'),
     builder: y => y.command({
       command: 'instance',
       describe: 'Generate deterministic Markdown/Mermaid from safe metadata. Requires --profile.',

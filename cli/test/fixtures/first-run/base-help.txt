@@ -14,13 +14,14 @@ COMMON COMMANDS
   discover   Find commands by task word or table
 
 ALL COMMANDS BY GROUP
-names; jsn --all-commands --help for details
+jsn --all-commands --help for details
   CORE             knowledge incidents changes requests tasks tickets approvals
-  AUTOMATION       flows actions scriptactions scheduledjobs triggers asyncrules
-                   rules decisiontables assignments scrapi email restmessage
-                   soapmessages
-  ACCESS           acls b4rules roles privileges aliases groups groupmembers
-                   grouproles users
+  AUTOMATION       flows actions scriptactions scheduledjobs triggers events
+                   asyncrules rules decisiontables assignments scrapi email
+                   notifications restmessage soapmessages
+  ACCESS           access-analyzer acls b4rules roles privileges usercriteria
+                   aliases connections groups groupmembers grouproles userroles
+                   users
   USER EXPERIENCE  forms lists clientscripts uipolicies uiactions views
                    catalogitems catalogscripts cataloguipolicies uipages
                    uimacros listcontrols sppages spwidgets uxscripts uxlists
@@ -28,9 +29,9 @@ names; jsn --all-commands --help for details
   DATA             tables columns relationships cmdb includes import logs
                    properties records transactions snippets
   CONFIGURATION    setup preferences auth updatesets scopes midservers platform
-  DEVELOPER        scan atf eval rest graphql codesearch docs document diff perf
-                   skill version
-  OTHER            cases workflows attachments store plugins compare
+  DEVELOPER        scan atf eval fixscripts rest graphql codesearch docs
+                   document diff perf skill version
+  OTHER            app cases workflows attachments store plugins compare
                    subscriptions skipped-updates customizations upgrade discover
 
 EXAMPLES

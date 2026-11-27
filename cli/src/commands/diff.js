@@ -1,9 +1,7 @@
-import { declareCapabilities } from '../capabilities.js';
+import { deferredFamilyDefinition } from '../command-families.js';
 import { errUsage, errUsageHint } from '../errors.js';
 import { resolveSession } from '../session.js';
 import { resolveRecord } from '../resolve-record.js';
-
-declareCapabilities('diff', {});
 
 const DEFAULT_IGNORED_FIELDS = [
   'sys_created_by',
@@ -128,8 +126,7 @@ function ignoredFields(argv) {
 
 export function diffCmd(wrap) {
   return {
-    command: 'diff [subcommand]',
-    describe: 'Compare records across configured profiles (read-only)',
+    ...deferredFamilyDefinition('diff'),
     builder: (y) => y.command({
       command: 'record',
       describe: 'Compare one record across two profiles',

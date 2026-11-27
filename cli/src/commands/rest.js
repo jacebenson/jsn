@@ -1,13 +1,13 @@
-import { declareCapabilities } from '../capabilities.js';
+import { deferredFamilyDefinition } from '../command-families.js';
 
 // Raw REST passthrough — can hit any endpoint with any method, so the whole
-// command is a mutation surface on read-only profiles.
-declareCapabilities('rest', { encodedQuery: false, operations: { '': argv => ({ POST: 'create', PUT: 'update', PATCH: 'update', DELETE: 'delete' })[String(argv.method || 'GET').toUpperCase()] || null }, mutationSubcommands: [''], mutationContextReadMethods: ['GET', 'HEAD', 'OPTIONS'] });
+// command is a mutation surface on read-only profiles. Its operation mapping
+// (method to create/update/delete) is declared in command-families.js, where
+// the capability must be known before this module loads.
 
 export function restCmd(wrap) {
   return {
-    command: 'rest [endpoint]',
-    describe: 'Make raw REST API calls',
+    ...deferredFamilyDefinition('rest'),
     builder: (yargs) => {
       return yargs
         .positional('endpoint', {
@@ -41,6 +41,7 @@ export function restCmd(wrap) {
         })
         .epilogue([
           'Prefer a specific jsn command or records for normal table operations.',
+          'Find any endpoint, out of the box or scripted, with jsn scrapi search <words>; it gives the method and route.',
           'Raw REST is blocked on read-only profiles for every method, including GET.',
           'Examples:',
           '  jsn rest "/api/now/table/incident?sysparm_limit=3" --json',

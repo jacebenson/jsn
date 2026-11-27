@@ -1,11 +1,9 @@
-import { declareCapabilities } from '../capabilities.js';
+import { deferredFamilyDefinition } from '../command-families.js';
 import { inventoryCompareCommand, compareInstanceInventory } from '../instance-inventory.js';
 
-declareCapabilities('compare', { skipContextHeader: true });
 export const compareCmd = wrap => ({
   ...inventoryCompareCommand(wrap, 'plugins'),
-  command: 'compare',
-  describe: 'Compare plugins AND Store apps; report how to align --target to desired --source (read-only)',
+  ...deferredFamilyDefinition('compare'),
   handler: wrap(async (argv, app) => {
     const plugins = await compareInstanceInventory(argv, app, 'plugins', false);
     const store = await compareInstanceInventory(argv, app, 'store', false);

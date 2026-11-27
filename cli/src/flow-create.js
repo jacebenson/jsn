@@ -12,6 +12,7 @@ import {
   conditionInputFor,
   readTableDescriptor,
   readTriggerInputDefinitions,
+  readTriggerOutputDefinitions,
   tableInputFor,
   flowDesignParameter,
   triggerFamily,
@@ -1937,10 +1938,19 @@ export async function createFlowFromManifest(sdk, instance, inputManifest, optio
     for (const match of String(value).matchAll(/\{\{([^}]+)\}\}/g)) pills.push({ name: match[1], uiUniqueIdentifier, inputName });
   };
   const orderedManifest = { ...manifest, actions: manifest.actions.map((a, index) => ({ ...a, order: a.order ?? index + 1, inputs: a.inputs || {} })) };
+  // The trigger definition is needed before the actions are planned: a manifest
+  // that feeds a trigger output into an action input has to resolve that pill
+  // even though the trigger instance is not inserted until the patch below.
+  const triggerDefinition = await resolveTriggerDefinition(sdk, manifest.trigger.type);
+  const pendingTrigger = {
+    name: triggerDefinition.name,
+    trigger: true,
+    outputs: await readTriggerOutputDefinitions(sdk, triggerDefinition.sysId),
+  };
   await planManifestSteps({ manifest: orderedManifest, beforeDefinition: {}, existingActions: [], existingOrders: new Set(), actionUiMap: new Map(), logicUiMap: new Map(), pendingSteps, idFactory, sdk, instance, scope, flowId: '', actionInserts: actionInstances, actionUpdates: [], flowLogicInserts, actionTargets: new Map(), changedActionInputs: new Map(), changes: [], collectPills });
   if (manifest.errorHandling !== undefined) await planErrorHandling({ sdk, instance, scope, flowId: '', beforeDefinition: {}, existingActions: [], actionInserts: actionInstances, actionUpdates: [], flowLogicInserts, flowLogicUpdates: [], changes: [], idFactory, actionUiMap: new Map(), pendingSteps, changedActionInputs: new Map(), collectPills, errorHandlingInput: manifest.errorHandling });
   for (const pill of pills) {
-    const binding = resolvePillBinding({}, pill.name, '', [], pendingSteps);
+    const binding = resolvePillBinding({}, pill.name, '', [], [...pendingSteps, pendingTrigger]);
     const previous = labelCacheInserts.find(e => e.name === pill.name);
     if (previous) {
       if (!previous.usedInstances.some(i => i.uiUniqueIdentifier === pill.uiUniqueIdentifier && i.inputName === pill.inputName)) previous.usedInstances.push({ uiUniqueIdentifier: pill.uiUniqueIdentifier, inputName: pill.inputName });
@@ -1971,8 +1981,7 @@ export async function createFlowFromManifest(sdk, instance, inputManifest, optio
     // comes back empty), so the trigger is inserted by the same snFlowDesigner
     // patch as the actions. There is nothing to read back from the parent apart
     // from the flow identity.
-    const definition = await resolveTriggerDefinition(sdk, manifest.trigger.type);
-    const trigger = await buildCreateTrigger(sdk, flowId, manifest, definition, options);
+    const trigger = await buildCreateTrigger(sdk, flowId, manifest, triggerDefinition, options);
 
     for (const action of actionInstances) action.flowSysId = flowId;
     for (const logic of flowLogicInserts) logic.flowSysId = flowId;
@@ -2110,7 +2119,7 @@ export function resolvePillBinding(definition, pillName, flowId, cache, pending 
   const candidates = [
     ...findArray(definition, 'triggerInstances').map(step => ({ ...step, trigger: true })),
     ...findExistingActions(definition).map(step => ({ ...step, trigger: false })),
-    ...pending.map(step => ({ ...step, trigger: false })),
+    ...pending.map(step => ({ ...step, trigger: step.trigger === true })),
     ...(findArray(definition, 'flowLogicInstances') || []).filter(fl => String(fl.definitionId) === '35d60003e6022010a5e40cdd1254dd23' || String(fl.definitionId) === '35d60003e6022010a5e40cdd1254dd21').map(fl => ({
       name: String(fl.definitionId) === '35d60003e6022010a5e40cdd1254dd23' ? 'Error Handler' : 'Catch',
       order: stringValue(fl.order),

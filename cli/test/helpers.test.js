@@ -1,4 +1,4 @@
-import { describe, it } from 'node:test';
+import { before, describe, it } from 'node:test';
 import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -332,5 +332,32 @@ describe('verifyWriteBack', () => {
     const mismatches = await verifyWriteBack(app, 'incident', 'rec123', { short_description: 'x' });
     assert.strictEqual(mismatches.length, 1);
     assert.ok(mismatches[0].got.includes('record not found'));
+  });
+});
+
+describe('buildRerunCommand', () => {
+  let buildRerunCommand;
+
+  // A hook, not a leading test: the helper is loaded for any subset of this
+  // suite, including a focused --test-name-pattern run, not only for a full
+  // pass where the first test happens to run first.
+  before(async () => ({ buildRerunCommand } = await import('../src/helpers.js')));
+
+  it('pins the selector even when a path or query merely contains its name', () => {
+    const argv = { _: ['app', 'deploy'], profile: 'dev' };
+    const command = buildRerunCommand(argv, { rerun: [...argv._, '--dir', '/tmp/--profile-fixture', '--yes'] });
+    assert.match(command, /--profile dev$/);
+  });
+
+  it('keeps an explicit selector instead of appending a second one', () => {
+    const argv = { _: ['app', 'deploy'], profile: 'dev' };
+    assert.equal(buildRerunCommand(argv, { rerun: [...argv._, '--profile', 'prod'] }), 'jsn app deploy --profile prod');
+    assert.equal(buildRerunCommand(argv, { rerun: [...argv._, '--profile=prod'] }), 'jsn app deploy --profile=prod');
+  });
+
+  it('uses a complete command string as given', () => {
+    const argv = { _: ['app', 'deploy'], instance: 'https://x.service-now.com' };
+    assert.equal(buildRerunCommand(argv, { rerun: 'jsn app deploy --profile prod --yes' }),
+      'jsn app deploy --profile prod --yes --instance https://x.service-now.com');
   });
 });

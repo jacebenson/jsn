@@ -4,6 +4,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { execFileSync } from 'node:child_process';
 import { assertCredentialDestination } from './auth/transport.js';
+import { validateMidInstallDirectory } from './midserver-setup.js';
 
 const INSTALL_HOST = 'install.service-now.com';
 
@@ -55,8 +56,11 @@ export async function validateMidCredentials(instanceURL, username, password, fe
   } catch {
     throw new Error('Could not reach the ServiceNow instance to validate the MID Server credentials');
   }
-  if (response.status === 401 || response.status === 403) {
-    throw new Error('The MID Server username or password was rejected by the ServiceNow instance');
+  if (response.status === 401) {
+    throw new Error('MID authentication failed (HTTP 401): username or password was rejected, or authentication policy denied the request. A 401 alone does not prove a bad password or missing role.');
+  }
+  if (response.status === 403) {
+    throw new Error('MID authorization failed (HTTP 403): access is forbidden; password validity and Basic Auth policy applicability are unknown. A 403 alone does not prove a missing role.');
   }
   if (!response.ok) {
     throw new Error(`MID Server credential validation failed with HTTP ${response.status}`);
@@ -109,12 +113,12 @@ export async function installDockerMidServer({
   fetchImpl = fetch,
   run = defaultRun,
 }) {
+  const installDir = validateMidInstallDirectory(directory || midInstallDirectory(instanceURL, name), { allowEmpty: true });
   const dockerAvailable = detectDocker(run).available;
   const shortName = normalizeMidName(name);
   const displayName = shortName;
   const releaseName = suppliedReleaseName || (await validateMidCredentials(instanceURL, username, password, fetchImpl)).releaseName;
   const recipeURL = buildMidRecipeUrl(releaseName);
-  const installDir = directory || midInstallDirectory(instanceURL, name);
   fs.mkdirSync(installDir, { recursive: true, mode: 0o700 });
   const exportDir = path.join(installDir, 'export');
   fs.mkdirSync(exportDir, { recursive: true, mode: 0o777 });

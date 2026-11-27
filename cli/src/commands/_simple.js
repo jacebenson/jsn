@@ -2,6 +2,12 @@ import { buildProfileCommand } from '../record-profiles.js';
 import { getStringField } from '../helpers.js';
 import { currentTestingGuidance } from '../preferences.js';
 import { withTableBehavior } from './table-behavior.js';
+import { withTableAudit } from './table-audit.js';
+import { withPrivilegeRequests } from './privilege-requests.js';
+import { withFixScriptRun } from './fixscript-run.js';
+import { withScheduledJobHealth } from './scheduled-job-health.js';
+import { withEmailExtras } from './email-extra.js';
+import { withUserCriteriaCheck } from './usercriteria-check.js';
 // Simple table-based commands — singular names passed for grammar
 // Default columns and aliases match the Go version exactly
 
@@ -84,7 +90,7 @@ export const uiActionsCmd = (wrap) => buildProfileCommand('uiactions', wrap);
 // this module's uiPoliciesCmd before uipoliciesCmd — so the factory version
 // was dead code shadowing nothing. Deleted; the re-export is the behavior.
 
-export const tablesCmd = (wrap) => withTableBehavior(buildProfileCommand('tables', wrap, {
+export const tablesCmd = (wrap) => withTableAudit(withTableBehavior(buildProfileCommand('tables', wrap, {
   async onShow(record, app) {
     const tableName = getStringField(record, 'name');
     const [count, extChain] = await Promise.all([
@@ -94,8 +100,11 @@ export const tablesCmd = (wrap) => withTableBehavior(buildProfileCommand('tables
     record._column_count = count;
     record._extension_info = { chain: extChain };
   },
-  extraSubcommands: [{ name: 'behavior', description: 'Read-only behavior inventory (dictionary, ACLs, rules, scripts, actions, policies, notifications, styles, views, flow triggers)' }],
-}), wrap);
+  extraSubcommands: [
+    { name: 'behavior', description: 'Read-only behavior inventory (dictionary, ACLs, rules, scripts, actions, policies, notifications, styles, views, flow triggers)' },
+    { name: 'audit', description: 'Audit status (table, fields, inserts, deletes) and switches to change it; reads are never audited' },
+  ],
+}), wrap), wrap);
 
 export { columnsCmd } from './columns.js';
 
@@ -109,6 +118,9 @@ export const appMenuCmd = (wrap) => buildProfileCommand('appmenu', wrap);
 // Commands with full CRUD
 export const aclsCmd = (wrap) => buildProfileCommand('acls', wrap);
 export const rolesCmd = (wrap) => buildProfileCommand('roles', wrap);
+export const usercriteriaCmd = (wrap) => withUserCriteriaCheck(buildProfileCommand('usercriteria', wrap, {
+  extraSubcommands: [{ name: 'check', description: 'Whether a user can see a catalog item, and which criteria matched' }],
+}), wrap);
 export const propertiesCmd = (wrap) => buildProfileCommand('properties', wrap);
 
 // New commands for scoped-app tables
@@ -116,14 +128,22 @@ export const relationshipsCmd = (wrap) => buildProfileCommand('relationships', w
 export const appmodulesCmd = (wrap) => buildProfileCommand('appmodules', wrap);
 export const listcontrolsCmd = (wrap) => buildProfileCommand('listcontrols', wrap);
 export const viewsCmd = (wrap) => buildProfileCommand('views', wrap);
-export const privilegesCmd = (wrap) => buildProfileCommand('privileges', wrap);
+export const privilegesCmd = (wrap) => withPrivilegeRequests(buildProfileCommand('privileges', wrap, {
+  extraSubcommands: [{ name: 'requests', description: 'Restricted Caller Access requests: requested, denied, invalidated or allowed, and where each came from' }, { name: 'allow', description: 'Allow one Restricted Caller Access request, previewed first' }],
+}), wrap);
 export const uxscriptsCmd = (wrap) => buildProfileCommand('uxscripts', wrap);
 export { aliasesCmd } from './aliases.js';
 export const catalogscriptsCmd = (wrap) => buildProfileCommand('catalogscripts', wrap);
 
 // ── Automation: Async ──
 export const scriptactionsCmd = (wrap) => buildProfileCommand('scriptactions', wrap);
-export const scheduledjobsCmd = (wrap) => buildProfileCommand('scheduledjobs', wrap);
+export const scheduledjobsCmd = (wrap) => withScheduledJobHealth(buildProfileCommand('scheduledjobs', wrap, {
+  extraSubcommands: [
+    { name: 'health', description: 'Scheduler health: overdue, erroring and stuck triggers (read-only)' },
+    { name: 'why', description: 'Why one scheduled job did not run (read-only)' },
+  ],
+}), wrap);
+export const fixscriptsCmd = (wrap) => withFixScriptRun(buildProfileCommand('fixscripts', wrap), wrap);
 export const asyncrulesCmd = (wrap) => buildProfileCommand('asyncrules', wrap);
 export const triggersCmd = (wrap) => buildProfileCommand('triggers', wrap);
 
@@ -132,9 +152,16 @@ export const triggersCmd = (wrap) => buildProfileCommand('triggers', wrap);
 export const assignmentsCmd = (wrap) => buildProfileCommand('assignments', wrap);
 
 // ── Automation: Inbound ──
-export const emailCmd = (wrap) => buildProfileCommand('email', wrap);
+export const emailCmd = (wrap) => withEmailExtras(buildProfileCommand('email', wrap, {
+  extraSubcommands: [
+    { name: 'queue', description: 'Read-only email queue health (sys_email counts, oldest send-ready, switches, accounts)' },
+    { name: 'why', description: 'Read-only explanation of one sys_email (watermark, inbound actions, log evidence)' },
+  ],
+}), wrap);
 
 // ── Automation: Outbound ──
+// notifications is a hand-written family (list/show/why/preview) in
+// ./notifications.js, registered through command-families.js.
 export { restmessageCmd } from './restmessage.js';
 export { soapmessagesCmd } from './soapmessages.js';
 

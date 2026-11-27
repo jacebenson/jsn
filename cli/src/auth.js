@@ -8,9 +8,10 @@ import fs from 'node:fs';
 import { password as passwordPrompt } from './prompts.js';
 import { normalizeInstanceURL, isTrustedCredentialDestination } from './config.js';
 import { assertCredentialTransport } from './auth/transport.js';
-import { errAuth } from './errors.js';
+import { errAuth, errUsage } from './errors.js';
 import { pendingBrowserLogin } from './browser-auth.js';
 import { defaultCredentialStore } from './auth/credential-store.js';
+import { bitwardenCredentialStore } from './auth/bitwarden-store.js';
 import { savePKCEState, loadPKCEState, removePKCEState, getOAuthClientID, generatePKCE, buildAuthURL, REDIRECT_URI } from './auth/oauth.js';
 import { parseBrowserSessionInput } from './auth/browser-session.js';
 import { normalizeAuthMethod, normalizeAuthSource, sourceMethod, probeFailure, classifyProbeError, classifyCredentialState } from './auth/credential-state.js';
@@ -79,6 +80,18 @@ function askHidden(promptText) {
   return passwordPrompt({ message: promptText });
 }
 
+/**
+ * Which store a profile uses. The OS keyring is the default; `bitwarden` keeps
+ * the same secret in the vault the person already unlocks. Anything else is a
+ * configuration mistake, not a silent fallback.
+ */
+export function credentialStoreFor(profile) {
+  const choice = profile?.credential_store || 'keyring';
+  if (choice === 'keyring') return defaultCredentialStore;
+  if (choice === 'bitwarden') return bitwardenCredentialStore;
+  throw errUsage(`Unknown credential_store "${choice}". Use keyring or bitwarden.`);
+}
+
 export class AuthManager {
   /**
    * @param {object} identity — the resolved-identity provider. Production
@@ -93,7 +106,19 @@ export class AuthManager {
    * @param {object} options.credentialStore — optional load/save/delete adapter;
    *   defaults to the OS keyring with file fallback.
    */
-  constructor(identity, { credentialStore = defaultCredentialStore } = {}) {
+  /**
+   * @param {object} options
+   * @param {object} options.credentialStore
+   * @param {number} [options.touchIntervalSeconds] — how long a persisted
+   *   last_seen stays fresh. Bookkeeping is coalesced per identity: one load
+   *   and one save per window instead of one per successful request.
+   */
+  constructor(identity, { credentialStore = defaultCredentialStore, touchIntervalSeconds = 300 } = {}) {
+    this.touchIntervalSeconds = touchIntervalSeconds;
+    // Per-identity bookkeeping state: what was last persisted, and the single
+    // in-flight refresh each identity is allowed.
+    this._lastSeenPersisted = new Map();
+    this._refreshesInFlight = new Map();
     if (identity && identity.config && typeof identity.getUsername !== 'function') {
       const provider = identity;
       this.identity = {
@@ -137,6 +162,15 @@ export class AuthManager {
     return this.credentialStore.load(instance, username);
   }
 
+  /**
+   * Warm the secure store for several identities at once. Windows launches a
+   * PowerShell process per read, so a command that inspects many profiles must
+   * not pay that per profile field. Stores without a prime seam are unaffected.
+   */
+  primeCredentials(identities) {
+    this.credentialStore.prime?.(identities);
+  }
+
   saveCredentials(instance, credentials, username) {
     return this.credentialStore.save(instance, credentials, username);
   }
@@ -152,10 +186,27 @@ export class AuthManager {
 
   touchLastSeen(instance, options = {}) {
     const username = this._usernameForOptions(options);
+    const key = this._identityKey(instance, username);
+    const now = Math.floor(Date.now() / 1000);
+    const persisted = this._lastSeenPersisted.get(key);
+    // A request that succeeded inside the window proves exactly what the write
+    // would prove, and a secure-store write is a process launch on Windows and
+    // a keyring round trip everywhere else.
+    if (persisted !== undefined && now - persisted < this.touchIntervalSeconds) return;
     const creds = this.credentialStore.load(instance, username);
     if (!creds) return;
-    creds.last_seen = Math.floor(Date.now() / 1000);
+    if (creds.last_seen && now - creds.last_seen < this.touchIntervalSeconds) {
+      this._lastSeenPersisted.set(key, creds.last_seen);
+      return;
+    }
+    creds.last_seen = now;
     this.credentialStore.save(instance, creds, username);
+    this._lastSeenPersisted.set(key, now);
+  }
+
+  /** Identity key shared by the bookkeeping map and the refresh single-flight. */
+  _identityKey(instance, username) {
+    return `${instance}|${username ?? ''}`;
   }
 
   /**
@@ -644,7 +695,23 @@ export class AuthManager {
     };
   }
 
-  async refreshToken(instance, creds, targetUsername = undefined) {
+  /**
+   * Concurrent expired-token requests must not each POST /oauth_token.do. The
+   * first caller for an identity starts the refresh; everyone else awaits the
+   * same promise. The entry is removed on settle, so a failure is retried by
+   * the next caller instead of being cached.
+   */
+  refreshToken(instance, creds, targetUsername = undefined) {
+    const key = this._identityKey(instance, targetUsername === undefined ? 'active' : targetUsername);
+    const inFlight = this._refreshesInFlight.get(key);
+    if (inFlight) return inFlight;
+    const run = this._refreshToken(instance, creds, targetUsername)
+      .finally(() => { this._refreshesInFlight.delete(key); });
+    this._refreshesInFlight.set(key, run);
+    return run;
+  }
+
+  async _refreshToken(instance, creds, targetUsername = undefined) {
     assertCredentialTransport(instance);
     if (creds.auth_method !== 'oauth') {
       throw errAuth(`Cannot refresh ${creds.auth_method || 'unconfigured'} credentials; only OAuth credentials support refresh`);
@@ -695,6 +762,10 @@ export class AuthManager {
     }
     const existed = !!this.credentialStore.load(instance, username);
     this.credentialStore.delete(instance, username);
+    // Both caches describe an identity that no longer has credentials.
+    const key = this._identityKey(instance, username);
+    this._lastSeenPersisted.delete(key);
+    this._refreshesInFlight.delete(key);
     return existed && !this.credentialStore.load(instance, username);
   }
 

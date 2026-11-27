@@ -11,12 +11,17 @@ import { declareCapabilities } from '../capabilities.js';
 
 export function buildTicketCommands(table, displayName, alias, defaultColumns, stateMap, iconFn, wrap, opts = {}) {
   // Ticket-style CRUD: list/show are reads; create/update/delete mutate.
-  // Root-level command only.
-  declareCapabilities(displayName, { queryTable: table, mutationContext: 'operational', mutationSubcommands: ['create', 'update', 'delete'] });
+  // Root-level command only. Registered ticket families carry their identity
+  // and capability policy from command-families.js; ad-hoc builds declare here.
+  if (!opts.definition) {
+    declareCapabilities(displayName, { queryTable: table, mutationContext: 'operational', mutationSubcommands: ['create', 'update', 'delete'] });
+  }
   return {
-    command: `${displayName} [subcommand]`,
-    aliases: [table, alias],
-    describe: `Manage ${displayName} (e.g. "${displayName} list --query priority=1")`,
+    ...(opts.definition || {
+      command: `${displayName} [subcommand]`,
+      aliases: [table, alias],
+      describe: `Manage ${displayName} (e.g. "${displayName} list --query priority=1")`,
+    }),
     discovery: { table, defaultColumns, benefits: ['Configured list columns', 'Ticket-specific create/update flags'] },
     builder: (yargs) => {
       return yargs
@@ -121,7 +126,7 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
               ...(missingColumns.length ? {
                 missing_columns: missingColumns,
                 warnings: [
-                  `Column(s) not returned by ServiceNow (non-existent or restricted on ${table}): ${missingColumns.join(', ')}. Run \`jsn columns --table ${table}\` to inspect valid fields.`,
+                  `Column(s) not returned by ServiceNow (non-existent or restricted on ${table}): ${missingColumns.join(', ')}. Run \`jsn columns list --table ${table}\` to inspect valid fields.`,
                 ],
               } : {}),
               records: displayRecords,

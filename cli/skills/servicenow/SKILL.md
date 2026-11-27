@@ -4,64 +4,67 @@ description: Use the jsn CLI for ServiceNow development, administration, and dat
 license: MIT
 metadata:
   author: jacebenson
-  version: "4.3.14"
+  version: "4.3.15"
   repository: https://github.com/jacebenson/jsn
 ---
 
 # ServiceNow with JSN
 
 Discover commands with `jsn --help`, `jsn discover "search words"`, and
-`jsn <command> --help`.
+`jsn <command> --help`. Help is the reference; this file is the shortcuts.
 
 - Verify the intended instance and select it explicitly with `--profile <name>`.
-- Prefer purpose-built or records commands over `eval`. Explain the need and get
-  approval before using eval; avoid bypassing ServiceNow protections.
-- Honor delete confirmations. Get approval for destructive work and Global +
-  Default mutations; use `--force` only for the approved operation.
-- Deleting several records by filter is `jsn records delete-many`, not `eval`.
-  It previews without `--yes`, and a real delete requires the exact
-  `--expect-count` from that preview.
+- `eval` and `fixscripts run` are the last resort: explain why, get approval, never
+  bypass ServiceNow protections for an answer.
+- Honor delete confirmations; get approval for destructive and Global + Default
+  mutations. `--force` is for the approved operation only.
+
+## Before you reach for eval
+
+| You want | Use |
+| --- | --- |
+| A choice field's values | `jsn columns show <table>.<column>` |
+| A REST endpoint, or its spec | `jsn scrapi search <words>`, `jsn scrapi spec "<API>"` |
+| Why a user holds a role | `jsn users roles <user> --why --role <name>` |
+| What the platform logged as slow | `jsn perf slow`, `jsn perf slow show <sys_id>` |
+| A decision table's outcome | `jsn decisiontables evaluate <name> --input k=v` |
+| Delete by filter | `jsn records delete-many` (needs the previewed `--expect-count`) |
+| Stop auditing a field or deletes | `jsn tables audit exclude <table> <field>`, `audit deletes <table> off` |
+| Undo a delete | `jsn records deleted`, then `records undelete` |
+| Undo a background script | `jsn eval rollback <execution>` |
+| A record's versions, or revert to base | `jsn records versions <table> <sys_id>`, `records revert`, `customizations revert` |
+| Watch a record or a query | `jsn records watch --table <t> --sys-id <id>` or `--query` |
+| Copy records between instances | `jsn records export`, then `jsn records import <file>` |
+| Load an import set | `jsn import load <table> --file rows.json\|csv` |
+| What a user can see | `--impersonate <user_name>` on a read |
+| Why a user cannot reach a record | `jsn access-analyzer check --user <u> --table <t> --record <id>` |
+| Documentation | `jsn docs "query"` or `jsn docs --path <path>` |
+
+Every write in that table previews first; `--yes` on a delete needs the count its
+preview printed. `--preview-cascade` writes too (one Data Management job), and
+impersonated writes need the human's approval plus `--impersonate-writes`.
+
+Watching streams NDJSON (`record_change`, `gap`, `watch_summary`); run it for a bounded
+window and report what arrived. A `gap` or `"complete": false` means events were missed,
+so re-read the record.
 
 For development:
 
 1. Choose or create the application scope and update set.
-2. Supply task-owned `--expect-scope <scope/name/id>` and
-   `--expect-update-set <name/id>` on customization writes, or explicitly save
-   profile-and-instance-bound `write_context` in local `.servicenow/config.json`.
-   Never derive intended values from current preferences. `--force` cannot bypass
-   missing intent, unknown context or mismatches. Domain-scoped customization
-   currently refuses, including `--expect-domain`, because `X-Now-Domain` does not
-   prove effective domain. Inspect with `auth status --context`; `--local` is offline.
-   Reads never print or fetch automatic context. Ordinary ticket/data edits do not
-   need customization expectations. Keep related development changes together.
+2. Supply task-owned `--expect-scope <scope/name/id>` and `--expect-update-set <name/id>`
+   on customization writes, or save profile-and-instance-bound `write_context` in local
+   `.servicenow/config.json`. Never derive intended values from current preferences, and
+   `--force` cannot bypass missing intent, unknown context or mismatches. Domain-scoped
+   customization refuses, including `--expect-domain`, because `X-Now-Domain` does not
+   prove effective domain; inspect with `auth status --context`. Reads never print or
+   fetch automatic context, and ordinary ticket/data edits need no expectations.
 3. Verify the results on the instance and report where changes were captured.
-4. Read effective preferences for the actual target at runtime with
-   `jsn preferences show --profile <target-profile> --json`, or use the matching
-   `--instance <URL>` selector. Respect `data.preferences.operations` before
-   attempting known create/update/delete operations; force cannot override denial.
-   Read `data.preferences.testing.recommend`, `data.preferences.testing.methods`,
-   `data.preferences.testing.contextMethods.agent` and
-   `data.preferences.testing.suggestMissing`, and
-   follow it: offer the configured methods only, suppress the recommendation
-   entirely when `recommend` is false or methods are empty or `none`, and mention creating missing checks only
-   when `suggestMissing` is true. Explicit `jsn atf` / `jsn scan` commands remain
-   available; never auto-create or auto-run tests.
-5. Ask whether anything else belongs in the update set. If the user confirms
-   it is finished, complete it with notes.
+4. Read the target's effective preferences with `jsn preferences show --profile <p> --json`
+   (or `--instance <URL>`): an `operations` denial cannot be forced past, `testing` names
+   the checks to offer (none when `recommend` is false or methods are empty), and
+   `suggestMissing` gates proposing new ones. `jsn atf` and `jsn scan` stay available;
+   never auto-create or auto-run tests.
+5. Ask whether anything else belongs; when finished, complete it with notes.
 
-Tracking a record: when the user asks to track, watch or be told about changes
-to an incident, task, change request or other record, use
-`jsn records watch --table <table> --sys-id <id> --timeout <seconds> --json`.
-It streams newline-delimited JSON (`record_change`, `gap`, `watch_summary`),
-so run it for a bounded window and report what arrived; schedules and user
-notifications belong to your runtime, not to the command. Use `--max-events 1`
-for a single-change check. A `gap` or `"complete": false` means events were
-missed — read the record's current state rather than assuming continuity.
-Watching needs a browser session (`jsn auth login --browser`).
-
-For incoming update sets: import the XML, preview the set, and resolve preview
-errors with the human where needed. Once the preview is clear, commit the set
-and verify the results.
-
-Search documentation with `jsn docs "query"` or read with `jsn docs --path <path>`.
-Documentation source and defaults for future connections are configured in `jsn setup`.
+For incoming update sets: import the XML, preview it, resolve preview errors with the
+human, then commit and verify.

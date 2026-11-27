@@ -130,6 +130,33 @@ function buildEnrichSdk(overrides = {}) {
 }
 
 describe('enrichCatalogItem', () => {
+  for (const [branch, response, expectedSource, fallbackReads] of [
+    ['API success', { sys_id: 'abc123', variables: [{ name: 'answer', type: 6 }] }, 'catalog_api', 0],
+    ['API success with empty variables', { sys_id: 'abc123', variables: [] }, 'catalog_api', 0],
+    ['API failure', new Error('HTTP 403'), 'item_option_new', 1],
+    ['fallback without API variables', { sys_id: 'abc123' }, 'item_option_new', 1],
+  ]) {
+    it(`${branch}: reads only the necessary variable source`, async () => {
+      const calls = [];
+      const sdk = buildEnrichSdk({ item: { flow_designer_flow: '' }, request: async (url, options) => {
+        assert.strictEqual(options.method, 'GET');
+        calls.push('catalog_api');
+        if (response instanceof Error) throw response;
+        return { result: response };
+      } });
+      const list = sdk.list;
+      sdk.list = async (table, params) => { calls.push(table); return list(table, params); };
+      const { data, source } = await enrichCatalogItem({ sdk, instanceUrl: sdk.baseURL, sysID: 'abc123' });
+      assert.strictEqual(source, expectedSource);
+      assert.strictEqual(data.variables_reported, expectedSource === 'catalog_api');
+      assert.deepStrictEqual(calls, ['sc_cat_item', 'catalog_api', ...Array(fallbackReads).fill('item_option_new')]);
+      assert.strictEqual(calls.length, 2 + fallbackReads);
+      if (expectedSource === 'catalog_api') assert.deepStrictEqual(data.variables.map(v => v.name), response.variables.map(v => v.name));
+      else assert.deepStrictEqual(data.variables.map(v => v.name), ['cpu', 'ram', 'disk']);
+      assert.strictEqual(data.variables_api_error, response instanceof Error ? 'HTTP 403' : undefined);
+    });
+  }
+
   it('assembles core envelope keys', async () => {
     const sdk = buildEnrichSdk();
     const { data } = await enrichCatalogItem({ sdk, instanceUrl: 'https://dev.example.service-now.com', sysID: 'abc123' });
@@ -275,6 +302,29 @@ describe('enrichCatalogItem', () => {
     assert.deepStrictEqual(data.required_variables, []);
   });
 
+  for (const [label, result] of [
+    ['missing item', null], ['wrong identity', { sys_id: 'other', variables: [] }],
+    ['unreadable identity', { variables: [] }],
+  ]) {
+    it(`falls back and reports the API error for ${label}`, async () => {
+      const sdk = buildEnrichSdk({ request: async () => ({ result }) });
+      const { data } = await enrichCatalogItem({ sdk, instanceUrl: sdk.baseURL, sysID: 'abc123' });
+      assert.strictEqual(data.variables_source, 'item_option_new');
+      assert.strictEqual(data.variables_reported, false);
+      assert.strictEqual(data.variables_api_error, 'Catalog API returned no readable item with the requested identity.');
+    });
+  }
+
+  it('propagates fallback read errors after an API failure', async () => {
+    const sdk = buildEnrichSdk({ request: async () => { throw new Error('API denied'); } });
+    const list = sdk.list;
+    sdk.list = async (table, params) => {
+      if (table === 'item_option_new') throw new Error('Table denied');
+      return list(table, params);
+    };
+    await assert.rejects(enrichCatalogItem({ sdk, instanceUrl: sdk.baseURL, sysID: 'abc123' }), /^Error: Table denied$/);
+  });
+
   it('throws Not found when the item does not exist', async () => {
     const sdk = { list: async () => [], get: async () => ({}) };
     await assert.rejects(
@@ -337,6 +387,52 @@ describe('buildCatalogFormatted', () => {
 
 // ─── catalog show handler: thin wrapper over the enrichment module ───
 describe('catalog show handler', () => {
+  for (const [label, row, message] of [
+    ['no readable sys_id', { name: 'Hidden identity' }, /The matched record has no readable sys_id; check field ACLs before retrying\./],
+    ['no accessible record', null, /not found/i],
+  ]) {
+    it(`rejects ${label} before reading API variables`, async () => {
+      const { catalogCmd } = await import('../src/commands/catalog.js');
+      const show = findCommand(captureSubcommands(catalogCmd(wrapHandler)), 'show <id>');
+      const calls = [];
+      const sdk = {
+        baseURL: 'https://x.service-now.com',
+        list: async table => { calls.push(table); return row ? [row] : []; },
+        request: async () => { assert.fail('Catalog API must not bypass Table API readability'); },
+      };
+      const app = makeApp({ sdk });
+      await assert.rejects(show.handler({ app, id: 'a'.repeat(32) }), message);
+      assert.ok(calls.length > 0);
+      assert.ok(calls.every(table => table === 'sc_cat_item'));
+    });
+  }
+
+  it('reuses the complete readable resolver row without a second item read', async () => {
+    const { catalogCmd } = await import('../src/commands/catalog.js');
+    const show = findCommand(captureSubcommands(catalogCmd(wrapHandler)), 'show <id>');
+    const id = 'a'.repeat(32);
+    const calls = [];
+    const sdk = buildEnrichSdk({ item: { sys_id: { value: id }, flow_designer_flow: '' }, request: async () => {
+      calls.push('catalog_api');
+      return { result: { sys_id: id, variables: [] } };
+    } });
+    const list = sdk.list;
+    sdk.list = async (table, params) => {
+      calls.push(table);
+      if (table === 'sc_cat_item') {
+        assert.strictEqual(params.get('sysparm_fields'), null, 'reuse requires an unprojected record');
+        assert.strictEqual(params.get('sysparm_display_value'), 'all');
+      }
+      return list(table, params);
+    };
+    const app = makeApp({ sdk });
+    await show.handler({ app, id });
+    assert.deepStrictEqual(calls, ['sc_cat_item', 'catalog_api']);
+    assert.strictEqual(app.lastOk.data.name, 'Test Item');
+    assert.deepStrictEqual(app.lastOk.data.variables, []);
+    assert.deepStrictEqual(app.lastOk.opts.breadcrumbs.map(b => b.action), ['list']);
+  });
+
   it('emits the enriched envelope with _formatted and breadcrumbs', async () => {
     const { catalogCmd } = await import('../src/commands/catalog.js');
     const cmd = catalogCmd(wrapHandler);
@@ -369,7 +465,8 @@ describe('catalog show handler', () => {
     const origList = sdk.list;
     sdk.list = async (table, params) => {
       if (table === 'sc_cat_item' && params.get('sysparm_query') === 'name=Test Item') {
-        return [{ sys_id: 'abc123def456abc123def456abc12345' }];
+        const rows = await origList(table, params);
+        return rows.map(row => ({ ...row, sys_id: 'abc123def456abc123def456abc12345' }));
       }
       seen.push(table);
       return origList(table, params);

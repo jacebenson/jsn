@@ -1,0 +1,18 @@
+<section class="shell results">
+  <p><a href="/snbench">All snbench results</a></p>
+  <h1>snbench run <%= @run.run_id %></h1>
+  <% if @run.run_id == 'fixture-nop' %><p>Synthetic test fixture, not a measured nop run.</p><% end %>
+  <p><%= @run.tool %> <%= @run.tool_version %> · <%= @run.model.presence || 'no model' %> · <%= @run.agent_runner.presence || 'no agent runner' %> · <span class="badge"><%= @run.track %></span> · <%= @run.date.utc.iso8601 %></p>
+  <p><%= @summary.attempted %> tasks, <%= @run.snbench_attempts.size %> attempts. Pass rate: <strong class="snbench-rate"><%= number_to_percentage(@summary.mean(:pass) * 100, precision: 1) %></strong>. Attempts averaged within task, then tasks averaged. Mixed means at task level indicate both passes and failures.</p>
+  <p>Snapshot, not a guarantee. <a href="https://github.com/jacebenson/snbench">Source and benchmark rules</a>.</p>
+  <dl class="result-meta"><% %w[benchmark adapter budget_usd instance_build commit tasks_digest payload_digest].each do |key| %><dt><%= key.humanize %></dt><dd><%= @run[key] || 'unknown' %></dd><% end %></dl>
+  <div class="results-table-wrap"><table class="results-table"><thead><tr><th>Task / category</th><th>Pass / fail</th><th>Mean tokens in / out</th><th>Mean cost (USD)</th><th>Mean seconds</th><th>Failed checks / errors by attempt</th></tr></thead>
+  <tbody><% (SnbenchCatalog.tasks + @summary.tasks.keys.reject { |id| SnbenchCatalog.tasks.any? { |t| t['id'] == id } }.map { |id| { 'id' => id, 'category' => 'other' } }).each do |task_info| %>
+    <% task = task_info['id']; attempts = @summary.tasks.fetch(task, []) %>
+    <% if attempts.empty? %><tr data-task-id="<%= task %>"><td><%= task %> / <%= task_info['category'] %></td><td colspan="5">- · 0 attempts · partial</td></tr><% next; end %>
+    <% summary = SnbenchSummary.new(attempts) %>
+    <tr><td><%= task %> / <%= attempts.map(&:category).uniq.join(', ') %></td><td><%= attempts.count(&:passed) %> pass / <%= attempts.count { |a| !a.passed } %> fail · <%= attempts.size %> attempts<%= ' · partial' if attempts.size < SnbenchCatalog::FULL_ATTEMPTS %></td>
+    <td><%= summary.mean(:input)&.round(1) || 'unavailable' %> / <%= summary.mean(:output)&.round(1) || 'unavailable' %></td><td><%= summary.mean(:cost_usd)&.round(6) || 'unavailable' %></td><td><%= summary.mean(:seconds)&.round(2) || 'unavailable' %></td>
+    <td><% attempts.each do |attempt| %><details><summary>Attempt <%= attempt.attempt %>: <%= attempt.passed ? 'pass' : 'fail' %></summary><ul><% attempt.checks.reject { |check| check['ok'] }.each do |check| %><li><%= check['what'] %></li><% end %></ul><p><%= attempt.measurements['agent_error'] %></p><p>Tokens <%= attempt.metric(:input) || 'unavailable' %> / <%= attempt.metric(:output) || 'unavailable' %>; USD <%= attempt.metric(:cost_usd) || 'unavailable' %>; seconds <%= attempt.metric(:seconds) || 'unavailable' %></p><p>Turns <%= attempt.measurements['turns'] || 'unavailable' %>; shell executions <%= attempt.measurements['shell_executions'] || 'unavailable' %>; shell failures <%= attempt.measurements['shell_failures'] || 'unavailable' %></p><p>Reasoning/cache tokens: <%= attempt.measurements.fetch('tokens', {}).slice('reasoning', 'cache_read', 'cache_write').to_json %></p></details><% end %></td></tr>
+  <% end %></tbody></table></div>
+</section>

@@ -194,6 +194,71 @@ export async function readTriggerInputDefinitions(sdk, definitionId) {
     .filter(input => input.name);
 }
 
+export const TRIGGER_OUTPUT_TABLE = 'sys_hub_trigger_output';
+export const TRIGGER_OUTPUT_NAME_PREFIX = 'var__m_sys_hub_trigger_output_';
+
+// sys_hub_trigger_output.internal_type carries a human label ("String (Full
+// UTF-8)", "Table Name"), while the flow graph stores the machine type in
+// triggerInstances[].outputs[].parameter.type. Read live: the Inbound Email
+// trigger's Body Text output is internal_type "String (Full UTF-8)" and its
+// instance output is "string_full_utf8".
+const OUTPUT_TYPE_BY_INTERNAL = new Map([
+  ['string', 'string'],
+  ['string (full utf-8)', 'string_full_utf8'],
+  ['reference', 'reference'],
+  ['table name', 'table_name'],
+  ['document id', 'document_id'],
+  ['date/time', 'glide_date_time'],
+  ['date', 'glide_date'],
+  ['integer', 'integer'],
+  ['decimal', 'decimal'],
+  ['floating point number', 'float'],
+  ['true/false', 'boolean'],
+  ['choice', 'choice'],
+  ['glide list', 'glide_list'],
+  ['glide duration', 'glide_duration'],
+  ['html', 'html'],
+  ['url', 'url'],
+  ['email', 'email'],
+  ['array.object', 'array.object'],
+  ['json', 'json'],
+]);
+
+export function flowOutputType(internalType) {
+  const key = String(text(internalType) || '').trim().toLowerCase();
+  return OUTPUT_TYPE_BY_INTERNAL.get(key) || key.replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+}
+
+/**
+ * The outputs a trigger definition declares, straight from
+ * sys_hub_trigger_output. Flow Designer derives a trigger instance's data pills
+ * from these, so a manifest that references `{{<trigger>_1.<output>}}` needs
+ * them before the trigger instance exists.
+ */
+export async function readTriggerOutputDefinitions(sdk, definitionId) {
+  if (!isSysId(definitionId)) throw new Error(`Trigger definition id must be an exact sys_id, got "${definitionId}"`);
+  const rows = await sdk.list(TRIGGER_OUTPUT_TABLE, new URLSearchParams({
+    sysparm_query: `name=${TRIGGER_OUTPUT_NAME_PREFIX}${definitionId}^ORDERBYorder`,
+    sysparm_limit: '200',
+    sysparm_display_value: 'all',
+    sysparm_fields: 'sys_id,element,label,column_label,internal_type,order,max_length,reference',
+  }));
+  return rows
+    .map(row => {
+      const name = text(row.element);
+      const parameter = {
+        id: text(row.sys_id),
+        name,
+        label: displayValue(row.label) || displayValue(row.column_label) || name,
+        type: flowOutputType(row.internal_type),
+        maxsize: numeric(row.max_length),
+        reference: text(row.reference) ? displayValue(row.reference) : '',
+      };
+      return { id: parameter.id, name, label: parameter.label, type: parameter.type, order: numeric(row.order), reference: parameter.reference, parameter };
+    })
+    .filter(output => output.name);
+}
+
 function normalizeTriggerInput(row) {
   const parameter = {
     id: text(row.sys_id),

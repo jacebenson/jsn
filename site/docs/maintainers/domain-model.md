@@ -75,6 +75,22 @@ edit the parent's environment, drop secrets or discard execution-policy settings
 PowerShell 7 children retain their inherited module path. The native CI lane
 launches production discovery from a real PowerShell 7 parent.
 
+Each launch costs a PowerShell process plus the Add-Type compilation of the
+native wrapper, so one command must not pay that per credential read. Reads are
+cached for the lifetime of the process, and a command that inspects several
+identities (`auth status`) primes them through one `read_many` request instead of
+one launch per profile field. Writes and deletes clear the transport's read cache
+before the native call (including other spellings of case-insensitive Windows
+target names). A write is never cached, and failed readback clears observations:
+a cached value must never mask material this process changed or a verification
+that failed. The bounded cache is memory only, never persisted, scoped to the
+process transport, and holds raw credential JSON so callers cannot corrupt it by
+mutating a returned object. Batch responses are fully validated before any new
+observations are cached; result completeness does not depend on cache capacity.
+`read_many` keeps targets ordered and echoes each requested spelling exactly.
+Legacy fallback remains lazy if priming fails: an unreadable fallback cannot
+mask a valid primary entry.
+
 Loopback CLI workflow fixtures explicitly preload a synthetic credential process
 transport. PATH removal alone is not a portable storage fixture. The transport
 reports empty secure reads/idempotent deletion and refuses secure writes, so
@@ -326,10 +342,22 @@ one. Commands are the unit the CLI registers, guards, and renders output for.
 ## Lazy command family
 
 `src/command-families.js` owns lightweight root identity (signature, aliases,
-description) and eager capabilities for the heavyweight families it exports.
-The implementation spreads that same identity rather than maintaining a second
-help/alias declaration. Capability declarations must never be deferred with the
-handler: the entire registry and mutation paths are complete at `buildCLI()`.
+description, summary) and eager capabilities for every family whose
+implementation loads late. Each family declares its identity once in that
+module and its implementation spreads the same identity rather than maintaining
+a second help/alias declaration. Capability declarations must never be deferred
+with the handler: the entire registry and mutation paths are complete at
+`buildCLI()`, for the explicit families and for the families registered through
+`deferredFamily(name, wrap)`. A deferred registration names the module and its
+factory export; that module spreads `deferredFamilyDefinition(name)` and never
+publishes a signature, alias, description or capability policy of its own.
+Profile-backed families derive both from `record-command-profiles.js` through
+`profile-command-definitions.js`, so the data that configures a builder also
+defines its CLI surface. Use the deferred form for any
+command family whose factory pulls a substantial subtree (table CRUD factories,
+large command modules); leave genuinely shared infrastructure eager. Shared
+App/SDK infrastructure remains eager; unrelated docs setup/storage helpers
+must not be imported merely to configure another command.
 
 The adapter loads a family's implementation when the normal option-aware path
 resolver reaches its node, before child aliases, required options or middleware
@@ -463,8 +491,9 @@ existing reference representation. No engine operation spawns another CLI.
 
 ## Record watch
 
-`jsn records watch` observes one record through an AMB record-watcher
-subscription instead of polling the table. `src/amb.js` owns the protocol
+`jsn records watch` observes one record, or every record matching an encoded
+query, through an AMB record-watcher subscription instead of polling the
+table. `src/amb.js` owns the protocol
 (ServiceNow's `/amb` endpoint speaks Bayeux/CometD long-polling, not
 socket.io, so no transport dependency is added) and event normalization;
 `src/record-watch.js` owns the observation session — bounds, cancellation,
@@ -476,6 +505,10 @@ record identity, operation and any change list or embedded record. A
 with `source: "fetched"`; it is never merged into the notification, and a
 failed read becomes `state_error` rather than changing the event. The
 default `auto` policy fetches only when the notification lacks detail.
+On a query channel the platform labels each event `entry`, `change` or
+`exit` (emitted as `match`), so a record leaving the query is reported.
+`--operation` and `--on-change` filter in `src/record-watch.js`, since AMB
+offers no server-side filter for either.
 
 A **gap** is the window between a dropped connection and a successful
 re-subscription. Record watchers are best-effort delivery: the platform does
@@ -485,10 +518,13 @@ Observation is bounded by `--timeout` seconds or `--max-events`; Ctrl+C
 unsubscribes and disconnects. Scheduling, retries across runs and user
 notification belong to the calling agent/runtime.
 
-AMB authorizes like a browser session: it needs session cookies and
-X-UserToken, not a bearer or Basic header. `SDKClient.ambSession()` supplies
-them from a gck credential or a warmed UI session, and fails with recovery
-guidance when the profile cannot produce one. Watch is read-only.
+AMB authorizes like a browser session: it reads session cookies and ignores
+a bearer or Basic header on its own. `SDKClient.ambSession()` supplies them
+from a gck credential or a warmed UI session (basic and OAuth profiles), and
+fails with recovery guidance when the profile cannot produce one. The
+platform sends a user who cannot read a record its notifications with the
+field values withheld; a query watch passes those through without `record`.
+Watch is read-only.
 
 ## Record command profiles
 
@@ -512,7 +548,8 @@ loaded count, visible-row/ACL coverage, truncation and an exact retrieval hint.
 become successful empty arrays. Profile hooks remain composable. Generic get
 and supplementary metadata/counts are separate and never fetch these children
 implicitly. UI policies declare actions as essential, replacing console-only
-output with the same children in JSON and human record sections.
+output with the same children in JSON and human record sections. Roles declare
+their directly contained roles from `sys_user_role_contains`.
 
 ## Constrained table views
 
@@ -705,6 +742,153 @@ templates and other trigger families (timer, catalog, REST, SLA) are reported as
 `unsupported` with the trigger type named, because the platform exposes no
 table-scoped join for them; no text match over flow definitions is guessed.
 
+## Table audit status
+
+`src/table-audit.js` is the layer behind
+`jsn tables audit <table> [--field <name>]`. It reports what the platform writes
+to `sys_audit` and `sys_audit_delete` for one table, from bounded GET reads: the
+`sys_db_object` chain, the `sys_schema_attribute` ids of `no_audit`, `audit`,
+`audit_type` and `no_audit_delete`, their `sys_schema_attribute_m2m` rows for the
+chain, every `sys_dictionary` row of the table and its ancestors, and three
+`sys_properties`. A read returning more than 2000 rows is refused, not half used.
+
+- **Table audit** is the Audit tick on the table's own collection row. It does
+  not inherit; an audited ancestor is named so the gap is visible.
+- **Mode** is `whitelist` when that row carries `audit_type=whitelist`; then
+  only columns with `audit=true` are audited.
+- **Column verdicts**, first match wins: table off; `sys_*` except
+  `sys_class_name` and `sys_domain_id`; encrypted types (`password`,
+  `password2`, `glide_encrypted`); whitelist; `no_audit` by presence, whatever
+  its value. When a column has rows on the table and an ancestor, the nearest
+  row wins.
+- **Inserts** are audited only on an audited table with
+  `glide.sys.audit_inserts=true`. **Updates** follow the table tick.
+- **Deletes** go to `sys_audit_delete` whether or not the table is audited,
+  unless its collection row carries `no_audit_delete`, it is listed in
+  `glide.db.audit.ignore.delete` (a set property replaces the documented
+  default list), or it is a `sys_` table missing from
+  `glide.ui.audit_deleted_tables` (its documented default list while unset).
+- **Reads** are never audited.
+- **Properties**: an empty `sys_properties` read is refused, never taken as
+  "unset, defaults apply"; the Table API filters rows a non-admin cannot read.
+- **Attribute sources**: verdicts follow the `attributes` string. Attribute
+  rows exist only for `no_audit` and `no_audit_delete` (`audit` and
+  `audit_type` have no `sys_schema_attribute` record on dev485581, so they are
+  reported as string only). Rows join on the raw dictionary sys_id, and every
+  disagreement between the two sources is listed.
+
+Not modelled: dictionary overrides, the undocumented
+`glide.db.audit.enable_audit_inserts`, and an ancestor's `no_audit_delete` or
+whitelist mode.
+
+### Audit switches
+
+The read is `jsn tables audit <table> [--field <name>]`. Each change is its own
+verb under it, so the read stays a read and the mutation guard sees a real path:
+`audit enable|disable <table>` set the collection row's `audit`, `audit deletes
+<table> on|off` adds or removes `no_audit_delete`, and `audit exclude|include
+<table> <field>` add or remove the column's `no_audit` or, in whitelist mode,
+remove or add its `audit=true`. One verb per run; a bad field name or state is
+refused before the first request, and an unknown or inherited field is refused
+after the status read and before the first write. `audit deletes` changes only
+`no_audit_delete`; when the ignore list or the `sys_` rule still decides, the
+summary says so.
+
+- **Own rows only**: a column whose nearest row is on an ancestor is refused,
+  naming the ancestor, because changing it there changes every table that
+  extends it.
+- **Order**: the attributes string is written first (other attributes are kept
+  as they were), then the matching `sys_schema_attribute_m2m` row is re-read by
+  the dictionary row's raw sys_id and attribute id, and created or deleted only
+  if the platform has not already brought it in line. `audit` has no attribute
+  row, so it is written to the string only.
+- **Guards**: preview without `--yes`; a state already in place writes nothing;
+  the dictionary row's scope is checked against the verified intended scope
+  before the first write.
+- **Verify**: the status is read again; the change holds only when that read
+  shows it and the string and attribute rows agree for that attribute. A
+  failed write or a disagreeing re-read lists the writes made and exits 1.
+
+## REST message call log
+
+`src/restmessage-logs.js` is the layer behind
+`jsn restmessage logs <message> [--status 404|4xx] [--endpoint <text>]`. It
+resolves the message as `restmessage show` does, reads up to 100 of its
+`sys_rest_message_fn` rows (more is refused, and a row whose `rest_message` is
+not the message's raw sys_id is an error), then one bounded, newest-first page
+of `sys_outbound_http_log`.
+
+- **Matching is by URL.** A log row links only to the script that made the call
+  (`source_table`, `source_record`), never to the REST message. Each method's
+  endpoint, and the message's own while a method has none, cut at its first
+  `${variable}`, `?` or `#`, gives a host and a directory (the path up to its
+  last `/`, or the whole path when it has one segment, such as `/v1.0`). A
+  method copies the message's endpoint when it is created and keeps it after
+  the message's changes, so the message's is left out once every method has
+  its own. A call matches when its
+  `url` starts with one of the hosts and contains one of the directories
+  (`urlSTARTSWITH` ORed, then `urlLIKE` ORed); a directory of `/` drops the
+  directory condition. The directory, not the whole endpoint, is what a
+  `setEndpoint()` to a sibling resource still shares, and it keeps a near-named
+  `/payroll-legacy/` apart from `/payroll/`. A call sent to another host or
+  directory is not found. An endpoint whose host is a variable, that is not
+  http or https, or whose directory holds `^` is reported in
+  `unmatched_endpoints`; with no host left, the log is not read.
+- **Credentials never leave the layer.** `request_headers`, `response_headers`,
+  `request_query` and the query part of `url` have the value of any credential-named pair (authorization,
+  cookie, token, secret, password, a name ending in key, signature, session)
+  replaced with `[redacted]`, in line, Java map, JSON and query-string form, and
+  a `user:password@` in a URL becomes `[redacted]@`. Bodies are not in
+  `sysparm_fields`. There is no opt-out; `records list` reads the raw row.
+- **What a row holds depends on the method's HTTP log level.** Basic, the
+  default, writes no headers. Calls through a MID server name it in
+  `mid_server`; its `ecc_queue` rows are a breadcrumb, not read.
+## Scheduler health
+
+`src/scheduled-job-health.js` is the layer behind `jsn scheduledjobs health`
+and `jsn scheduledjobs why <job>`. Both make bounded GET reads only. Health reads
+`sys_cluster_state`, then five lists, each `--limit` rows with a lookahead row
+that marks it truncated:
+
+- **Overdue**: `sys_trigger` rows Ready or Queued whose next action is more
+  than 60 minutes past, leaving out Disabled and startup triggers and the
+  `ALL NODES`, `ACTIVE NODES` and `PRIMARY NODES` template rows.
+- **Erroring**: state Error or Permanent Error, or `error_count` above zero.
+- **Dead node**: a parent trigger (`parent` empty, not a startup trigger)
+  whose `system_id` names a node that `sys_cluster_state` does not show
+  online. Rows the server returns for a node group or a live node are dropped.
+- **Inactive Run as**: active `sysauto_script` rows whose `run_as` user is
+  inactive.
+- **Long runs**: `syslog_transaction` scheduler rows over 3,600,000 ms in the
+  last 7 days.
+
+An empty `sys_cluster_state` read is refused before any trigger is read: it is
+an ACL-filtered read, and judging nodes from it would call every pinned job dead.
+
+`why` takes a job name or sys_id. It finds the `sysauto_script` row (its child
+classes share the table), then its triggers by `document_key`, the job's raw
+sys_id, because a child class's trigger names the child table in `document`.
+With no job definition it falls back to a `sys_trigger` row by name or sys_id,
+which covers triggers with no document, such as PA Forecast Job Schedule on
+dev485581. It then reads the Run as `sys_user` by raw sys_id, the nodes, the
+newest windows of `sys_scheduler_job_history` by the trigger's
+`job_classification` (checked in `sys_db_object` first; the table keeps 7 days
+in 15-minute windows, times in ms), and scheduler rows over an hour in
+`syslog_transaction`. Every joined row is checked against the key it was read
+by.
+
+- **Findings**, by job: `job_inactive`; with no trigger, `on_demand`,
+  `ran_once` (the platform removes a run-once trigger after it runs) or
+  `no_trigger`. By trigger: `trigger_disabled`, `paused`, `error_state` or
+  `errors_recorded`, then `overdue` and `dead_node` with the same rules as
+  health. Then `inactive_run_as` or `run_as_missing`, `conditional` (the
+  condition script is not evaluated) and `long_run`.
+
+Not modelled: whether a conditional job's condition returns true, worker
+thread starvation, and jobs on `sysauto` classes outside `sysauto_script`
+(scheduled reports, PA jobs), which `why` reaches only through the trigger
+fallback.
+
 ## Flow inspection
 
 `src/flow-inspection.js` is the single deep module for `flows show` and the
@@ -865,6 +1049,10 @@ Dispatch is not success; log and artifact readback are required.
 ## Flow execution
 
 `src/flow-context.js` owns the `sys_flow_context` measurement shape. `normalizeFlowContext` resolves instance-specific runtime fields and reports `field_mapping` plus `missing_fields`; `sys_created_on` may describe context age, but it is not used as execution age or for derived runtime duration when the real start field is absent. `summarizeFlowContexts` provides local sample metrics, while summary commands may combine them with server-side Stats API counts.
+
+`src/flow-execution.js` owns one run's detail for `flows executions show`. It reads the context, its definition, the context's Error rows in `sys_flow_log` and the action and step instances named in each row's `action` path, all by raw sys_id. `step_data.recorded` is false when the run's reporting level was Off, and `step_data.values_recorded` is true only for Full and Trace (null when the run does not say which level), because the flow log survives at any level and step inputs and outputs do not.
+
+`src/flow-settings.js` owns `flows settings`. It reads the definition's `sys_flow_execution_setting` row by raw `source` and `source_type` with a two-row lookahead, refuses duplicates and foreign rows, and writes only the fields whose value changes. A failed read-back after a write is reported as unverified, never thrown away, because the write already happened.
 
 ---
 

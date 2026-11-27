@@ -1,5 +1,6 @@
-import { declareCapabilities } from '../capabilities.js';
+import { deferredFamilyDefinition } from '../command-families.js';
 import { formatCommandList } from '../helpers.js';
+import { boundedReads } from '../bounded-reads.js';
 
 function numberOrString(value) {
   const n = Number(value);
@@ -258,19 +259,23 @@ function formatHealth(nodes) {
   const lines = ['NODE STATUS  TYPE             QUEUE  AGE  SESSIONS  DEFAULT SEM  DB'];
   lines.push('-----------  ---------------  -----  ---  --------  -----------  --');
   for (const node of nodes) {
-    const sem = node.stats.semaphores.find(s => s.name === 'Default');
-    const db = node.stats.transactions?.daily;
-    lines.push(`${String(displayValue(node.status) || '?').padEnd(11)}  ${String(displayValue(node.node_type) || '?').padEnd(15)}  ${String(node.stats.queue?.length ?? '-').padStart(5)}  ${String(node.stats.queue?.age ?? '-').padStart(3)}  ${String(node.stats.active_sessions ?? '-').padStart(8)}  ${sem ? `${sem.borrowed}/${sem.maximum_concurrency}`.padStart(11) : '-'.padStart(11)}  ${db ? `${db.mean} ms` : '-'}`);
+    const stats = node.stats || {};
+    const sem = stats.semaphores?.find(s => s.name === 'Default');
+    const db = stats.transactions?.daily;
+    lines.push(`${String(displayValue(node.status) || '?').padEnd(11)}  ${String(displayValue(node.node_type) || '?').padEnd(15)}  ${String(stats.queue?.length ?? '-').padStart(5)}  ${String(stats.queue?.age ?? '-').padStart(3)}  ${String(stats.active_sessions ?? '-').padStart(8)}  ${sem ? `${sem.borrowed}/${sem.maximum_concurrency}`.padStart(11) : '-'.padStart(11)}  ${db ? `${db.mean} ms` : '-'}`);
   }
   if (nodes.length === 0) lines.push('(no nodes)');
+  const unreadable = nodes.filter(node => node.stats_unavailable);
+  if (unreadable.length > 0) {
+    lines.push(`⚠ Node stats unreadable for: ${unreadable.map(node => node.sys_id || '(unknown)').join(', ')}`);
+  }
   return `${lines.join('\n')}\n`;
 }
 
 export function platformCmd(wrap) {
-  declareCapabilities('platform', { mutationSubcommands: [] });
+
   return {
-    command: 'platform',
-    describe: 'Inspect read-only platform health and node statistics',
+    ...deferredFamilyDefinition('platform'),
     // Parent discovery. This parent had no handler, so `jsn platform` and
     // `jsn platform --json` exited 0 with no output at all — silent success.
     // Children come from the registry, not a second hand-written list.
@@ -306,14 +311,48 @@ export function platformCmd(wrap) {
           sysparm_fields: 'sys_id,status,node_type,node_stats',
           sysparm_limit: '100',
         });
-        const nodes = [];
-        for (const row of selectClusterRows(cluster, argv.node, argv.allNodes)) {
-          const id = typeof row.node_stats === 'object' ? row.node_stats.value : row.node_stats;
-          if (!id) continue;
-          const stats = await app.sdk.get('sys_cluster_node_stats', id);
-          nodes.push({ sys_id: valueOf(row.sys_id), status: row.status, node_type: row.node_type, stats: parseNodeStatsXml(stats?.stats || '') });
-        }
-        app.ok({ table: 'sys_cluster_state', node_count: nodes.length, nodes, _formatted: formatHealth(nodes), security: { raw_xml: 'excluded', sensitive_fields: 'excluded' }, context: { instance_url: app.getEffectiveInstance() } }, { summary: `Platform health: ${nodes.length} node(s)` });
+        const targets = selectClusterRows(cluster, argv.node, argv.allNodes)
+          .map(row => ({
+            row,
+            id: typeof row.node_stats === 'object' ? row.node_stats.value : row.node_stats,
+          }))
+          .filter(target => target.id);
+        // Node stats records are independent reads, so they share the bounded
+        // pool. Results are assembled by index, which keeps the cluster row
+        // order, and one unreadable node is reported as that node's own
+        // failure instead of hiding every readable node behind one error.
+        const reads = await boundedReads(targets, async ({ id }) => {
+          try {
+            return { record: await app.sdk.get('sys_cluster_node_stats', id) };
+          } catch (error) {
+            return { error };
+          }
+        });
+        const nodes = targets.map(({ row }, index) => {
+          const read = reads[index];
+          const node = {
+            sys_id: valueOf(row.sys_id),
+            status: row.status,
+            node_type: row.node_type,
+            stats: read.error ? null : parseNodeStatsXml(read.record?.stats || ''),
+          };
+          if (read.error) {
+            node.stats_unavailable = true;
+            node.stats_error = read.error.message;
+          }
+          return node;
+        });
+        const statsUnavailable = nodes.filter(node => node.stats_unavailable).length;
+        const summary = `Platform health: ${nodes.length} node(s)${statsUnavailable ? `, ${statsUnavailable} with unreadable stats` : ''}`;
+        app.ok({
+          table: 'sys_cluster_state',
+          node_count: nodes.length,
+          nodes,
+          stats_unavailable: statsUnavailable,
+          _formatted: formatHealth(nodes),
+          security: { raw_xml: 'excluded', sensitive_fields: 'excluded' },
+          context: { instance_url: app.getEffectiveInstance() },
+        }, { summary });
       }),
     }).command({
       command: 'stats',

@@ -416,8 +416,10 @@ The CLI's migration to these endpoints is separate from implementing this servic
 ### JSN docs commands consume the hosted REST API
 
 Replace CLI-local docs indexing and serving with `docs search`, `docs show`, and
-remote `docs status`. These commands use the public service without instance
-credentials, login, local index initialization, or dataset downloads. Preserve
+remote `docs status`. These commands use the public service without login, local
+index initialization, or dataset downloads. With no release named, they read the
+selected profile's `glide.war` to choose the family, never prompting, and fall back
+to the newest family the service lists when they cannot. Preserve
 JSON envelopes, full Markdown bodies, `--get`, styled previews and pagination.
 Use `JSN_DOCS_URL` for a local or alternate deployment. The default production
 host still requires deployment of the Rails service before those APIs work.
@@ -668,14 +670,18 @@ gap; missed events are neither replayed nor claimed. Observation is bounded by
 `--timeout`/`--max-events`, and Ctrl+C unsubscribes before exiting. Scheduling
 and user notification stay with the calling agent.
 
-Only a single-record subscription ships. Filtered table subscriptions are
-deferred until platform support and access behavior are validated on a live
-instance. Live verification on 2026-11-04 confirmed the handshake, subscribe
-ack, cross-session delivery and the notification shape: the platform sends a
-`record` map of changed fields plus `sys_*` audit fields, not a `changes`
-array, and it omits `table`/`sys_id` (the subscription supplies them). Human
-output renders those changed fields. ACL denial with a non-admin identity,
-create/delete payloads and a real reconnect gap remain unverified.
+A watch subscribes to one record (`sys_id=<id>`) or to an encoded query
+(`--query`), which the read validator checks before subscribing. Live
+verification on 2026-11-04 confirmed the handshake, subscribe ack,
+cross-session delivery and a notification shape with a `record` map of
+changed fields plus `sys_*` audit fields and no `table`/`sys_id` (the
+subscription supplies them). On 2026-11-25 a basic profile's session
+subscribed to a query channel and received insert, update and delete
+payloads carrying `sys_id`, the changed field names and `entry`/`change`/
+`exit`, including `exit` when an update took a record out of the query. A
+user without read access got the same events with values withheld, and a
+mid-stream `500` was reported as a gap. A query event that arrives without a
+`sys_id` carries a `warning`, since a query channel has none to fill in.
 
 ### Table behavior mirrors the platform's Configurations inventory (2026-11-04)
 
@@ -796,6 +802,59 @@ supplied token and GCK policies, existing bootstrap-unavailable Bearer fallback,
 and bounded recovery/mutation-replay rules are unchanged. No 403 warm/retry is
 introduced. See [OAuth request transport](../guides/setup.md#oauth-request-transport).
 
+### Table audit status extends `tables` (2026-11-25)
+
+`jsn tables audit <table> [--field <name>]` is a subcommand of `tables`,
+like `tables behavior`, so it adds no root command and inherits the family's
+capabilities. It answers "is this audited, and why not" from the dictionary and
+three properties rather than from `sys_audit` rows, because missing history
+cannot show which rule suppressed it. Verdicts follow the dictionary
+`attributes` string; `sys_schema_attribute_m2m` rows are compared and every
+disagreement is listed. It reads every dictionary row of the table and its
+ancestors in one bounded query (2000 rows), because CMDB child tables carry
+their own rows for inherited columns: on dev485581 the `cmdb_ci_linux_server`
+chain has 552 rows, and 113 of its elements are defined on more than one table
+in the chain. See [Table audit status](domain-model.md#table-audit-status).
+
+### Audit verbs are subcommands, not options (2026-11-25)
+
+`jsn tables audit <table> [--field <name>]` reads, and every change is its own
+verb under it: `audit enable|disable <table>`, `audit exclude|include <table>
+<field>` and `audit deletes <table> on|off`. Capabilities declare the five as
+two-token mutation paths (`mutationSubcommands: ['audit enable', ...]`), which
+`mutationPaths` already splits on spaces, so the read-only profile, the
+mutation guard and capture context block exactly those verbs while the status
+read stays a read.
+
+The alternative, one `tables audit` subcommand whose flags made it a mutation
+through a new `mutationOptions` capability field, was rejected: it adds a second
+classification dimension every consumer must learn (`mutationOptions` would also
+need handling in the operation-class derivation from `mutationSubcommands`), it
+hides mutating verbs from discovery and `--all-commands`, and it makes the same
+subcommand readable or blocked depending on argv. A subcommand costs one word
+and needs no capability change.
+
+The read stays the default path for `audit`, so a caller who passes only a table
+name still reads; a table literally named like a verb is reached by the verb
+names being matched first, which is why the verbs are reserved words here.
+
+### Scheduler diagnosis extends `scheduledjobs` (2026-11-26)
+
+`jsn scheduledjobs health` and `jsn scheduledjobs why <job>` are subcommands of
+`scheduledjobs`, so they add no root command. The family's CRUD verbs stay on
+`sysauto_script`; these two read `sys_trigger`, the scheduler's queue, because
+a job that did not run is explained by its trigger (state, next action, pinned
+node, error count), not by its definition. Both only read: running or recovering
+a job is left to the platform. The dead-node rule flags a parent trigger pinned
+to a node that `sys_cluster_state` does not show online, never a startup
+trigger. The scheduled jobs dashboard's Stuck Jobs counts only missing nodes;
+an offline node is flagged here too, since only that node would run the job. On
+dev485581 (Brazil) 36 of 183 Ready or Queued triggers more than an
+hour past their next action were ALL NODES, ACTIVE NODES or PRIMARY NODES
+template rows, which keep a stale next action by design, so overdue leaves them
+out; the rest were Disabled or startup triggers. See
+[Scheduler health](domain-model.md#scheduler-health).
+
 ### One directory per owner at the repository root
 
 The repository root holds `cli/`, `docs/`, `site/`, and GitHub metadata under
@@ -869,7 +928,8 @@ Update this file when a durable project fact changes. Do not turn it into a dail
 ## Targeted documentation retrieval
 
 The document reader supports `--outline` and `--section` alongside `--path`.
-Full-document reads remain the default. No ServiceNow connection is needed.
+Full-document reads remain the default. No ServiceNow connection is needed, though a
+selected profile chooses the family when no release is named.
 
 ```sh
 node cli/bin/jsn.js docs --path api-reference/web-services/scripted-graph-ql.md --json

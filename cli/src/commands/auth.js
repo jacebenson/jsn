@@ -1,12 +1,14 @@
 import { connectionPreferences, chooseConnectionPreferences } from '../setup-preferences.js';
+import { deferredFamilyDefinition } from '../command-families.js';
 import { detectCommandAudience } from '../command-audience.js';
 import { getEffectiveInstance, normalizeInstanceURL, saveConfig, setActiveProfile } from '../config.js';
 import { errUsage, errUsageHint, errConfirmationRequired } from '../errors.js';
 import { canUsePicker, formatCommandList, quoteShellArg } from '../helpers.js';
-import { declareCapabilities } from '../capabilities.js';
 import process from 'node:process';
 import { readFile } from 'node:fs/promises';
 import { refreshSession } from '../session.js';
+import { ensureCredentialStorage } from '../auth/credential-storage-setup.js';
+import { assertCredentialTransport } from '../auth/transport.js';
 
 function syncSession(app) {
   if (typeof app._buildSdk === 'function' && typeof app.loadContext === 'function') refreshSession(app);
@@ -15,7 +17,6 @@ function syncSession(app) {
 // Auth manages local credentials/profiles — runs without a configured
 // instance. (Not in the daily-check skip-list: legacy behavior checks for
 // updates here.)
-declareCapabilities('auth', { noInstance: true, skipContextHeader: true });
 
 /** Render a compact status table; identity fields require explicit details. */
 export function renderAuthStatus(result, summary, { details = false } = {}) {
@@ -326,6 +327,10 @@ async function readBrowserSessionFile(file) {
 
 /** Collect human answers, then call the same login operation as auth login. */
 export async function loginWizard(app, argv = {}, { concise = false } = {}) {
+  // Before the first question: a host without a usable keyring used to accept
+  // every answer, complete the network login, and only then refuse to store
+  // the credential.
+  await ensureCredentialStorage(app, argv);
   const { input, select, confirm, password } = await import('../prompts.js');
   const explicitInstance = resolveWizardInstance(app, argv);
   const instance = resolveInstanceArg(explicitInstance || await input({
@@ -345,7 +350,7 @@ export async function loginWizard(app, argv = {}, { concise = false } = {}) {
       { name: 'Basic — username and password', value: 'basic' },
     ],
   });
-  const request = { ...argv, profile: undefined, instance, name: name.trim() };
+  const request = { ...argv, profile: undefined, instance, name: name.trim(), _storageChecked: true };
   if (method === 'browser') request.browser = true;
   if (method === 'oauth') request.oauth = true;
   const settings = await chooseConnectionPreferences(app.config, profileSettingValues(argv), { confirm });
@@ -674,6 +679,15 @@ Find your instance URL in your browser's address bar when logged into ServiceNow
     const { confirm } = await import('../prompts.js');
     setDefault = await confirm({ message: 'Use this profile by default?', default: !app.config.defaultProfile });
   }
+  // Non-interactive logins fail here — after cheap argument and destination
+  // validation, before any network authentication, and only when the run will
+  // actually store a credential — so the host's storage limits surface first.
+  if (!argv._storageChecked && !preliminary) {
+    // Transport policy first (process-level, no network), then storage: both
+    // must hold before a credential is sent anywhere.
+    assertCredentialTransport(instanceURL);
+    await ensureCredentialStorage(app, argv);
+  }
   // --basic (with --password as a compatibility alias): authenticate
   // with basic auth from env vars and persist it for this profile.
   if (useGck) {
@@ -926,6 +940,12 @@ export async function showAuthStatus(argv, app) {
   const selectedProfiles = argv.profile
     ? configuredProfiles.filter(([name]) => name === argv.profile)
     : configuredProfiles;
+  // Every profile below is read four or five times through local credential
+  // storage. Warm them all in one secure-store launch first: on Windows each
+  // read would otherwise be a PowerShell process (seconds, not milliseconds).
+  app.auth.primeCredentials?.(selectedProfiles.map(([, profile]) => ({
+    instance: profile.instance_url, username: profile.username,
+  })));
   for (const [name, profile] of selectedProfiles) {
     const instance = profile.instance_url;
     const authOptions = { authMethod: profile.auth_method, username: profile.username };
@@ -1039,6 +1059,7 @@ export async function showAuthStatus(argv, app) {
       stale: daysSinceLastSeen > 7,
       default: name === app.config.defaultProfile,
       read_only: profile.read_only || false,
+      credential_store: profile.credential_store || 'keyring',
       skip_confirmations: profile.skip_confirmations || false,
       include_counts: profile.include_counts !== false,
       diagnostics: {
@@ -1201,8 +1222,7 @@ export async function removeConnection(argv, app) {
 
 export function authCmd(wrap) {
   return {
-    command: 'auth [subcommand]',
-    describe: 'Manage authentication (OAuth, Basic, or browser session)',
+    ...deferredFamilyDefinition('auth'),
     builder: (yargs) => {
       return yargs
         .command({

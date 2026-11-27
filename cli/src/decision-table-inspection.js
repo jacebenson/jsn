@@ -162,6 +162,18 @@ function assertSafeReferenceTable(value) {
   }
 }
 
+// A table name must come from the reference's raw value, never its display
+// label: 'sysparm_display_value: all' renders a reference to a table whose
+// label has a space as "Change Request", which is not a table name.
+function rawFieldValue(record, field) {
+  if (!record || typeof record !== 'object') return '';
+  const value = record[field];
+  if (value == null) return '';
+  if (typeof value !== 'object') return String(value);
+  if (value.value != null) return String(value.value);
+  return value.display_value != null ? String(value.display_value) : '';
+}
+
 export async function inspectDecisionTable(app, table) {
   const sysId = unwrapSysId(table);
   const [inputs, questions] = await Promise.all([
@@ -172,7 +184,7 @@ export async function inspectDecisionTable(app, table) {
   const references = new Map();
   for (const input of inputs) {
     const name = inputName(input);
-    const referenceTable = getStringField(input, 'reference') || getStringField(input, 'reference_table');
+    const referenceTable = rawFieldValue(input, 'reference') || rawFieldValue(input, 'reference_table');
     if (!name) continue;
     if (referenceTable) {
       assertSafeReferenceTable(referenceTable);
@@ -216,7 +228,7 @@ export async function inspectDecisionTable(app, table) {
   }
   for (const input of inputs) {
     const name = inputName(input);
-    const sourceTable = getStringField(input, 'table') || getStringField(input, 'source_table') || getStringField(input, 'reference_table') || getStringField(input, 'reference');
+    const sourceTable = rawFieldValue(input, 'table') || rawFieldValue(input, 'source_table') || rawFieldValue(input, 'reference_table') || rawFieldValue(input, 'reference');
     if (!name || !sourceTable) continue;
     assertSafeReferenceTable(sourceTable);
     const fields = new Set();

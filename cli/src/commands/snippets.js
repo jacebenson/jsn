@@ -2,6 +2,7 @@
 // Save a table+query (with optional columns) under a name, then run it later
 // against the active profile. No instance contact for save/list/delete/show.
 
+import { deferredFamilyDefinition } from '../command-families.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { globalConfigDir } from '../config.js';
@@ -29,8 +30,7 @@ function saveSnippets(map) {
 
 export function snippetsCmd(wrap) {
   return {
-    command: 'snippets [subcommand]',
-    describe: 'Save and re-run named query snippets (stored locally, no instance contact except run)',
+    ...deferredFamilyDefinition('snippets'),
     builder: (yargs) => {
       return yargs
         .command({

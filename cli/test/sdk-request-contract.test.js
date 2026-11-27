@@ -61,6 +61,17 @@ test('JSON and text timeouts include consuming the body, raw-response timers end
   assert.deepEqual(signals.map((signal) => signal.aborted), [true, true, false]);
 });
 
+test('rawRequest takes a per-call timeout for long bodies such as an XML export', async (t) => {
+  const sdk = client();
+  sdk._setAuth = async () => {};
+  t.mock.method(globalThis, 'fetch', async (request) => ({ ok: true, status: 200, text: () => new Promise((resolve, reject) => {
+    setTimeout(() => resolve('<unload/>'), 60);
+    request.signal.addEventListener('abort', () => reject(request.signal.reason), { once: true });
+  }) }));
+  await assert.rejects(sdk.rawRequest('https://example.invalid'), /Request timed out/);
+  assert.equal(await sdk.rawRequest('https://example.invalid', { timeout: 500 }), '<unload/>');
+});
+
 test('raw responses preserve unnormalized transport errors', async (t) => {
   const sdk = client();
   sdk._setAuth = async () => {};

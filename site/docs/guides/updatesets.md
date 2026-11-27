@@ -65,7 +65,7 @@ Raw mutation APIs and eval conservatively require customization context. Operati
 metadata exemptions cover identity/membership administration, approvals, ATF runs,
 attachments, MID runtime operations, catalog ordering, Store installation, domain
 selection, and flow test/lock release. Explicit scope selection and update-set
-creation/selection/import/preview/commit/reopen keep their own safety gates. Scope
+creation/selection/import/preview/commit/reopen/move keep their own safety gates. Scope
 creation is customization and is not exempt.
 
 Successful JSON write envelopes include `context.mutation`, reusable with `--get`.
@@ -152,6 +152,55 @@ absent; an ambiguous or missing local copy is reported, never guessed.
 
 Neither command changes the selected update set or scope.
 
+### Retrieve from a configured remote instance
+
+When both instances can reach each other and the target already has a Remote
+Instance record (`sys_update_set_source`), retrieve the completed set directly
+instead of exporting and uploading XML:
+
+```sh
+jsn --profile target updatesets sources
+jsn --profile source updatesets list --json        # find the set's source sys_id
+jsn --profile target updatesets retrieve 2ce715950d619e10f87785462179bd67 --source prod --yes
+```
+
+`sources` is read-only. It lists each source's name, URL, type and active state
+and never requests or prints the stored username or password; userinfo embedded
+in a stored URL is stripped before display. `retrieve` needs the update set's
+**source-instance** `sys_update_set` sys_id, not its name: the CICD endpoint
+resolves the set on the remote instance, so jsn cannot look a name up from the
+target profile. `--source` accepts a source name or its `sys_update_set_source`
+sys_id. An inactive source is refused before dispatch.
+
+`retrieve` calls `POST /api/sn_cicd/update_set/retrieve` with `update_set_id`,
+`update_source_id`, `auto_preview=false` and `cleanup_retrieved=false`, follows
+the progress tracker, then reads the target's copy back through
+`sys_remote_update_set.remote_sys_id`. It leaves the set `loaded`: it does not
+preview, commit, or delete an existing retrieved copy. A successful tracker with
+no readable progress link, no matching retrieved record, or an unexpected state
+is reported as an unknown outcome, never as success. Like all CICD calls it needs
+the plugin and the `sn_cicd.sys_ci_automation` role; a missing route is reported
+as unavailable, while a structured provider rejection is reported as a rejected
+operation.
+
+### Commit several sets in order
+
+```sh
+jsn --profile target updatesets commit --ordered <set> <set> --yes
+```
+
+Ordered commit resolves every set first and refuses before any request if one is
+not `previewed` or still has unresolved preview problems. It then sends one
+`POST /api/sn_cicd/update_set/commitMultiple` request with
+`remote_update_set_ids` in the given order and `force_commit=false`, follows the
+progress tracker, and reads every set back as `committed` in that order. A
+successful tracker that leaves a set in another state is an error; jsn does not
+retry or force the commit.
+
+Both `retrieve` and ordered `commit` are mutations: they require confirmation
+(`--yes` noninteractively) and are refused by read-only profiles before any
+request.
+
 Reopen a complete or ignored **local** update set explicitly:
 
 ```sh
@@ -160,6 +209,31 @@ jsn --profile source updatesets reopen "Digital Helpdesk 0.1.77"
 
 This verifies `in progress` after the write and leaves selection unchanged. It
 does not accept committed sets. Export and import never reopen or complete sets.
+
+## Move updates between sets
+
+Move customer updates captured in the wrong set into another local set:
+
+```sh
+jsn updatesets move --from "Sprint 12" --to "Feature X" --query "target_nameINFooUtils,FooCheck"
+jsn updatesets move --from <sprint sys_id> --to <feature sys_id> --query "target_nameINFooUtils,FooCheck" --expect-count 2 --yes
+```
+
+`--to-default` in place of `--to` targets the Default set of the source set's
+application, for updates that should not ship with any named set yet.
+
+Without `--yes` it previews the matching `sys_update_xml` rows and prints the
+rerun command with their count and both sets' sys_ids. `--query` narrows the
+source set's updates; without it every update moves. Both sets must be in
+progress and in the same application as every moved update; a duplicate name
+such as `Default` is narrowed to the other set's application, and refused if
+still ambiguous. An object that already has an update in the target is refused:
+ServiceNow advises against editing a customer update's Update Set field because
+it can leave two updates for one object in a set, and for that case its fix is
+to re-save the record with the target set current. `--expect-count` and
+`--limit` refuse before the first write. Each update moves with one Table API
+write and is then read back; a failed or unconfirmed row is reported and the
+command exits nonzero.
 
 ## Cross-instance update-set diff
 

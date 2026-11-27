@@ -3,7 +3,7 @@
 import { batchRead } from './sdk-batch.js';
 import { tableReadParams } from './table-read-params.js';
 import { gunzipSync } from 'node:zlib';
-import { AppError, CodeAPI, CodeAuth, errAuth, errAuthHint, errAPI, errNetwork, errUsage } from './errors.js';
+import { AppError, CodeAPI, CodeAuth, CodeNetwork, errAuth, errAuthHint, errAPI, errNetwork, errUsage } from './errors.js';
 import { assertCredentialTransport, assertCredentialDestination } from './auth/transport.js';
 import { canPrompt, getStringField } from './helpers.js';
 import { errMfaRequired, errMfaRejected, isTerminalAuthError } from './errors.js';
@@ -16,6 +16,8 @@ import {
 import {
   previewUpdateSet as previewRetrievedUpdateSet,
   commitUpdateSet as commitRetrievedUpdateSet,
+  retrieveUpdateSet as retrieveRemoteUpdateSet,
+  commitUpdateSets as commitRetrievedUpdateSets,
   listPreviewProblems,
 } from './update-set-apply.js';
 
@@ -57,7 +59,7 @@ function serializeCookies(cookieJar) {
 // stateful:true, required UI endpoints and value 1 retain session precedence.
 // Basic/TOTP, supplied token and GCK policies remain unchanged. Internal OAuth
 // bootstrap must bypass warming to avoid recursion. See site/docs/guides/setup.md.
-const STATELESS_REST_PREFIXES = ['/api/now/table/', '/api/now/stats/', '/api/now/v1/batch'];
+const STATELESS_REST_PREFIXES = ['/api/now/table/', '/api/now/stats/', '/api/now/v1/batch', '/api/now/import/'];
 
 export function needsUiSession(url, { stateful = false, forceSession = false } = {}) {
   if (stateful || forceSession) return true;
@@ -85,6 +87,59 @@ export function buildScriptFormBody({ script, csrf, scope, rollback = true, quot
   if (sandbox) formBody.set('sandbox', 'on');
   if (scriptlet) formBody.set('scriptlet', 'on');
   return formBody;
+}
+
+/**
+ * Read the CSRF token out of a platform upload form page.
+ *
+ * `upload.do?sysparm_target=<table>` renders a form whose hidden `sysparm_ck`
+ * input is the token the multipart POST must carry; the page must also be a
+ * real upload form (it posts to `/sys_upload.do` and has an `attachFile`
+ * input), otherwise the caller is looking at a login page or an error page and
+ * has no CSRF token at all.
+ *
+ * One scrape for every upload path (record XML, update-set XML, app package):
+ * the token name and the form shape are the platform's, not each caller's.
+ *
+ * @param {string} html
+ * @returns {string} the token, or '' when this is not an upload form
+ */
+export function parseUploadFormCSRF(html) {
+  if (typeof html !== 'string') return '';
+  const csrf = html.match(/name=["']sysparm_ck["'][^>]*value=["']([^"']+)["']/i)?.[1];
+  if (!csrf || !/action=["']\/sys_upload\.do["']/i.test(html) || !/name=["']attachFile["']/i.test(html)) return '';
+  return csrf;
+}
+
+// How long the script's request stays open after jsn stops waiting, for the platform's answer to the cancel.
+const SCRIPT_CANCEL_WAIT = 15000;
+// A cancelled script's whole response is the platform's one line, even when it printed before (dev485581).
+const cancelledByPlatform = (output) => /^Transaction cancelled\b[^\n]*$/.test(output);
+
+// Resolves '' once the script's request settles, or why jsn stopped waiting first.
+function stopReason(run, ms, signal) {
+  let timer;
+  let onAbort;
+  return Promise.race([
+    run.then(() => '', () => ''),
+    new Promise(resolve => {
+      timer = setTimeout(resolve, ms, 'timeout');
+      onAbort = () => resolve('interrupt');
+      signal?.addEventListener('abort', onAbort, { once: true });
+    }),
+  ]).finally(() => { clearTimeout(timer); signal?.removeEventListener('abort', onAbort); });
+}
+
+function scriptStoppedError(stop, timeout, cancel) {
+  const what = stop === 'timeout' ? `The background script was still running after ${Math.round(timeout / 1000)}s` : 'Interrupted while the background script was running';
+  const outcome = {
+    cancelled: `; it was cancelled on the instance (${cancel.output}).${stop === 'timeout' ? ' Re-run with --timeout <seconds> if it needs longer.' : ''}`,
+    not_confirmed: `; jsn asked the instance to cancel it, but the cancel was not confirmed (instance answered: ${cancel.message}). It may still be running until its transaction quota ends it.`,
+    failed: `; the cancel request failed (${cancel.message}), so it may still be running until its transaction quota ends it.`,
+  }[cancel.status];
+  const error = new AppError(stop === 'timeout' ? CodeNetwork : 'interrupted', what + outcome);
+  error.cancel = cancel;
+  return error;
 }
 
 export class SDKClient {
@@ -129,6 +184,9 @@ export class SDKClient {
     if (!creds) {
       throw errAuth('No valid credentials');
     }
+    // Remember the credential family so a later 403 can explain whether this
+    // session could carry a role elevation at all.
+    this._authMethod = creds.auth_method;
     switch (creds.auth_method) {
       case 'basic':
         // Basic credentials may demand a login challenge even on stateless
@@ -342,6 +400,15 @@ export class SDKClient {
     return error;
   }
 
+  // A 403 on a mutation is the only case where elevation guidance helps:
+  // reads rarely need it, and a read error should stay terse.
+  _forbiddenContext(opts = {}) {
+    return {
+      authMethod: this._authMethod || '',
+      mutation: String(opts.method || 'GET').toUpperCase() !== 'GET',
+    };
+  }
+
   async request(endpoint, opts = {}) {
     // Some provider mutations are GET-shaped. Keep this local replay policy
     // out of fetch options rather than treating their HTTP method as read-only.
@@ -360,7 +427,7 @@ export class SDKClient {
       },
     }, async (resp) => {
       const body = await resp.text();
-      if (!resp.ok) throw errAPI(resp.status, body || resp.statusText);
+      if (!resp.ok) throw errAPI(resp.status, body || resp.statusText, this._forbiddenContext(requestOptions));
       if (responseMetadata) {
         // Invocation-local receipt, never a cache: only accept a complete safe
         // integer from this exact successful response (not an empty header).
@@ -393,8 +460,9 @@ export class SDKClient {
   }
 
   async rawRequest(endpoint, opts = {}) {
-    return this._withAuthenticatedRequest(endpoint, opts, {
-      normalizeErrors: true,
+    const { timeout = this.timeout, ...requestOptions } = opts;
+    return this._withAuthenticatedRequest(endpoint, requestOptions, {
+      timeout, normalizeErrors: true,
       prepare: (req) => {
         if (opts.body && typeof opts.body === 'string') {
           req.headers.set('Content-Type', opts.headers?.['Content-Type'] || 'application/x-www-form-urlencoded');
@@ -402,7 +470,7 @@ export class SDKClient {
       },
     }, async (resp) => {
       const body = await resp.text();
-      if (!resp.ok) throw errAPI(resp.status, body || resp.statusText);
+      if (!resp.ok) throw errAPI(resp.status, body || resp.statusText, this._forbiddenContext(opts));
       return body;
     });
   }
@@ -866,6 +934,26 @@ export class SDKClient {
       ...(options.timeout ? { timeout: options.timeout } : {}),
     });
     const stats = result?.result?.stats;
+    if (options.strict === true) {
+      const invalid = () => Object.assign(new Error(`Invalid aggregate count response for ${table}`), {
+        code: 'invalid_aggregate_count',
+      });
+      let map = stats;
+      if (typeof map === 'string') {
+        try { map = JSON.parse(map); } catch { throw invalid(); }
+      }
+      if (!map || typeof map !== 'object' || Array.isArray(map)) throw invalid();
+      // Preserve the direct and nested Stats shapes the forgiving path accepts.
+      const candidates = Object.hasOwn(map, 'count')
+        ? [map.count]
+        : Object.values(map).filter(value => value && typeof value === 'object' && Object.hasOwn(value, 'count')).map(value => value.count);
+      if (candidates.length !== 1) throw invalid();
+      const value = candidates[0];
+      if (typeof value !== 'number' && (typeof value !== 'string' || !/^\d+$/.test(value))) throw invalid();
+      const count = Number(value);
+      if (!Number.isSafeInteger(count) || count < 0) throw invalid();
+      return count;
+    }
     if (!stats) return 0;
 
     let statsMap = stats;
@@ -994,8 +1082,8 @@ export class SDKClient {
     const cookies = await this._warmSession();
     const formURL = `${this.baseURL}/upload.do?sysparm_target=sys_remote_update_set`;
     const html = await this.rawRequest(formURL, { method: 'GET', headers: cookies ? { Cookie: cookies } : {} });
-    const csrf = html.match(/name=["']sysparm_ck["'][^>]*value=["']([^"']+)["']/i)?.[1];
-    if (!csrf || !/action=["']\/sys_upload\.do["']/i.test(html) || !/name=["']attachFile["']/i.test(html)) {
+    const csrf = parseUploadFormCSRF(html);
+    if (!csrf) {
       throw errUsage('The native XML upload form is unavailable; no XML was uploaded. Check admin access and session authentication.');
     }
     const form = new FormData();
@@ -1096,6 +1184,27 @@ export class SDKClient {
     return commitRetrievedUpdateSet(this, sysID, opts);
   }
 
+  /**
+   * Retrieve a completed update set from a configured remote instance through
+   * the CICD Update Set API and wait for its progress tracker. The retrieved
+   * copy is left in place (`cleanup_retrieved` false) and is not previewed.
+   * @param {{updateSetId: string, updateSourceId: string}} ids
+   * @param {{timeoutMs?: number, pollMs?: number}} [opts]
+   */
+  async retrieveUpdateSet({ updateSetId, updateSourceId }, opts = {}) {
+    return retrieveRemoteUpdateSet(this, { updateSetId, updateSourceId, ...opts });
+  }
+
+  /**
+   * Commit several retrieved update sets in one ordered CICD request and wait
+   * for its progress tracker. `force_commit` stays false.
+   * @param {string[]} sysIDs - sys_remote_update_set sys_ids in commit order
+   * @param {{timeoutMs?: number, pollMs?: number}} [opts]
+   */
+  async commitUpdateSets(sysIDs, opts = {}) {
+    return commitRetrievedUpdateSets(this, sysIDs, opts);
+  }
+
   /** Read sys_update_preview_problem rows for a retrieved update set. */
   async listUpdateSetPreviewProblems(sysID, opts = {}) {
     return listPreviewProblems(this, sysID, opts);
@@ -1116,9 +1225,22 @@ export class SDKClient {
    *   - quotaManagedTransaction (default true) → quota_managed_transaction
    *   - sandbox (default false) → sandbox (KittyScript, single expression)
    *   - scriptlet (default false) → scriptlet
+   *   - timeout (ms) and signal (AbortSignal): a caller that passes either
+   *     gets the cancel. When either stops the wait, the script is cancelled on
+   *     the instance through cancel_my_transaction.do in the same session, and
+   *     the error says whether the platform confirmed it (error.cancel.status).
+   *     A caller with neither keeps the client timeout and no cancel.
+   *   - finished (RegExp): what the script prints when it completes. When the
+   *     output matches, errors the platform logged on the way do not throw;
+   *     the caller reports them.
    * @returns {Promise<string>} The script's output text
    */
   async executeScript(script, scope, opts = {}) {
+    return (await this.runBackgroundScript(script, scope, opts)).output;
+  }
+
+  /** executeScript, also returning the sys_script_execution_history id the page links to (null when absent). */
+  async runBackgroundScript(script, scope, opts = {}) {
     // Step 1: Warm up the session by hitting any REST API — this makes
     // ServiceNow issue session cookies for subsequent UI page requests.
     // We capture cookies to forward them (Node.js fetch() has no built-in cookie jar).
@@ -1139,19 +1261,32 @@ export class SDKClient {
       scriptlet: opts.scriptlet,
     });
 
-    const html = await this.rawRequest(endpoint, {
+    // Only callers that pass a timeout or a signal (jsn eval) get the cancel; others keep the plain request.
+    const cancellable = Boolean(opts.timeout || opts.signal);
+    const timeout = opts.timeout || this.timeout;
+    if (opts.signal?.aborted) throw new AppError('interrupted', 'Interrupted before the background script was sent; nothing ran on the instance.');
+    // A cancellable request outlives the deadline so it can carry the platform's answer to a cancel.
+    const run = this.rawRequest(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
         ...(cookies ? { Cookie: cookies } : {}),
       },
       body: formBody.toString(),
+      ...(cancellable ? { timeout: timeout + SCRIPT_CANCEL_WAIT } : {}),
     });
+    const stop = cancellable && await stopReason(run, timeout, opts.signal);
+    if (stop) throw scriptStoppedError(stop, timeout, await this._cancelScript(cookies, run));
 
+    // The response body is needed twice: for the output and for the execution id.
+    const html = await run;
     const output = this._extractScriptOutput(html);
+    // The platform ended it (transaction quota, or an admin's kill) before it finished.
+    if (cancelledByPlatform(output)) throw new Error(`Background script was cancelled on the instance before it finished: ${output}`);
     const scriptError = detectScriptError(output);
-    if (scriptError) throw new Error(`Background script failed: ${scriptError}`);
-    return output;
+    // opts.finished: the script printed this when it completed, so a logged error it ran past (a user criteria script that threw) is the caller's to report.
+    if (scriptError && !opts.finished?.test(output)) throw new Error(`Background script failed: ${scriptError}`);
+    return { output, execution_id: html.match(/sys_script_execution_history\.do\?sys_id=([0-9a-f]{32})/)?.[1] || null };
   }
 
   /**
@@ -1207,30 +1342,37 @@ export class SDKClient {
 
   /**
    * Fetch catalog variables for a request item (RITM).
+   * sc_item_option has no request_item column; answers link to the RITM through sc_item_option_mtom.
    * @param {string} ritmSysID - Sys ID of the request item
-   * @returns {Promise<Array<{question: string, value: string}>>}
+   * @param {number} [limit=100] - Most answers to return; one more is read to detect truncation
+   * @returns {Promise<{variables: Array<{question: string, value: string}>, truncated: boolean}>}
    */
-  async fetchCatalogVariables(ritmSysID) {
+  async fetchCatalogVariables(ritmSysID, limit = 100) {
     const params = new URLSearchParams();
     params.set('sysparm_display_value', 'all');
-    params.set('sysparm_fields', 'item_option_new,value');
-    params.set('sysparm_query', `request_item=${ritmSysID}`);
-    params.set('sysparm_limit', '100');
+    params.set('sysparm_fields', 'request_item,sc_item_option.item_option_new,sc_item_option.value,sc_item_option.item_option_new.variable_set.type');
+    params.set('sysparm_query', `request_item=${ritmSysID}^ORDERBYsc_item_option.order`);
+    params.set('sysparm_limit', String(limit + 1));
 
-    const optRecords = await this.list('sc_item_option', params);
+    const links = await this.listStrict('sc_item_option_mtom', params);
     const variables = [];
 
-    for (const opt of optRecords) {
+    for (const link of links.slice(0, limit)) {
+      if (link?.request_item?.value !== ritmSysID) throw new Error(`sc_item_option_mtom returned an answer for another requested item (${link?.request_item?.value || 'none'}), so the RITM filter was not applied`);
+      // Multi-row set columns also get an empty answer here; fetchMultiRowVariables reads their rows.
+      if (link['sc_item_option.item_option_new.variable_set.type']?.value === 'one_to_many') continue;
+      const questionField = link['sc_item_option.item_option_new'];
+      const valueField = link['sc_item_option.value'];
       let question = '';
-      if (opt.item_option_new && typeof opt.item_option_new === 'object') {
-        question = opt.item_option_new.display_value || '';
+      if (questionField && typeof questionField === 'object') {
+        question = questionField.display_value || '';
       }
 
       let value = '';
-      if (opt.value && typeof opt.value === 'object') {
-        value = opt.value.display_value || opt.value.value || '';
-      } else if (typeof opt.value === 'string') {
-        value = opt.value;
+      if (valueField && typeof valueField === 'object') {
+        value = valueField.display_value || valueField.value || '';
+      } else if (typeof valueField === 'string') {
+        value = valueField;
       }
 
       if (question) {
@@ -1238,7 +1380,33 @@ export class SDKClient {
       }
     }
 
-    return variables;
+    return { variables, truncated: links.length > limit };
+  }
+
+  /**
+   * Fetch multi-row variable set answers for a request item, grouped by set, then row.
+   * @param {string} ritmSysID - Sys ID of the request item
+   * @param {number} [limit=500] - Most answers (cells) to return; one more is read to detect truncation
+   * @returns {Promise<{sets: Array<{set: string, rows: Array<Array<{question: string, value: string}>>}>, truncated: boolean}>}
+   */
+  async fetchMultiRowVariables(ritmSysID, limit = 500) {
+    const params = new URLSearchParams();
+    params.set('sysparm_display_value', 'all');
+    params.set('sysparm_fields', 'parent_id,variable_set,row_index,item_option_new,value');
+    params.set('sysparm_query', `parent_id=${ritmSysID}^parent_table_name=sc_req_item^ORDERBYvariable_set^ORDERBYrow_index^ORDERBYitem_option_new.order`);
+    params.set('sysparm_limit', String(limit + 1));
+
+    const answers = await this.listStrict('sc_multi_row_question_answer', params);
+    const sets = new Map();
+    for (const answer of answers.slice(0, limit)) {
+      if (answer?.parent_id?.value !== ritmSysID) throw new Error(`sc_multi_row_question_answer returned an answer for another record (${answer?.parent_id?.value || 'none'}), so the RITM filter was not applied`);
+      const setID = answer.variable_set?.value || '';
+      if (!sets.has(setID)) sets.set(setID, { set: answer.variable_set?.display_value || setID, rows: new Map() });
+      const rows = sets.get(setID).rows, rowID = answer.row_index?.value ?? '';
+      if (!rows.has(rowID)) rows.set(rowID, []);
+      rows.get(rowID).push({ question: answer.item_option_new?.display_value || '', value: answer.value?.display_value || answer.value?.value || '' });
+    }
+    return { sets: [...sets.values()].map(({ set, rows }) => ({ set, rows: [...rows.values()] })), truncated: answers.length > limit };
   }
 
   /**
@@ -1431,6 +1599,28 @@ export class SDKClient {
     throw errMfaRejected();
   }
 
+  // One cancel_my_transaction.do in the script's session, as the UI's cancel does.
+  // Only the script's own request ending with the platform's cancellation line
+  // confirms it; an acknowledgement alone is not confirmation.
+  async _cancelScript(cookies, run) {
+    let message;
+    try {
+      const xml = await this.rawRequest(`${this.baseURL}/cancel_my_transaction.do?sysparm_output=xml`, {
+        method: 'GET', headers: cookies ? { Cookie: cookies } : {},
+      });
+      message = /<message text="([^"]*)"/.exec(xml)?.[1]?.trim();
+      if (!message) throw new Error('the instance gave no cancel message');
+    } catch (error) {
+      return { status: 'failed', message: error.message };
+    }
+    // The wait for the platform's answer is bounded on its own, whatever --timeout is. It holds the process open
+    // itself: if the script's request is left pending with nothing open, Node would exit 0 with no output.
+    let timer;
+    const answer = new Promise(resolve => { timer = setTimeout(resolve, SCRIPT_CANCEL_WAIT, ''); });
+    const output = this._extractScriptOutput(await Promise.race([run.catch(() => ''), answer]).finally(() => clearTimeout(timer)));
+    return { status: cancelledByPlatform(output) ? 'cancelled' : 'not_confirmed', message, output };
+  }
+
   async _getScriptsPageCSRF(cookies) {
     const endpoint = `${this.baseURL}/sys.scripts.do`;
     const html = await this.rawRequest(endpoint, {
@@ -1488,7 +1678,16 @@ export class SDKClient {
 }
 
 function detectScriptError(output) {
-  const lines = String(output || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  const text = String(output || '');
+  // The KittyScript evaluator (`eval --sandbox`) reports a rejected expression
+  // in the output stream, never as an HTTP error: "KittyScript validation
+  // failed for null.null.script with error: Access to GlideRecord.insert is not
+  // allowed", followed by a Java stack trace. Returning that as success made a
+  // sandbox run that evaluated nothing look like a pass.
+  const kitty = text.match(/KittyScript validation failed[^\n]*?with error:\s*([^\n]+)/i)
+    || text.match(/Evaluator\.evaluateString\(\) problem:\s*([^\n]+)/i);
+  if (kitty) return `KittyScript: ${kitty[1].replace(/:\s*com\.[\s\S]*$/, '').trim()}`;
+  const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
   const errorLine = lines.find(line => /(?:ReferenceError|TypeError|RhinoEcmaError|Script execution error|undefined is not a function|is not defined)/i.test(line));
   return errorLine || '';
 }

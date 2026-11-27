@@ -1,6 +1,6 @@
 import { inventoryCompareCommand } from '../instance-inventory.js';
+import { deferredFamilyDefinition } from '../command-families.js';
 import { confirmDelete, quoteShellArg, truncateString } from '../helpers.js';
-import { declareCapabilities } from '../capabilities.js';
 import { AppError, errUsage } from '../errors.js';
 import {
   STORE_TABS, listApplications, showApplication, operationStatus, prepareInstall, prepareUpdate,
@@ -16,11 +16,6 @@ import {
 // same reason as catalog ordering: they hand a runtime install request to the
 // App Client, which writes installed-application state rather than capturing
 // metadata into the selected application/update set.
-declareCapabilities('store', {
-  skipContextHeaderSubcommands: ['compare'],
-  mutationSubcommands: ['install', 'update'],
-  mutationContextExemptSubcommands: ['install', 'update'],
-});
 
 const hint = (action, cmd, description) => ({ action, cmd, description });
 
@@ -228,8 +223,7 @@ async function runLifecycle(argv, app, operation) {
 
 export function storeCmd(wrap) {
   return {
-    command: 'store [subcommand]',
-    describe: 'Discover ServiceNow Store applications, inspect versions and entitlement, and request explicit installs/updates',
+    ...deferredFamilyDefinition('store'),
     builder: y => y
       .command(inventoryCompareCommand(wrap, 'store'))
       .command({

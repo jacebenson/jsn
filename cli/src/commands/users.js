@@ -1,14 +1,14 @@
-import { formatRecordForDisplay, getStringField, interactiveList, resolveFieldsParam, buildRecordPayload } from '../helpers.js';
+import { formatRecordForDisplay, getStringField, interactiveList, resolveFieldsParam, buildRecordPayload, quoteShellArg, buildRerunCommand } from '../helpers.js';
+import { deferredFamilyDefinition } from '../command-families.js';
 import { resolveRecord, resolveSysId } from '../resolve-record.js';
-import { declareCapabilities } from '../capabilities.js';
-
-declareCapabilities('users', { queryTable: 'sys_user', mutationContext: 'operational', mutationSubcommands: ['create', 'update', 'delete'] });
+import { listUserRoles, explainUserRoles, formatUserRoleWhy } from '../user-roles.js';
+import { explainUserAccess, formatUserAccess, userAccessSummary, unlockUser, formatUserUnlock, userUnlockSummary } from '../user-access.js';
+import { basicAuthReport, formatBasicAuthReport } from '../basic-auth-report.js';
+import { errUsage } from '../errors.js';
 
 export function usersCmd(wrap) {
   return {
-    command: 'users [subcommand]',
-    aliases: ['user'],
-    describe: 'Manage ServiceNow users',
+    ...deferredFamilyDefinition('users'),
     builder: (yargs) => {
       return yargs
         .command({
@@ -63,6 +63,78 @@ export function usersCmd(wrap) {
             const id = argv.identifier;
             const record = await resolveRecord(app.sdk, { table: 'sys_user', identifier: id, matchField: 'user_name', resource: 'User' });
             app.ok(record, { summary: `User ${id}` });
+          }),
+        })
+        .command({
+          command: 'roles <identifier>',
+          describe: 'List a user\'s roles; --why shows how each is granted (direct, contained role, group)',
+          builder: (y) => y
+            .option('why', { type: 'boolean', describe: 'Show every path to each role from the User Role Inheritance API (needs user_admin)' })
+            .option('role', { alias: 'r', type: 'string', describe: 'Only this role (name or sys_id)' })
+            .option('limit', { alias: 'l', type: 'number', describe: 'Max role rows without --why (1-1000, default 100)' }),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const id = argv.identifier;
+            if (argv.why && argv.limit !== undefined) throw errUsage('--limit applies to the role list; --why always shows every path.');
+            if (argv.why) {
+              const data = await explainUserRoles(app.sdk, id, { role: argv.role });
+              Object.defineProperty(data, '_formatted', { value: formatUserRoleWhy(data, quoteShellArg(id)), enumerable: false });
+              return app.ok(data, { summary: `${data.count} role(s), ${data.path_count} path(s) for ${data.user.user_name}` });
+            }
+            const data = await listUserRoles(app.sdk, id, { role: argv.role, limit: argv.limit });
+            const who = `${data.user.user_name}${data.role ? ` (role ${data.role.name})` : ''}`;
+            app.ok(data, {
+              summary: data.count ? `${data.count} role row(s) for ${who}${data.pagination.has_more ? ', more available (raise --limit or narrow with --role)' : ''}`
+                : `No visible role rows for ${who}; row ACLs can hide rows, so this does not prove the user lacks a role (--why asks the platform)`,
+              breadcrumbs: [{ action: 'why', cmd: `jsn users roles ${quoteShellArg(id)} --why${argv.role ? ` --role ${quoteShellArg(argv.role)}` : ''}`, description: 'How each role is granted' }],
+            });
+          }),
+        })
+        .command({
+          command: 'access <identifier>',
+          describe: 'Explain why a user cannot sign in (locked out, inactive, password reset, web services only) with recent login.failed events',
+          builder: (y) => y.strict().option('limit', { alias: 'l', type: 'number', default: 10, describe: 'Max login.failed events (1-100)' }),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const data = await explainUserAccess(app.sdk, argv.identifier, { limit: argv.limit });
+            Object.defineProperty(data, '_formatted', { value: formatUserAccess(data), enumerable: false });
+            app.ok(data, { summary: userAccessSummary(data) });
+          }),
+        })
+        .command({
+          command: 'unlock <identifier>',
+          describe: 'Unlock a locked-out user: clear locked_out and zero failed_attempts; previews without --yes',
+          builder: (y) => y.strict().option('yes', { type: 'boolean', default: false, describe: 'Write the change; without it, show what would change' })
+            .epilogue('Refuses a user who is not locked out, and leaves password_needs_reset as it is. After the write it reads the user back and exits nonzero unless both fields changed.'),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const data = await unlockUser(app.sdk, argv.identifier, { yes: argv.yes });
+            if (data.rerun) data.rerun = buildRerunCommand(argv, { rerun: data.rerun });
+            Object.defineProperty(data, '_formatted', { value: formatUserUnlock(data), enumerable: false });
+            app.ok(data, { summary: userUnlockSummary(data) });
+          }),
+        })
+        .command({
+          command: 'basic-auth',
+          describe: 'List accounts the platform recorded using Basic Auth and whether enforcement will block them (read-only)',
+          builder: (y) => y
+            .option('blocked', { type: 'boolean', default: false, describe: 'Only accounts enforcement would block' })
+            .option('limit', { alias: 'l', type: 'number', default: 200, describe: 'Max exception rows to show (1-1000)' }),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const data = await basicAuthReport(app.sdk, { blocked: argv.blocked === true, limit: argv.limit });
+            Object.defineProperty(data, '_formatted', { value: formatBasicAuthReport(data), enumerable: false });
+            const policy = data.policy;
+            const switches = policy.readable ? `active=${policy.active}, enforce=${policy.enforce}` : 'policy not readable';
+            app.ok(data, {
+              summary: !data.exception_table.readable
+                ? `Basic Auth restriction ${switches}; exception table not readable (${data.exception_table.error}), so per-account verdicts are unknown`
+                : `Basic Auth restriction ${switches}; ${data.counts.total} exception row(s): ${data.counts.blocked} blocked, ${data.counts.allowed} allowed, ${data.counts.unknown} unknown`,
+              breadcrumbs: [
+                { action: 'account', cmd: 'jsn users show <user>', description: 'Inspect one recorded account' },
+                { action: 'mid', cmd: 'jsn midservers add --help', description: 'Single-account diagnosis used by MID setup' },
+              ],
+            });
           }),
         })
         .command({
@@ -133,6 +205,10 @@ export function usersCmd(wrap) {
       console.log('Available subcommands:');
       console.log('  list                  List users');
       console.log('  show <name or sys_id>  Show a user by user_name or sys_id');
+      console.log('  roles <identifier>    List a user\'s roles; --why shows how each is granted');
+      console.log('  access <identifier>   Explain why a user cannot sign in');
+      console.log('  unlock <identifier>   Unlock a locked-out user (preview by default)');
+      console.log('  basic-auth            Accounts recorded using Basic Auth and their enforcement verdict');
       console.log('  create                Create a new user');
       console.log('  update <identifier>   Update a user');
       console.log('  delete <identifier>   Delete a user');

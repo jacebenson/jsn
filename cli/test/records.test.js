@@ -31,6 +31,8 @@ describe('Records Command Structure', () => {
     cmd.builder(mockYargs);
     const names = subcommands.map(s => s.split(' ')[0]);
     assert.ok(names.includes('inspect'));
+    assert.ok(names.includes('versions'));
+    assert.ok(names.includes('references'));
   });
 
   it('uses optional [subcommand] so bare invocation shows help, not a yargs error', async () => {
@@ -188,7 +190,7 @@ describe('records list — cmdb_rel_ci', () => {
     assert.deepStrictEqual(data.missing_columns, ['state_label']);
     assert.ok(Array.isArray(data.warnings) && data.warnings.length === 1);
     assert.match(data.warnings[0], /state_label/);
-    assert.match(data.warnings[0], /jsn columns --table dmn_demand/);
+    assert.match(data.warnings[0], /jsn columns list --table dmn_demand/);
     assert.strictEqual(data.records[0].number, 'DMND0001640');
     assert.strictEqual(data.records[0].state, 'Submitted');
     assert.strictEqual(data.records[0].description, '');

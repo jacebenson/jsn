@@ -105,7 +105,7 @@ class CommandNode {
       positional(name, config = {}) { node.positionals.set(name, { ...config, name }); return this; },
       demandCommand(count, message) { node.demand = { count, message }; return this; },
       middleware(fn) { node.middlewares.push(...(Array.isArray(fn) ? fn : [fn])); return this; },
-      strict() { return this; },
+      strict() { node.strict = true; return this; },
       check() { return this; },
       usage(value) { node.usageText = value; return this; },
       epilogue(value) { node.epilogueText = value; return this; },
@@ -170,10 +170,11 @@ export class LocalCLI {
   }
   _lookup(list, value) { return list.find((n) => n.name === value || n.aliases.includes(value)); }
   _knownOptions(nodes) {
-    const map = new Map();
-    for (const node of [this.root, ...nodes]) for (const [name, spec] of node.options) {
+    const map = new Map(), chain = [this.root, ...nodes];
+    chain.forEach((node, index) => { for (const [name, spec] of node.options) {
+      if (spec.global === false && index < chain.length - 1) continue; // yargs: not passed down to subcommands
       map.set(name, spec); for (const alias of names(spec.alias)) map.set(alias, spec);
-    }
+    } });
     return map;
   }
   _findPath(args) {
@@ -256,6 +257,10 @@ export class LocalCLI {
     catch (err) { this._fail(err.message, err); return { values: {}, positionals: [] }; }
     const argv = { _: path.map((n) => n.name) };
     for (const [key, value] of Object.entries(parsed.values)) {
+      if (opts.validate !== false && path.some(node => node.strict) && !Object.hasOwn(defs, key)) {
+        this._fail(`Unknown option: --${key}`);
+        return null;
+      }
       if (opts.validate !== false && key === 'q' && !options.has('q')) {
         this._fail('Option -q (--query) is not supported by this command.');
         return null;
@@ -344,8 +349,9 @@ export class LocalCLI {
       })),
     };
     // Opt-in action detail leaves the legacy command/group projection intact.
-    // Build every visible descendant, using the same option inheritance and
-    // signatures as dispatch. Hidden subtrees are never indexed.
+    // Build every visible descendant, using dispatch's signatures and option
+    // inheritance less a self-running parent's options (below), so every
+    // advertised invocation still dispatches. Hidden subtrees are never indexed.
     if (details) {
       registry.entries = [];
       const visit = (node, ancestors = [], aliases = []) => {
@@ -357,7 +363,9 @@ export class LocalCLI {
         node.build();
         const nodes = [...ancestors, node];
         const path = nodes.map(value => value.name);
-        const bindings = this._optionConfig(nodes);
+        // A node that takes its own positionals (eval, docs) runs itself: it is an action, and
+        // its options are its own job's, so its children do not advertise them.
+        const bindings = this._optionConfig(nodes.filter(value => value === node || !value.definition.defaultPositionals));
         const allOptions = [...new Set(bindings.values())];
         const options = allOptions.filter(spec => !spec.hidden).map(spec => {
           // An inherited alias can now belong to a different, hidden option.
@@ -375,7 +383,7 @@ export class LocalCLI {
           group: nodes[0].definition.describe || '',
           table: nodes[0].definition.discovery?.table || '',
           help: `jsn ${path.join(' ')} --help`,
-          parent: node.children.some(visible),
+          parent: !node.definition.defaultPositionals && node.children.some(visible),
           options, positions,
           hiddenRequired: allOptions.some(spec => spec.hidden && spec.demandOption),
           tasks: node.definition.discoveryTasks || [],
@@ -538,6 +546,9 @@ export class LocalCLI {
     }
     for (const spec of specs) if (spec.demandOption && argv[spec.name] === undefined) return this._fail(`Missing required argument: --${spec.name}`);
     for (const pos of positions) if (pos.required && argv[pos.name] === undefined) return this._fail(`Missing required argument: ${pos.name}`);
+    if (path.some(commandNode => commandNode.strict) && positionalIndex < parsed.positionals.length) {
+      return this._fail(`Unexpected argument: ${parsed.positionals[positionalIndex]}`);
+    }
     for (const middleware of this.middlewares) await middleware(argv);
     for (const commandNode of path) for (const middleware of commandNode.middlewares) await middleware(argv);
     if (node.definition.handler) await node.definition.handler(argv);

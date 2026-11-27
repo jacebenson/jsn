@@ -362,10 +362,10 @@ export async function flowStatus(sdk, sysID) {
 }
 
 /**
- * The flow's trigger type, and its table when it is a record trigger.
- * Returns null when the flow has no trigger instance at all.
+ * The flow's trigger type, decoded trigger inputs and table when it is a
+ * record trigger. Returns null when the flow has no trigger instance at all.
  */
-async function triggerInfo(sdk, flowSysID) {
+export async function readFlowTrigger(sdk, flowSysID) {
   for (const tbl of ['sys_hub_trigger_instance_v2', 'sys_hub_trigger_instance']) {
     let rows;
     try {
@@ -379,13 +379,32 @@ async function triggerInfo(sdk, flowSysID) {
       const type = str(row, 'trigger_type');
       if (!type) continue;
       // trigger_inputs is gzip+base64 JSON: the full denormalized input list
-      // for the trigger type, of which we only want the "table" entry.
+      // for the trigger type, of which we only want the record inputs.
       const inputs = decodeGzipJson(row?.trigger_inputs);
-      const t = Array.isArray(inputs) ? inputs.find(i => i?.name === 'table') : null;
-      return { type, table: t?.value ? String(t.value) : null };
+      const values = {};
+      if (Array.isArray(inputs)) {
+        for (const input of inputs) {
+          if (input && input.name) values[input.name] = input.value == null ? '' : String(input.value);
+        }
+      }
+      return {
+        table: values.table || null,
+        type,
+        condition: values.condition ?? '',
+        run_flow_in: values.run_flow_in || undefined,
+        run_on_extended: values.run_on_extended || undefined,
+        run_when_user_setting: values.run_when_user_setting || undefined,
+        trigger_strategy: values.trigger_strategy || undefined,
+        inputs: values,
+      };
     }
   }
   return null;
+}
+
+async function triggerInfo(sdk, flowSysID) {
+  const trigger = await readFlowTrigger(sdk, flowSysID);
+  return trigger ? { type: trigger.type, table: trigger.table } : null;
 }
 
 function qs(obj) {

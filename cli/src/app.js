@@ -7,7 +7,7 @@
 // setEffectiveInstance() are thin session-backed shims kept for the many
 // command handlers that already call them.
 
-import { AuthManager } from './auth.js';
+import { AuthManager, credentialStoreFor } from './auth.js';
 import { createAuthRecovery } from './auth-recovery.js';
 import { SDKClient } from './sdk.js';
 import { OutputWriter, FormatAuto, FormatJSON, FormatMarkdown, FormatQuiet, FormatStyled } from './output.js';
@@ -44,7 +44,7 @@ export class App {
       isTrustedCredentialDestination: instance => isTrustedCredentialDestination(this.config, instance,
         this._authArgv?.instance || this._sessionArgv?.instance || (this.session?.profileExplicit ? '' : this.session?.override),
         this.session?.profileExplicit ? this.session.profileName : ''),
-    });
+    }, { credentialStore: credentialStoreFor(this.session?.profile) });
 
     if (this.session.instance) {
       this._buildSdk(this.session.instance, this.session);

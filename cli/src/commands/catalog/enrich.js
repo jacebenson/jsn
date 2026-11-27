@@ -3,9 +3,9 @@
 // describe/inputs aliases); `catalogitems order` reuses the same request-side
 // read, so both agree on what a question is.
 //
-// Two calls, one answer:
-//   1. the Table API (sc_cat_item + item_option_new) — the definition, always
-//      readable, and the fallback when the catalog API cannot answer;
+// Read the definition, then try the request-side questions:
+//   1. the Table API (sc_cat_item) validates readability and supplies details;
+//      item_option_new is read only if catalog API variables are unavailable;
 //   2. /api/sn_sc/servicecatalog/items/{id} — what this account can actually
 //      request, with the variables a submission must answer.
 // The catalog API wins when it answers; the definition list keeps the command
@@ -118,23 +118,20 @@ export function requestDetails(variables) {
  *
  * @returns {Promise<{data: object, variables: Array, totalVars: number, source: string}>}
  */
-export async function enrichCatalogItem({ sdk, instanceUrl, sysID }) {
+// `item` may only be a complete, unprojected Table API row with display_value=all
+// already read by this command. Picker rows and Catalog API items are not safe substitutes.
+export async function enrichCatalogItem({ sdk, instanceUrl, sysID, item }) {
   // Use list + display_value=all so reference fields (category, flow) resolve
   // to readable display values instead of raw sys_ids.
-  const p = new URLSearchParams();
-  p.set('sysparm_query', `sys_id=${sysID}`);
-  p.set('sysparm_limit', '1');
-  p.set('sysparm_display_value', 'all');
-  const items = await sdk.list('sc_cat_item', p);
-  const item = items[0] || null;
+  if (!item) {
+    const p = new URLSearchParams();
+    p.set('sysparm_query', `sys_id=${sysID}`);
+    p.set('sysparm_limit', '1');
+    p.set('sysparm_display_value', 'all');
+    const items = await sdk.list('sc_cat_item', p);
+    item = items[0] || null;
+  }
   if (!item) throw new Error(`Not found: ${sysID}`);
-
-  const vp = new URLSearchParams();
-  vp.set('sysparm_query', `cat_item=${sysID}^active=true^ORDERBYorder`);
-  vp.set('sysparm_limit', '100');
-  vp.set('sysparm_display_value', 'all');
-  vp.set('sysparm_fields', 'sys_id,name,question_text,type,order,mandatory,variable_set');
-  const rows = await sdk.list('item_option_new', vp);
 
   let apiItem = null;
   let apiError = '';
@@ -147,9 +144,18 @@ export async function enrichCatalogItem({ sdk, instanceUrl, sysID }) {
   }
 
   const fromApi = Array.isArray(apiItem?.variables);
-  const variables = fromApi
-    ? shapeVariables(apiItem.variables)
-    : rows.map(questionFromRow).filter(Boolean);
+  let variables;
+  if (fromApi) {
+    variables = shapeVariables(apiItem.variables);
+  } else {
+    const vp = new URLSearchParams();
+    vp.set('sysparm_query', `cat_item=${sysID}^active=true^ORDERBYorder`);
+    vp.set('sysparm_limit', '100');
+    vp.set('sysparm_display_value', 'all');
+    vp.set('sysparm_fields', 'sys_id,name,question_text,type,order,mandatory,variable_set');
+    const rows = await sdk.list('item_option_new', vp);
+    variables = rows.map(questionFromRow).filter(Boolean);
+  }
   const source = fromApi ? 'catalog_api' : 'item_option_new';
 
   // Resolve flow name

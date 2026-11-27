@@ -228,6 +228,42 @@ explains that the `Skipped` disposition preserves customizations. Other skip
 reasons are not treated as equivalent evidence. This command cannot establish a
 trusted baseline from that history alone.
 
+### Reverting an application's customised files
+
+```sh
+jsn customizations revert --scope sn_hr_core --expect-scope global --expect-update-set "<set>"
+jsn customizations revert --scope sn_hr_core --expect-scope global --expect-update-set "<set>" --confirm <token>
+```
+
+`revert` is the one customizations subcommand that writes. It puts the
+customised files of an application installed from the Store or a repository
+back to their newest base system versions, one file at a time through
+[`jsn records revert`](records.md#reverting-a-record), with the same script and
+readback per file.
+
+- A customised file is one whose `sys_update_xml` has `replace_on_upgrade=false`,
+  the platform's mark for a file an upgrade skips. Each update name is resolved
+  through `sys_metadata` and must name exactly one record, still in the
+  application's scope.
+- A run takes the first 100 files by update name. When more remain, the preview
+  prints the last name of the batch; `--after <update name>` starts the next run
+  there. Files a run leaves alone keep their mark, so a run without `--after`
+  starts at the top again.
+- Files added on the instance have no base version. They are listed and never
+  deleted. Files already at their base are listed too.
+- Applications built on the instance (`sys_app`) and `global` are refused.
+- It previews by default and writes nothing. The SHA-256 token covers the
+  instance, the application and each file's current and target version, so a
+  file that changes after the preview rejects the old token. A terminal asks
+  one default-No confirmation instead. `--force` does not waive either.
+- It is a mutation: read-only profiles refuse it, and noninteractive runs,
+  previews included, need `--expect-scope` and `--expect-update-set` naming the
+  current selection. That selection must be Global: each revert runs as a
+  global background script, which the platform captures in the selected update
+  set, so the application itself is not selected.
+- A file that fails is reported with its error and the rest carry on; any
+  failure exits nonzero, never with a success summary.
+
 The verified provider join is `sys_upgrade_history_log.file_name` to
 `sys_metadata.sys_update_name`, not the log's nonexistent `name` field. Capture
 uses raw values from `sysparm_display_value=all`: disposition `4` or `104`
@@ -275,10 +311,17 @@ jsn flows executions --since "2026-08-25 00:00:00" --until "2026-08-26 00:00:00"
 jsn flows executions --summary                 # Server totals + sampled duration metrics by flow
 jsn flows executions --limit 100               # Inspect more rows from the matching population
 jsn flows executions --record <sys_id>        # Executions for one source record
+jsn flows executions show <context>           # One run: version, reporting level, failed step
+jsn flows settings <flow> --reporting FULL     # Preview one flow's reporting level; --yes writes it
 jsn flows create --data-file flow.manifest.json # Create a draft record-triggered flow
 jsn workflows list --table incident             # Legacy Workflow Editor, read-only (wf_* tables)
 jsn workflows show "Incident approval"          # Versions, activities, transitions, conditions, scripts
 jsn rules list --query "collection=incident"
+jsn tables audit incident --field work_notes   # Audited or not, and why (read-only)
+jsn tables audit exclude x_case priority       # Preview; --yes writes no_audit and re-reads the status
+jsn restmessage logs "Payroll API" --status 5xx  # Recent outbound calls, newest first; credentials redacted
+jsn scheduledjobs health                       # Overdue, erroring and stuck triggers (read-only)
+jsn scheduledjobs why "Nightly sync"           # Why one job did not run (read-only)
 jsn updatesets set "My Feature"
 
 # Generic table access
@@ -289,7 +332,16 @@ jsn records list --table incident --query "active=true"                       # 
 jsn records list --table incident --limit 10 --no-count                       # opt out of the total query
 jsn records bulk --table incident --query "priority=1" --set '{"state":"3"}'  # dry-run by default
 jsn records get --table incident --sys-id 8a1234abcd5678 --attachments        # record + its files
+jsn records export --table incident --query "priority=1" --out p1.xml         # unload XML, sys_ids kept
+jsn records import p1.xml                                                     # preview; --yes loads it and re-reads each record
 jsn records list --table incident --limit 10 --csv                            # output CSV
+jsn columns show incident.priority                                            # dictionary entry + choices; names the table they come from
+
+# Import sets: load rows into a staging table; each row is transformed as it loads
+jsn import load u_staging --file rows.csv                                   # preview: checks columns and transform maps, sends nothing
+jsn import load u_staging --file rows.csv --yes                             # one row per request; prints inserted/updated/ignored/skipped/error
+jsn import transform ISET0010001 --yes                                      # rerun the maps on a set; reports each row as read back
+jsn import runs ISET0010001                                                 # transform history, newest first, and the newest run's error rows (read-only)
 
 # Attachment transfers (standalone, also discoverable via jsn attachments --help)
 jsn attachments list --sys-id <record-id> --json
@@ -306,11 +358,34 @@ jsn diff record --table incident --sys-id <sys_id> --profile-a dev --profile-b p
 # Script execution
 jsn eval "gs.info('Hello World')"
 cat script.js | jsn eval --stdin          # pipe a script in (no shell escaping)
+jsn eval --file fix.js --timeout 600      # wait up to 10 minutes (default 30 s)
+# On Ctrl-C or when --timeout passes, jsn cancels the script on the instance
+# through cancel_my_transaction.do in the same session, as the UI's cancel link
+# does, and says whether the platform confirmed it. Writes made before the
+# cancel stay.
 
 # Interactive background-script mode for trying successive scripts.
 # Each .exec is its own server request: variables do not persist between
 # submissions, while database writes do. .clear .help .exit; Ctrl+D exits.
 jsn eval --repl --profile dev --scope x_my_app
+
+# Sandbox mode evaluates one KittyScript expression instead of running a
+# script. The platform allowlists what an expression may touch (GlideRecord
+# writes are refused), so it needs no scope, update set or capture-context
+# intent. A rejected expression is reported as a failure; a valid one still
+# records execution history, but the platform does not return its value.
+jsn eval --sandbox --script 'gs.getUserID()'
+jsn eval --sandbox --script "new GlideRecord('incident').insert()"   # refused: no writes
+
+# Undo what a background script wrote, from the rollback context the platform
+# recorded. Use the execution id jsn eval reports (kept 7 days); preview first,
+# then --yes (admin). Records changed by anything else since are left alone.
+jsn eval rollback <execution>
+jsn eval rollback <execution> --yes
+
+# Run a stored fix script now, in its own scope, through the same path: preview
+# first, then --yes. --timeout and Ctrl-C cancel it as they do for jsn eval.
+jsn fixscripts run "Lower incident impact" --expect-scope global --expect-update-set "Data fixes"
 
 # Now GraphQL (documents may contain mutations; read-only profiles are blocked)
 jsn graphql --query '{ GlideRecord_Query { incident(pagination: {limit: 2}) { _results { number { value } } } } }'
@@ -322,6 +397,14 @@ jsn snippets run open-inc
 
 # Live log tailing (Ctrl+C to stop)
 jsn logs follow --level error --tail 10
+
+# Transactions running now on every node, oldest first (admin; your own request is left out)
+jsn transactions active --older-than 5m --type scheduler
+# Watch them, refreshing every 10 seconds until Ctrl+C
+jsn transactions active --watch --interval 10
+# Kill a runaway background job: preview it, then send the platform's Kill to the transaction it showed
+jsn transactions kill glide.scheduler.worker.3
+jsn transactions kill glide.scheduler.worker.3 --yes --expect-transaction 4ba972c9c3f0d71068353eec05013113
 ```
 
 ### Update set completion
@@ -353,6 +436,11 @@ jsn --profile target updatesets import transfer.xml --yes
 jsn --profile target updatesets preview "Digital Helpdesk 0.1.77" --yes
 jsn --profile target updatesets problems "Digital Helpdesk 0.1.77"
 jsn --profile target updatesets commit "Digital Helpdesk 0.1.77" --yes
+
+# Or, when a Remote Instance record already exists, retrieve directly:
+jsn --profile target updatesets sources
+jsn --profile target updatesets retrieve <source-set-sys-id> --source prod --yes
+jsn --profile target updatesets commit --ordered <set> <set> --yes
 ```
 
 Export never changes the set's state and keeps raw XML when piped. Import loads a
@@ -579,6 +667,10 @@ and ambiguous selectors are rejected before mutation.
 
 The timestamp fields are instance-dependent. `sys_created_on` is a fallback for when the context row was created, not a claim that it is the true runtime start time.
 
+`jsn flows executions show <context>` reads one `sys_flow_context` row by sys_id and answers three questions about that run. Which version ran: the context's `snapshot` against the definition's current `latest_snapshot` (`sys_hub_flow` for flows and subflows, `sys_hub_action_type_definition` for actions). Whether step data was kept: the reporting level from the context's `attributes`, falling back to its `reporting` field; Basic keeps step states and durations, and only Full and Trace keep inputs and outputs. Which step failed: the Error rows in `sys_flow_log` (the first 20, ordered by `order`), whose `action` path names the run, then instance sys_ids from the outside in; JSN resolves the deepest `sys_hub_action_instance_v2` and `sys_hub_step_instance` in that path to their order, name and comment. The flow log is kept whatever the reporting level, so this works on runs that had reporting Off; step inputs and outputs are not, and the command says so instead of printing an empty list. When no Error row is readable it says that an empty read does not prove none were logged. JSON keeps each log message up to 16384 characters (the instance's own `com.snc.process_flow.reporting.serialized.val_size_limit` default) with `message_length` and `truncated`; the terminal shows the exception line or the first line, cut at 200 characters.
+
+`jsn flows settings <flow>` shows or sets the flow's one `sys_flow_execution_setting` row (`source` is the flow, `source_type` its table), which overrides `com.snc.process_flow.reporting.level` for that flow as Workflow Studio's Reporting settings do. `--reporting` takes OFF, BASIC, FULL or TRACE and `--logging` DEBUG, INFO, WARN or ERROR, checked before any request; `--action` targets a custom action instead. Without `--yes` it prints the current row, the change and the exact rerun, and writes nothing. With `--yes` it creates the row or updates only the fields that change, then reads the row back and prints it as read; an unconfirmed write exits 1. An empty read is reported as no readable row, since a row the session cannot see may still exist. It refuses a flow with more than one row. A subflow or action called from a flow runs at the parent flow's setting. The row is runtime data, not a customization (`sys_flow_execution_setting` does not extend `sys_metadata` and has no `update_synch` attribute), so it needs no update set and is not captured in one.
+
 ## Commands
 
 Run `jsn` for the full grouped list. Commands are organized by ServiceNow domain:
@@ -589,11 +681,15 @@ Run `jsn` for the full grouped list. Commands are organized by ServiceNow domain
 
 **Upgrade review** — [`skipped-updates`](safety.md#skipped-update-review) discovers existing unresolved skips, reviews current/base field changes and known dependencies, and processes only explicitly selected actions after an exact batch preview and one confirmation.
 
-**Access** — `acls`, `roles`, `scopes`, `properties`, `privileges`
+**Access** — `acls`, `roles`, `scopes`, `properties`, `privileges`, `userroles` (list reads direct and inherited rows; add and remove change direct grants), `usercriteria`
+**Access** — `acls`, `roles`, `scopes`, `properties`, `privileges` (and `privileges requests`)
+**Access** — `acls`, `roles`, `scopes`, `properties`, `privileges` (and `privileges requests`, `privileges allow`)
 
 **User Experience** — `forms`, `lists`, `clientscripts`, `uipolicies`, `uiactions`
 
-**Data** — `records` (list/get/create/update/delete/count/bulk), `attachments` (list/download/upload), `diff record` (cross-profile read-only comparison), `tables`, `columns`, `includes`, `import`, `logs` (list/show/follow), `snippets` (save/run), `users`, `groups`
+**Data** — `records` (list/get/create/update/delete/count/bulk), `attachments` (list/download/upload), `diff record` (cross-profile read-only comparison), `tables`, `columns`, `includes`, `import`, `logs` (list/show/follow), `snippets` (save/run), `users` (list/show/roles/access/unlock), `groups`
+**Data** — `records` (list/get/create/update/delete/count/bulk), `attachments` (list/download/upload), `diff record` (cross-profile read-only comparison), `tables`, `columns`, `includes`, `import` (list/show/load), `logs` (list/show/follow), `snippets` (save/run), `users`, `groups`
+**Data** — `records` (list/get/create/update/delete/count/bulk), `attachments` (list/download/upload), `diff record` (cross-profile read-only comparison), `tables`, `columns`, `includes`, `import` (list/show/load/transform/runs), `logs` (list/show/follow), `snippets` (save/run), `users`, `groups`
 
 **Platform** — `platform health` (cluster records) and `platform stats` (bounded, read-only `/xmlstats.do` summary; allowlisted metrics only)
 
@@ -929,6 +1025,32 @@ MIT
 Auth and setup prompts show **Esc to cancel**, as does every other prompt. Press Esc to leave the current workflow without accepting the highlighted choice. `jsn auth status` includes hints for switching profiles, renewing OAuth/browser sessions, and changing profile settings.
 
 ## Additional command workflows
+
+### Why an artifact did not run
+
+Three read-only commands answer per-record configuration questions without
+evaluating scripts or executing flows:
+
+```bash
+jsn flows why <flow> --record incident:INC0010001 --json
+jsn records pipeline incident INC0010001 --op update --json
+jsn columns why incident.caller_id --record INC0010001 --json
+```
+
+`flows why` combines the flow runnability checks with the trigger table,
+operations, `run_on_extended` coverage, the trigger condition and any
+`sys_flow_context` rows for that record. `records pipeline` reuses `tables
+behavior` (inherited and global artifacts included) and lays business rules,
+engines, flow record triggers, notifications and async rules out in documented
+execution order. `columns why` reports dictionary and override values, UI and
+data policy field actions, write ACLs and client-script candidates.
+
+Each encoded-query condition is tested by the Table API with
+`sys_id=<id>^<condition>`, one `^NQ` group at a time. Script conditions and
+`CHANGESTO`/`CHANGESFROM`/`VALCHANGES` are reported as untested. Client scripts
+are never executed and ACL rows are configuration evidence, not proof of a
+user's effective access; `columns why --user` says so explicitly until the
+access-analyzer check is available.
 
 ### Knowledge search
 

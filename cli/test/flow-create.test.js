@@ -28,6 +28,13 @@ const DECLARED_INPUTS = [
   { sys_id: '707dd180c32222002841b63b12d3aecb', element: 'condition', label: 'Condition', internal_type: 'conditions', mandatory: 'false', order: '100', max_length: '4000', default_value: '', attributes: 'modelDependent=trigger_inputs', choice: '' },
 ];
 
+// Declared outputs exactly as sys_hub_trigger_output reports them for the
+// record trigger: element + human internal_type + the flow graph type they map to.
+const DECLARED_OUTPUTS = [
+  { sys_id: '5f1e1980c32222002841b63b12d3ae11', element: 'table_name', label: 'Table Name', internal_type: 'Table Name', order: '100', max_length: '255', reference: '' },
+  { sys_id: '5f1e1980c32222002841b63b12d3ae12', element: 'current', label: 'Record', internal_type: 'Document ID', order: '100', max_length: '255', reference: '' },
+];
+
 const actionSchema = [
   { id: 'i1', name: 'log_level', type: 'choice', defaultValue: 'info', choices: ['info', 'warn', 'error'], mandatory: false },
   { id: 'i2', name: 'log_message', type: 'string', mandatory: true },
@@ -48,6 +55,11 @@ function displayListMap() {
     }),
     sys_db_object: [{ name: { value: 'ticket', display_value: 'ticket' }, label: { value: 'Ticket', display_value: 'Ticket' }, super_class: { value: '1521b6f78c5103100a22deb6dd2b4e61', display_value: 'Task' } }],
     sys_dictionary: [{ element: { value: 'number', display_value: 'number' } }],
+    sys_hub_trigger_output: DECLARED_OUTPUTS.map(row => {
+      const out = {};
+      for (const [key, value] of Object.entries(row)) out[key] = { value, display_value: value };
+      return out;
+    }),
     sys_hub_action_type_definition: [{ sys_id: { value: ACTION_ID }, name: { value: 'Log', display_value: 'Log' }, active: { value: 'true' } }],
   };
 }
@@ -193,6 +205,51 @@ describe('flow creation provider-normalized input readback', () => {
     assert.equal(result.flow.active, false);
     assert.equal(result.version.sys_id, 'version-1');
     assert.equal(sdk.calls.filter(c => c.kind === 'request' && c.endpoint.includes('/versioning/create_version?')).length, 1);
+  });
+});
+
+describe('flow creation trigger-output data pills', () => {
+  function flowPatchQuery(sdk) {
+    const post = sdk.calls.find(call => call.kind === 'request' && call.options?.method === 'POST' && call.endpoint.endsWith('/graphql'));
+    assert.ok(post, 'expected a flowPatch mutation');
+    return JSON.parse(post.options.body).query;
+  }
+
+  it('registers a trigger output that an action input references', async () => {
+    const { createFlowFromManifest } = await import('../src/flow-create.js');
+    const pill = '{{Created or Updated_1.table_name}}';
+    const readback = createdDefinition();
+    readback.actionInstances[0].inputs[1].value = wrapped(pill);
+    readback.actionInstances[0].inputs[1].displayValue = wrapped(pill);
+    readback.labelCacheAsJsonString = JSON.stringify([{
+      name: 'Created or Updated_1.table_name', label: 'Trigger - Created or Updated➛Table Name',
+      type: 'table_name', base_type: 'table_name', usedInstances: {},
+    }]);
+    const sdk = makeSdk({ readback });
+    const result = await createFlowFromManifest(sdk, 'https://example.service-now.com', {
+      ...manifest,
+      actions: [{ type: 'Log', inputs: { log_level: 'info', log_message: pill } }],
+    }, { ...options, idFactory: () => 'generated-1' });
+    assert.equal(result.flow.id, FLOW_ID);
+
+    const outputsRead = sdk.calls.find(call => call.kind === 'list' && call.table === 'sys_hub_trigger_output');
+    assert.ok(outputsRead, 'the trigger definition outputs must be read before the actions are patched');
+    assert.match(outputsRead.params, /var__m_sys_hub_trigger_output_/);
+
+    const query = flowPatchQuery(sdk);
+    assert.match(query, /labelCache: \{insert: \[\{name: "Created or Updated_1\.table_name", usedInstances: \[/);
+    assert.match(query, /label: "Trigger - Created or Updated➛Table Name"/);
+    assert.match(query, /type: "table_name"/);
+  });
+
+  it('refuses a trigger pill the definition does not declare, with no content write', async () => {
+    const { createFlowFromManifest } = await import('../src/flow-create.js');
+    const sdk = makeSdk();
+    await assert.rejects(createFlowFromManifest(sdk, 'https://example.service-now.com', {
+      ...manifest,
+      actions: [{ type: 'Log', inputs: { log_level: 'info', log_message: '{{Created or Updated_1.not_an_output}}' } }],
+    }, { ...options, idFactory: () => 'generated-1' }), /no label_cache entry for data pill \{\{Created or Updated_1\.not_an_output\}\}/);
+    assert.deepEqual(sdk.calls.filter(call => call.kind === 'request' && call.options.method === 'POST'), [], 'an unresolvable trigger pill must not create the flow');
   });
 });
 

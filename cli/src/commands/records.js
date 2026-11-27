@@ -1,18 +1,19 @@
-import { formatCommandList, formatRecordForDisplay, findOmittedColumns, buildQuerySuffix, buildRecordPayload, getStringField, interactiveList, resolveFieldsParam, checkDerivedFields, confirmDelete, verifyWriteBack, quoteShellArg } from '../helpers.js';
+import { formatCommandList, formatRecordForDisplay, findOmittedColumns, buildQuerySuffix, buildRecordPayload, getStringField, interactiveList, resolveFieldsParam, checkDerivedFields, confirmAction, confirmDelete, verifyWriteBack, quoteShellArg, buildRerunCommand } from '../helpers.js';
+import { deferredFamilyDefinition } from '../command-families.js';
 import { listRecords, recordListParams, getRecord, createRecord, updateRecord, deleteRecord } from '../records-engine.js';
 import { resolveRecord, unwrapSysId } from '../resolve-record.js';
-import { errUsage } from '../errors.js';
+import { findDeletedRecord, restoreDeletedRecord, previewRelatedUndelete, runRelatedUndelete } from '../record-undelete.js';
+import { listDeleted, deletedBreadcrumb, formatDeleted } from '../record-deleted.js';
+import { errAPI, errUsage } from '../errors.js';
+import { exportRecordsXML, xmlExportCap, TABLE_NAME, UPDATE_SET_TABLES, MAX_UNLOAD_BYTES, planUnloadImport, importUnloadXML, countByTable } from '../record-xml.js';
+import fs from 'node:fs';
 import { AmbClient } from '../amb.js';
 import { watchRecord } from '../record-watch.js';
-import { declareCapabilities } from '../capabilities.js';
 import { assertMutationRecordScope, assertMutationScope } from '../intended-context.js';
 import { validateReadQuery, assertWriteQuery, queryDiagnostics, invalidateAfterMutation } from '../query-validate.js';
-
-declareCapabilities('records', {
-  mutationContext: 'table',
-  filteredMutationSubcommands: ['delete-many', 'bulk'],
-  mutationSubcommands: ['create', 'update', 'delete', 'delete-many', 'bulk'],
-});
+import { previewCascade } from '../delete-cascade.js';
+import { recordPipeline, formatRecordPipeline } from '../record-pipeline.js';
+import { FormatAuto, FormatStyled } from '../output.js';
 
 const tableDefaultColumns = {
   incident: ['number', 'short_description', 'priority', 'state', 'assigned_to'],
@@ -85,9 +86,7 @@ function recordLookup(argv) {
 
 export function recordsCmd(wrap) {
   return {
-    command: 'records [subcommand]',
-    describe: 'Query and manage records in any table (e.g. "records list --table incident --query priority=1")',
-    summary: 'Query any table when no specialized command fits',
+    ...deferredFamilyDefinition('records'),
     builder: (yargs) => {
       return yargs
         .command({
@@ -112,7 +111,7 @@ export function recordsCmd(wrap) {
               'JSON shape (abbreviated): {"ok":true,"data":{"records":[{"sys_id":"...","number":"INC0010001"}]},...}',
               'Records are at data.records; fields are directly on each record (e.g. record.number).',
               'Array only: jsn records list --table incident --get data.records',
-              'Discover fields with: jsn columns --table incident',
+              'Discover fields with: jsn columns list --table incident',
             ].join('\n')),
           handler: wrap(async (argv, app) => {
             const table = argv.table;
@@ -176,7 +175,7 @@ export function recordsCmd(wrap) {
             const breadcrumbs = [
               { action: 'create', cmd: `jsn records create --table ${table} -f name=value`, description: 'Create a new record' },
               { action: 'filter', cmd: `jsn records list --table ${table} --query "priority=1"`, description: 'Filter: priority 1 only' },
-              { action: 'columns', cmd: `jsn columns --table ${table}`, description: 'View available columns' },
+              { action: 'columns', cmd: `jsn columns list --table ${table}`, description: 'View available columns' },
             ];
             if (argv['sys-id']) {
               breadcrumbs.unshift({
@@ -206,7 +205,7 @@ export function recordsCmd(wrap) {
               ...(missingColumns.length ? {
                 missing_columns: missingColumns,
                 warnings: [
-                  `Column(s) not returned by ServiceNow (non-existent or restricted on ${table}): ${missingColumns.join(', ')}. Run \`jsn columns --table ${table}\` to inspect valid fields.`,
+                  `Column(s) not returned by ServiceNow (non-existent or restricted on ${table}): ${missingColumns.join(', ')}. Run \`jsn columns list --table ${table}\` to inspect valid fields.`,
                 ],
               } : {}),
               records: displayRecords,
@@ -221,10 +220,13 @@ export function recordsCmd(wrap) {
         })
         .command({
           command: 'watch',
-          describe: 'Stream change events for one record through ServiceNow AMB record watchers',
+          describe: 'Stream change events for one record, or every record matching a query, through ServiceNow AMB record watchers',
           builder: (y) => y
             .option('table', { type: 'string', demandOption: true, describe: 'Table name' })
             .option('sys-id', { type: 'string', describe: 'Record sys_id' })
+            .option('query', { type: 'string', describe: 'Encoded query: watch every matching record (e.g. "priority=1^active=true")' })
+            .option('operation', { type: 'string', choices: ['insert', 'update', 'delete'], describe: 'Only emit this kind of change' })
+            .option('on-change', { type: 'string', describe: 'Only emit changes to one of these comma-separated fields (e.g. "state,assigned_to")' })
             .option('identifier', { type: 'string', describe: 'Identifier value; use --identifier-field number/name/etc for human identifiers' })
             .option('identifier-field', { type: 'string', describe: 'Exact identifier field (default sys_id); disambiguates names and legacy sys_ids' })
             .option('timeout', { type: 'number', default: 0, describe: 'Stop after this many seconds (0 = until interrupted)' })
@@ -234,18 +236,31 @@ export function recordsCmd(wrap) {
             .option('reconnect', { type: 'boolean', default: true, describe: 'Reconnect after a dropped connection and report the gap; use --no-reconnect to fail fast' })
             .option('poll-timeout', { type: 'number', default: 60000, describe: 'Long-poll hold timeout in milliseconds (advanced)' })
             .epilogue([
-              'Emits newline-delimited JSON events (type record_change, gap, subscribed, reconnected, watch_summary) with --json or when piped.',
+              'Emits newline-delimited JSON events (type record_change, gap, subscribed, reconnected, watch_summary) with --json or when piped; a --query that cannot be fully verified first emits query_validation.',
               'The notification is emitted as the event; a fetched record is attached separately as event.state (source: "fetched").',
               'Record watchers are best effort: after a reconnect the stream reports a gap and does not replay missed events.',
-              'Requires an interactive ServiceNow session (jsn auth login --browser). Not a durable queue or scheduler.',
+              'Needs a ServiceNow UI session, which jsn opens from basic, OAuth or browser (gck) profiles. Not a durable queue or scheduler.',
               'Example: jsn records watch --table incident --sys-id <sys_id> --timeout 300 --json',
               'Example: jsn records watch --table incident --identifier INC0010001 --identifier-field number --max-events 1 --json',
+              'Example: jsn records watch --table incident --query "priority=1^active=true" --operation update --on-change state,assigned_to --timeout 300 --json',
             ].join('\n')),
           handler: wrap(async (argv, app) => {
-            const lookup = recordLookup(argv);
-            const record = await resolveRecord(app.sdk, { ...lookup, fields: ['sys_id'] });
-            const sysID = unwrapSysId(record);
-            if (!sysID) throw errUsage('The matched record has no readable sys_id; check field ACLs before retrying.');
+            const query = argv.query;
+            const onChange = argv['on-change'] === undefined ? [] : argv['on-change'].split(',').map(field => field.trim()).filter(Boolean);
+            if (argv['on-change'] !== undefined && !onChange.length) throw errUsage('--on-change needs at least one field name.');
+            let sysID = null;
+            if (query !== undefined) {
+              if (argv['sys-id'] !== undefined || argv.identifier !== undefined || argv.identifierField !== undefined) throw errUsage('--query watches every matching record; it cannot be combined with --sys-id, --identifier or --identifier-field.');
+              if (!query.trim()) throw errUsage('--query needs an encoded query, for example "priority=1^active=true".');
+              // A misspelt field must not silently widen or empty the channel: refuse what is invalid, report what is unverified.
+              const { query_validation: validation, warnings = [] } = queryDiagnostics(await validateReadQuery(app, { table: argv.table, query, refresh: argv['refresh-metadata'] }));
+              if (warnings.length) app.output.writeEvent({ type: 'query_validation', ...validation, warnings }, { line: warnings.map(warning => `⚠ ${warning}`).join('\n') });
+            } else {
+              if (argv['sys-id'] === undefined && argv.identifier === undefined) throw errUsage('Supply exactly one of --sys-id, --identifier or --query.');
+              const record = await resolveRecord(app.sdk, { ...recordLookup(argv), fields: ['sys_id'] });
+              sysID = unwrapSysId(record);
+              if (!sysID) throw errUsage('The matched record has no readable sys_id; check field ACLs before retrying.');
+            }
             const stateFields = argv.fields ? argv.fields.split(',').filter(Boolean) : null;
 
             const controller = new AbortController();
@@ -271,10 +286,13 @@ export function recordsCmd(wrap) {
               if (event.type === 'record_change') {
                 const id = event.display_value || event.sys_id;
                 const changes = (event.changes || [])
+                  .filter(c => c.value !== undefined || c.previous_value !== undefined || c.display_value !== undefined)
                   .map(c => `${c.field}: ${c.previous_value ?? '?'} → ${c.display_value ?? c.value ?? '?'}`)
                   .join(', ');
-                const detail = changes || describeRecord(event.record);
-                return `${event.received_at} ${event.table} ${id} ${event.operation}${detail ? ` — ${detail}` : ''}`;
+                // Field names alone when the platform withheld the values.
+                const detail = changes || describeRecord(event.record) || (event.changes || []).map(c => c.field).join(', ');
+                const moved = event.operation === 'updated' ? { entry: ' (now matches)', exit: ' (no longer matches)' }[event.match] || '' : '';
+                return `${event.received_at} ${event.table} ${id} ${event.operation}${moved}${detail ? ` — ${detail}` : ''}`;
               }
               if (event.type === 'unsubscribed') return `unsubscribed${event.reason ? ` (${event.reason})` : ''}`;
               if (event.type === 'gap') return `⚠ connection gap since ${event.since}: ${event.reason} (events in this window were not observed)`;
@@ -288,9 +306,11 @@ export function recordsCmd(wrap) {
             const onStatus = status => emit(status, formatEventLine(status));
             const onEvent = async event => emit(event, formatEventLine(event));
 
-            const fetchState = async () => {
+            const fetchState = async event => {
+              const id = sysID || event.sys_id;
+              if (!/^[\w-]+$/.test(id ?? '')) throw errUsage('The notification carried no usable sys_id, so the record was not read.');
               const params = new URLSearchParams({
-                sysparm_query: `sys_id=${sysID}`,
+                sysparm_query: `sys_id=${id}`,
                 sysparm_limit: '1',
                 sysparm_display_value: 'all',
               });
@@ -310,6 +330,9 @@ export function recordsCmd(wrap) {
                 client,
                 table: argv.table,
                 sysID,
+                query,
+                operation: { insert: 'created', update: 'updated', delete: 'deleted' }[argv.operation],
+                onChange,
                 timeoutMs: argv.timeout > 0 ? argv.timeout * 1000 : 0,
                 maxEvents: argv['max-events'] ?? argv.maxEvents,
                 signal: controller.signal,
@@ -448,9 +471,13 @@ export function recordsCmd(wrap) {
             .option('yes', { type: 'boolean', default: false, describe: 'Confirm deletion (requires --expect-count)' })
             .option('dry-run', { type: 'boolean', default: false, describe: 'Preview only, even with --yes' })
             .option('limit', { type: 'number', default: 200, describe: 'Safety cap: refuse if matches exceed this count' })
-            .epilogue('Without --yes, reports count and up to 10 sample records without writes.\nDeletion uses per-record Table API DELETE, then re-counts the query. Concurrent changes cannot be made atomic.'),
+            .option('preview-cascade', { type: 'boolean', default: false, describe: 'Also preview the records the delete would cascade to, through a Data Management delete job that is never executed (admin)' })
+            .option('keep-job', { type: 'boolean', default: false, describe: 'With --preview-cascade, keep the delete job for review in the UI' })
+            .epilogue('Without --yes, reports count and up to 10 sample records without writes.\nDeletion uses per-record Table API DELETE, then re-counts the query. Concurrent changes cannot be made atomic.\n--preview-cascade inserts one sys_dm_delete job for the filter, previews up to 3 cascade levels (counts past the source table are estimates), then deletes the job unless --keep-job. Its sys_dm_delete_count rows stay behind: their delete ACL refuses even an admin. It never deletes the matching records; the --yes delete that follows records no rollback.'),
           handler: wrap(async (argv, app) => {
             if (!argv.query?.trim()) throw errUsage('--query must be nonempty. Use records delete for a single record.');
+            if (argv['preview-cascade'] && argv.yes) throw errUsage('--preview-cascade previews only. Run it without --yes, then delete with the command it prints.');
+            if (argv['keep-job'] && !argv['preview-cascade']) throw errUsage('--keep-job needs --preview-cascade.');
             // Complete original filter validated before count/enumeration/scope reads or any write.
             await assertWriteQuery(app, { table: argv.table, query: argv.query, refresh: argv['refresh-metadata'] });
             if (!Number.isSafeInteger(argv.limit) || argv.limit < 1) throw errUsage('--limit must be a positive safe integer.');
@@ -472,10 +499,19 @@ export function recordsCmd(wrap) {
             const breadcrumbs = [{ action: 'verify', cmd: `jsn records aggregate --table ${quoteShellArg(argv.table)} --query ${quoteShellArg(argv.query)}`, description: 'Re-check matching records' }];
             if (dryRun) {
               const sample = count ? await readPage(Math.min(10, count), 0) : [];
-              return app.ok({ table: argv.table, query: argv.query, count, dry_run: true, sample, rerun }, {
-                summary: `Dry run: ${count} record(s) in ${argv.table} would be deleted`,
-                breadcrumbs: [{ action: 'delete', cmd: rerun, description: 'Delete with this exact expected count' }],
+              const cascade = argv['preview-cascade'] && count
+                ? await previewCascade(app.sdk, { table: argv.table, query: argv.query, count, keepJob: argv['keep-job'] }) : undefined;
+              const others = cascade?.tables.filter(t => t.table !== argv.table) || [];
+              const left = cascade && cascade.job.status !== 'deleted';
+              app.ok({ table: argv.table, query: argv.query, count, dry_run: true, sample, rerun, ...(cascade ? { cascade } : {}) }, {
+                summary: `Dry run: ${count} record(s) in ${argv.table} would be deleted` + (cascade
+                  ? `; cascade preview: about ${others.reduce((n, t) => n + t.count, 0)} more in ${others.length} other table(s)${cascade.more_levels ? ', and deeper levels were not counted' : ''}` : '')
+                  + (left && cascade.job.status !== 'kept' ? `; delete job ${cascade.job.number} (${cascade.job.sys_id}) left in sys_dm_delete: ${cascade.job.status}` : ''),
+                breadcrumbs: [{ action: 'delete', cmd: rerun, description: 'Delete with this exact expected count' },
+                  ...(left ? [{ action: 'job', cmd: `jsn records get --table sys_dm_delete --sys-id ${cascade.job.sys_id}`, description: `Delete job ${cascade.job.number}, ${cascade.job.status === 'kept' ? 'kept for review' : 'left behind'}` }] : [])],
               });
+              if (left && cascade.job.status !== 'kept') process.exitCode = 1;
+              return;
             }
             // Snapshot all targets before deleting: offset paging over a shrinking set skips rows.
             const targets = [];
@@ -512,6 +548,94 @@ export function recordsCmd(wrap) {
               breadcrumbs,
             });
             if (!verified) process.exitCode = 1;
+          }),
+        })
+        .command({
+          command: 'undelete',
+          describe: 'Restore a deleted record from Deleted Records (sys_audit_delete)',
+          builder: (y) => y
+            .option('table', { type: 'string', demandOption: true, describe: "The deleted record's own table (incident, not task)" })
+            .option('sys-id', { type: 'string', demandOption: true, describe: "The deleted record's sys_id" })
+            .option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' })
+            .option('with-related', { type: 'boolean', default: false, describe: 'Also restore what the delete cascaded to and the references it cleared, from its delete recovery; preview by default' })
+            .option('yes', { type: 'boolean', default: false, describe: 'With --with-related: run it' })
+            .epilogue('Restores the newest deleted copy with its sys_id and created date, as the Undelete Record action does. Attachments and records its delete cascaded to stay deleted, and references other records held to it may stay cleared. The restore is an insert, so business rules run. Needs admin and background script access.\nWith --with-related, does what the Undelete With Related action does: without --yes, counts by table what the delete recovery would bring back, without writes; with --yes, starts the platform worker (AJAXRollbackWorker), waits up to two minutes, and succeeds only when the record reads back and no recorded operation is left unrecovered. A delete recovery exists only when server-side script deleted the record, as a background script or business rule does, and the docs give seven days to use it. Needs admin.'),
+          handler: wrap(async (argv, app) => {
+            if (argv.yes && !argv['with-related']) throw errUsage('--yes goes with --with-related. To restore the record alone, confirm when asked or pass --force.');
+            const entry = await findDeletedRecord(app, argv.table, argv['sys-id']);
+            const display = entry.display_value || entry.documentkey;
+            if (argv['with-related']) {
+              const plan = await previewRelatedUndelete(app.sdk, entry);
+              const counts = plan.operations.map(op => `${op.table} ${op.operation} ${op.count}`).join(', ');
+              if (!argv.yes) {
+                return app.ok({ ...plan, restored: false }, {
+                  summary: `Preview: undeleting ${argv.table} ${display} with related records reverts ${plan.total} recorded operation(s) from ${plan.rollback_context.number}: ${counts}`,
+                  breadcrumbs: [{ action: 'undelete', cmd: `jsn records undelete --table ${quoteShellArg(argv.table)} --sys-id ${entry.documentkey} --with-related --yes`, description: 'Run this undelete' }],
+                });
+              }
+              const done = await runRelatedUndelete(app.sdk, plan);
+              for (const table of new Set([argv.table, ...plan.operations.map(op => op.table)])) invalidateAfterMutation(app, table);
+              return app.ok(done, { summary: `Restored ${argv.table} ${display} with related records from ${plan.rollback_context.number} (${plan.total} recorded operation(s) reverted: ${counts})`,
+                breadcrumbs: [{ action: 'get', cmd: `jsn records get --table ${quoteShellArg(argv.table)} --sys-id ${entry.documentkey}`, description: 'Read the restored record' }] });
+            }
+            await confirmDelete(app, argv, `Restore ${argv.table} ${display} (${entry.documentkey}), deleted ${entry.sys_created_on} by ${entry.sys_created_by}; its attachments and cascaded records stay deleted`,
+              { rerun: ['records', 'undelete', '--table', argv.table, '--sys-id', entry.documentkey] });
+            await restoreDeletedRecord(app.sdk, entry);
+            invalidateAfterMutation(app, argv.table);
+            app.ok({ restored: true, table: argv.table, sys_id: entry.documentkey, display_value: entry.display_value, audit_delete: entry.sys_id,
+              deleted_on: entry.sys_created_on, deleted_by: entry.sys_created_by }, {
+              summary: `Restored ${argv.table} ${display} from Deleted Records`,
+              breadcrumbs: [{ action: 'get', cmd: `jsn records get --table ${quoteShellArg(argv.table)} --sys-id ${entry.documentkey}`, description: 'Read the restored record' }],
+            });
+          }),
+        })
+        .command({
+          command: 'pipeline <table> <identifier>',
+          describe: 'Show what runs when this record saves, in execution order, and which conditions match now (read-only)',
+          builder: (y) => y
+            .positional('table', { type: 'string', describe: 'Table name (e.g. incident)' })
+            .positional('identifier', { type: 'string', describe: 'Record number or sys_id' })
+            .option('op', { type: 'string', choices: ['insert', 'update', 'delete'], demandOption: true, describe: 'Record event to explain' })
+            .option('all', { type: 'boolean', default: false, describe: 'Also list artifacts that do not run for this operation' })
+            .epilogue([
+              'Read-only. Reuses the table behavior inventory (inherited and global rules included) and lays artifacts out in documented execution order:',
+              'before business rules, platform engines, after business rules, flow record triggers, notifications, then async business rules.',
+              'Each encoded-query condition is tested by reading the record back with sys_id=<id>^<condition> through the Table API.',
+              'Script conditions, change operators, setWorkflow(false) and mid-save changes are not simulated and are reported as untested.',
+              'Example: jsn records pipeline incident INC0000060 --op update --json',
+            ].join('\n')),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const data = await recordPipeline(app.sdk, {
+              table: argv.table,
+              identifier: argv.identifier,
+              op: argv.op,
+            });
+            const human = [FormatAuto, FormatStyled].includes(app.output.getFormat());
+            return app.ok(human ? { ...data, _formatted: formatRecordPipeline(data, { all: argv.all === true }) } : data, {
+              summary: `${data.table} ${data.record.label}: ${data.summary.applicable} applicable artifact(s) for ${data.op}; ${data.summary.matching_now} condition(s) match now, ${data.summary.untested} untested`,
+              breadcrumbs: [
+                { action: 'behavior', cmd: `jsn tables behavior ${data.table}`, description: 'Inventory the full table configuration' },
+                { action: 'why', cmd: `jsn flows why <flow> --record ${data.table} ${data.record.sys_id}`, description: 'Explain one flow for this record' },
+              ],
+            });
+          }),
+        })
+        .command({
+          command: 'deleted',
+          describe: 'List records in Deleted Records (sys_audit_delete), whether each is back, and any delete recovery',
+          builder: (y) => y
+            .option('table', { type: 'string', describe: "Only records deleted from this table (the record's own table: incident, not task)" })
+            .option('by', { type: 'string', describe: 'Only records deleted by this user name' })
+            .option('since', { type: 'string', describe: 'Only records deleted on or after this UTC date or date-time (YYYY-MM-DD or "YYYY-MM-DD HH:MM:SS")' })
+            .option('query', { type: 'string', describe: 'Additional encoded query on sys_audit_delete' })
+            .option('limit', { type: 'number', default: 20, describe: 'Max records, newest first (1-200)' })
+            .epilogue('Read only. Checks each record\'s own table for its sys_id to say whether it is back, and reads any delete recovery (sys_delete_recovery) and its rollback context. A delete recovery is recorded only when a script deletes the record (a business rule or background script), and the docs give seven days to use it; Table API deletes, as records delete makes, record none. Restore one record with records undelete.'),
+          handler: wrap(async (argv, app) => {
+            const options = { table: argv.table, by: argv.by, since: argv.since, query: argv.query, limit: argv.limit };
+            const data = await listDeleted(app.sdk, options);
+            Object.defineProperty(data, '_formatted', { value: formatDeleted(data), enumerable: false });
+            app.ok(data, { summary: data.count ? `${data.count} deleted record(s)${data.pagination.has_more ? ', more match' : ''}` : data.visibility, breadcrumbs: [deletedBreadcrumb(data.records)] });
           }),
         })
         .command({
@@ -652,6 +776,84 @@ export function recordsCmd(wrap) {
           }),
         })
         .command({
+          command: 'export',
+          describe: 'Write records matching a query as unload XML (Export > XML), with their journal entries and attachments',
+          builder: (y) => y
+            .option('table', { type: 'string', demandOption: true, describe: 'Table name' })
+            .option('query', { type: 'string', demandOption: true, describe: 'Required nonempty encoded query; every column must exist on the table, and date-macro and javascript: terms are refused' })
+            .option('refresh-metadata', { type: 'boolean', default: false, describe: 'Refresh table metadata before validating the filter (five-minute cache)' })
+            .option('limit', { type: 'number', describe: 'Export at most this many records' })
+            .option('out', { alias: 'o', type: 'string', describe: 'Write XML to this new file instead of stdout' })
+            .epilogue('The XML keeps sys_ids and system fields. The instance drops a term on an unknown column and caps one export at glide.xml.export.limit (10,000 by default) without saying so, so export refuses an unvalidated query and counts matches first. An update set moves whole with jsn updatesets export, not as sys_update_xml rows.'),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            if (!TABLE_NAME.test(argv.table)) throw errUsage(`Invalid table name: ${argv.table}`);
+            if (UPDATE_SET_TABLES.has(argv.table)) throw errUsage(`${argv.table} rows are parts of an update set; export the whole set with jsn updatesets export <name>.`);
+            if (!argv.query?.trim()) throw errUsage('--query must be nonempty.');
+            if (argv.limit !== undefined && (!Number.isSafeInteger(argv.limit) || argv.limit < 1)) throw errUsage('--limit must be a positive safe integer.');
+            if (argv.out && fs.existsSync(argv.out)) throw errUsage(`${argv.out} already exists; export never overwrites a file.`);
+            // A term the instance cannot apply is dropped, widening the export, so only a fully validated query runs.
+            await assertWriteQuery(app, { table: argv.table, query: argv.query, refresh: argv['refresh-metadata'], action: 'Export' });
+            const matched = await app.sdk.aggregateCount(argv.table, argv.query);
+            const expected = Math.min(matched, argv.limit ?? matched);
+            if (!Number.isSafeInteger(expected) || expected < 1) throw errUsage(`No ${argv.table} records match the query; nothing exported.`);
+            const { cap, source } = await xmlExportCap(app.sdk);
+            if (expected > cap) {
+              throw errUsage(`${expected} ${argv.table} records match, but the instance exports at most ${cap} per file (${source}) and would drop the rest without saying so. Narrow --query, or pass --limit ${cap} or lower to export part of the set.`);
+            }
+            const { xml, records, tables } = await exportRecordsXML(app.sdk, { table: argv.table, query: argv.query, limit: argv.limit });
+            if (records < expected) {
+              throw errAPI(200, `The export holds ${records} ${argv.table} record(s) but ${expected} matched; the instance dropped some (an export cap, or rows the user cannot read). Nothing was written.`);
+            }
+            if (records > expected) {
+              throw errAPI(200, `The export holds ${records} ${argv.table} record(s) but only ${expected} were expected; the instance applied a wider query or ignored the limit. Nothing was written.`);
+            }
+            const bytes = Buffer.byteLength(xml, 'utf-8');
+            const data = { table: argv.table, query: argv.query, matched, records, tables, bytes };
+            const summary = `Exported ${records}${records < matched ? ` of ${matched}` : ''} ${argv.table} record(s) as unload XML (${bytes} bytes)`;
+            if (argv.out) {
+              await fs.promises.writeFile(argv.out, xml, { flag: 'wx' });
+              return app.ok({ ...data, out: argv.out }, { summary: `${summary} to ${argv.out}` });
+            }
+            // Raw XML pipes cleanly; only an explicit JSON request wraps it.
+            if (argv.json || argv.format === 'json') return app.ok({ ...data, xml }, { summary });
+            process.stdout.write(xml + (xml.endsWith('\n') ? '' : '\n'));
+          }),
+        })
+        .command({
+          command: 'import <file>',
+          describe: 'Load an unload XML file (records export, or the UI\'s Export > XML); preview by default, re-read every record after',
+          builder: (y) => y
+            .positional('file', { type: 'string', describe: 'Unload XML file, or - for stdin' })
+            .option('yes', { type: 'boolean', default: false, describe: 'Confirm the import (needs admin)' })
+            .option('dry-run', { type: 'boolean', default: false, describe: 'Inspect the file locally, without instance requests, even with --yes' })
+            .epilogue('Without --yes, reports what the file holds and sends nothing.\nImport writes straight to the tables the file names: it keeps sys_ids, overwrites a record with the same sys_id, deletes records marked action="DELETE", and skips business rules. The instance answers success even when it loads nothing, so every record is re-read afterwards and the command exits nonzero unless each one landed.'),
+          handler: wrap(async (argv, app) => {
+            const buffer = fs.readFileSync(argv.file === '-' ? 0 : argv.file);
+            if (buffer.length > MAX_UNLOAD_BYTES) throw errUsage('Expected unload XML no larger than 50 MiB.');
+            const xml = buffer.toString('utf8');
+            const records = planUnloadImport(xml);
+            const deletes = records.filter(record => record.action === 'DELETE').length;
+            const data = { file: argv.file, bytes: buffer.length, records: records.length, tables: countByTable(records), deletes };
+            const what = `${records.length} record(s) across ${Object.keys(data.tables).length} table(s), ${deletes} marked DELETE`;
+            const rerun = buildRerunCommand(argv, { rerun: ['records', 'import', argv.file, '--yes'] });
+            if (!argv.yes || argv['dry-run']) {
+              return app.ok({ ...data, dry_run: true, rerun }, { summary: `Dry run: would import ${what}; nothing was sent`,
+                breadcrumbs: [{ action: 'import', cmd: rerun, description: 'Import this file after your user approves it' }] });
+            }
+            app.requireInstance();
+            const result = await importUnloadXML(app.sdk, xml, records);
+            const verified = result.problems.length === 0;
+            const counts = {};
+            for (const { status } of result.problems) counts[status] = (counts[status] || 0) + 1;
+            app.ok({ ...data, ...result, verified }, {
+              summary: verified ? `Imported ${what}; a re-read finds each record present (gone, for DELETE) with the file's sys_updated_on and sys_mod_count where it has them`
+                : `Import incomplete or unverified: ${result.landed} of ${records.length} record(s) landed; ${Object.entries(counts).map(([status, n]) => `${n} ${status.replace('_', ' ')}`).join(', ')}`,
+            });
+            if (!verified) process.exitCode = 1;
+          }),
+        })
+        .command({
           command: 'inspect <table> <identifier>',
           aliases: ['debug', 'diag'],
           describe: 'Inspect a record: show audit history, business rules, and running flows',
@@ -681,6 +883,181 @@ export function recordsCmd(wrap) {
               summary: `Inspected ${argv.table} ${argv.identifier}`,
               breadcrumbs,
             });
+          }),
+        })
+        .command({
+          command: 'versions <table> <identifier>',
+          describe: 'List a record\'s update versions and compare one to the current version (read-only)',
+          discoveryTasks: [{
+            phrases: ['version history', 'record versions', 'compare to current', 'which update set captured a record', 'every update set a record is in', 'show latest update'],
+            args: ['--json'], description: 'List sys_update_version history and every update set capture for one record',
+          }],
+          builder: (y) => y
+            .positional('table', { describe: 'Table name (e.g. sys_script_include)', type: 'string' })
+            .positional('identifier', { describe: 'Record sys_id, or the value of --identifier-field', type: 'string' })
+            .option('identifier-field', { type: 'string', describe: 'Exact identifier field (default sys_id), e.g. name' })
+            .option('limit', { type: 'number', default: 20, describe: 'Max versions, and max captured updates, newest first (1-200)' })
+            .option('diff', { type: 'number', describe: 'Compare version N (1 = newest) to the current version' })
+            .epilogue('Versions come from sys_update_version by the record\'s sys_update_name; current means the version in state current, not the live record.\nExample: jsn records versions sys_script_include MyUtil --identifier-field name --diff 2'),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const { recordVersions, formatVersions } = await import('../records/versions.js');
+            const data = await recordVersions(app.sdk, { table: argv.table, identifier: argv.identifier, identifierField: argv.identifierField, limit: argv.limit, diff: argv.diff });
+            Object.defineProperty(data, '_formatted', { value: formatVersions(data), enumerable: false });
+            app.ok(data, { summary: `${data.count} version(s) of ${data.record.update_name}${data.diff ? `; version ${data.diff.version} vs current: ${data.diff.status}` : ''}` });
+          }),
+        })
+        .command({
+          command: 'revert <table> <identifier>',
+          describe: 'Revert a record to its base system version, or to an earlier version of it',
+          builder: (y) => y
+            .positional('table', { describe: 'Table name (e.g. sys_script_include)', type: 'string' })
+            .positional('identifier', { describe: 'Record sys_id, or the value of --identifier-field', type: 'string' })
+            .option('identifier-field', { type: 'string', describe: 'Exact identifier field (default sys_id), e.g. name' })
+            .option('version', { type: 'string', describe: 'sys_update_version sys_id to revert to (default: the newest base system version)' })
+            .option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' })
+            .epilogue('Runs the platform\'s Revert to this version (GlideappUpdateVersion.revert) in a background script; it adds a new current version and writes the record. Only the newest base system version can be reverted to, and records created on the instance have none. Needs admin and background script access.\nExample: jsn records revert sys_script_include MyUtil --identifier-field name'),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const { planRevert, revertQuestion, applyRevert, formatRevert } = await import('../records/revert.js');
+            const plan = await planRevert(app.sdk, { table: argv.table, identifier: argv.identifier, identifierField: argv.identifierField, version: argv.version });
+            await assertMutationRecordScope(app, plan.table, plan.sys_id);
+            await confirmAction(app, argv, revertQuestion(plan), { destructive: false, rerun: ['records', 'revert', plan.table, plan.sys_id, '--version', plan.to_version] });
+            let data;
+            try { data = await applyRevert(app.sdk, plan); } finally { invalidateAfterMutation(app, plan.table); }
+            Object.defineProperty(data, '_formatted', { value: formatRevert(data), enumerable: false });
+            app.ok(data, {
+              summary: `Reverted ${data.update_name} to ${data.base ? 'its base system version' : `version ${data.to_version}`}`,
+              breadcrumbs: [
+                { action: 'versions', cmd: `jsn records versions ${quoteShellArg(plan.table)} ${plan.sys_id}`, description: 'List the record\'s versions' },
+                { action: 'undo', cmd: `jsn records revert ${quoteShellArg(plan.table)} ${plan.sys_id} --version ${data.from_version}`, description: 'Revert to the version before this revert' },
+              ],
+            });
+          }),
+        })
+        .command({
+          command: 'journal <table> <identifier>',
+          describe: 'Read a record\'s comments and work notes as entries (read-only)',
+          discoveryTasks: [{
+            phrases: ['work notes', 'record comments', 'what did the last work note say', 'journal entries', 'comment history'],
+            args: ['--json'], description: 'List sys_journal_field entries for one record, newest first',
+          }],
+          builder: (y) => y
+            .positional('table', { describe: 'Table name (e.g. incident)', type: 'string' })
+            .positional('identifier', { describe: 'Record sys_id or number', type: 'string' })
+            .option('identifier-field', { type: 'string', describe: 'Exact identifier field (default sys_id), e.g. number' })
+            .option('comments', { type: 'boolean', describe: 'Only comments' })
+            .option('work-notes', { type: 'boolean', describe: 'Only work notes' })
+            .option('element', { type: 'string', describe: 'Only this journal element, e.g. approval_history' })
+            .option('limit', { type: 'number', default: 20, describe: 'Max entries, newest first (1-200)' })
+            .epilogue('Entries come from sys_journal_field by element_id, so entries the platform stored under another name (incident notes also appear under name=task) are included. Times are UTC as the Table API returns them, not the caller\'s time zone; the record\'s rendered comments/work_notes string cannot be queried.\nExample: jsn records journal incident INC0010001 --identifier-field number --work-notes --limit 5'),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const selected = [argv.comments, argv.workNotes, argv.element].filter(Boolean).length;
+            if (selected > 1) throw errUsage('Choose one of --comments, --work-notes or --element.');
+            const element = argv.element || (argv.comments ? 'comments' : argv.workNotes ? 'work_notes' : undefined);
+            const { recordJournal, formatJournal } = await import('../records/journal.js');
+            const data = await recordJournal(app.sdk, { table: argv.table, identifier: argv.identifier, identifierField: argv.identifierField, element, limit: argv.limit });
+            Object.defineProperty(data, '_formatted', { value: formatJournal(data), enumerable: false });
+            app.ok(data, { summary: `${data.count} journal entr${data.count === 1 ? 'y' : 'ies'} for ${argv.table} ${argv.identifier}` });
+          }),
+        })
+        .command({
+          command: 'history <table> <identifier>',
+          describe: 'List a record\'s field changes from sys_audit: when, who, field, old and new value (read-only)',
+          discoveryTasks: [{
+            phrases: ['who changed this field', 'when did this field change', 'field change history', 'audit trail for a record', 'old and new values'],
+            args: ['--json'], description: 'List sys_audit field changes for one record, newest first',
+          }],
+          builder: (y) => y
+            .positional('table', { describe: 'Table name (e.g. incident)', type: 'string' })
+            .positional('identifier', { describe: 'Record sys_id, or the value of --identifier-field', type: 'string' })
+            .option('identifier-field', { type: 'string', describe: 'Exact identifier field (default sys_id), e.g. number' })
+            .option('field', { type: 'string', describe: 'Only changes to this field' })
+            .option('since', { type: 'string', describe: 'Only changes on or after this UTC date or date-time (YYYY-MM-DD or "YYYY-MM-DD HH:MM:SS")' })
+            .option('limit', { type: 'number', default: 20, describe: 'Max changes, newest first (1-200)' })
+            .epilogue('Changes come from sys_audit by the record\'s own table and raw sys_id, so a deleted record\'s history still reads by sys_id. Values are stored strings: reference fields hold sys_ids. Times are UTC. Inserts are audited only when glide.sys.audit_inserts is true; import sets, update set applies, Import XML and upgrades are never audited. sys_audit is admin-read by default.\nExample: jsn records history incident INC0010001 --identifier-field number --field assigned_to'),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const { recordHistory, formatHistory } = await import('../records/history.js');
+            const data = await recordHistory(app.sdk, { table: argv.table, identifier: argv.identifier, identifierField: argv.identifierField, field: argv.field, since: argv.since, limit: argv.limit });
+            Object.defineProperty(data, '_formatted', { value: formatHistory(data), enumerable: false });
+            app.ok(data, { summary: data.count ? `${data.count} change(s) to ${data.record.table} ${data.record.sys_id}${data.pagination.has_more ? '; more exist' : ''}` : data.notes[0] });
+          }),
+        })
+        .command({
+          command: 'find <sys_id>',
+          describe: 'Say which table holds a bare sys_id',
+          discoveryTasks: [{
+            phrases: ['which table is this sys_id', 'find a sys_id', 'what record is this sys_id', 'look up a sys_id', 'sys_id lookup'],
+            args: ['--json'], description: 'Find the table and record a sys_id belongs to',
+          }],
+          builder: (y) => y
+            .positional('sys_id', { describe: 'The 32-character sys_id', type: 'string' })
+            .option('max-tables', { type: 'number', default: 10000, describe: 'Most base tables the background scripts query (1-20000)' })
+            .option('time-limit', { type: 'number', default: 120, describe: 'Seconds the background scripts may search, in slices of up to 20 (1-600)' })
+            .epilogue('Tries sys_metadata and task through the Table API, then background scripts of up to 20 seconds each query the base tables that have a sys_id field, in name order (children included), skipping remote and virtual tables. It writes no records of its own (the instance logs each script in its execution history), but the scripts run server-side code as jsn eval does, so read-only profiles refuse it as they refuse eval, and it needs a user who may run background scripts. A limit reached is reported as not found within the bound, and a miss exits 1.\nExample: jsn records find 0123456789abcdef0123456789abcdef --get data.table'),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const { findRecord, formatFind } = await import('../records/find.js');
+            const data = await findRecord(app.sdk, { sysId: argv.sys_id, maxTables: argv.maxTables, timeLimit: argv.timeLimit });
+            Object.defineProperty(data, '_formatted', { value: formatFind(data), enumerable: false });
+            app.ok(data, {
+              summary: data.found ? `${data.sys_id} is a ${data.table} record`
+                : data.search.complete ? `Not found in sys_metadata, task or the ${data.search.tables_tried} base tables searched`
+                  : data.search.stopped_by ? `Not found within the bound: ${data.search.tables_tried} of ${data.search.base_tables} base tables searched`
+                    : `Not found, but ${data.search.failed_tables} table(s) could not be queried`,
+              breadcrumbs: data.found ? [{ action: 'show', cmd: `jsn records get --table ${data.table} --sys-id ${data.sys_id}`, description: `Show the ${data.table} record` }] : [],
+            });
+            if (!data.found) process.exitCode = 1;
+          }),
+        })
+        .command({
+          command: 'references <table> <identifier>',
+          describe: 'List records that hold a record\'s sys_id: data records by default, configuration with --mode system (read-only)',
+          discoveryTasks: [{
+            phrases: ['where is this record used', 'what refers to this record', 'where used', 'find references to a record', 'is it safe to delete this group'],
+            args: ['--plan'], description: 'Count every field holding one record\'s sys_id, then list the records; --mode system searches configuration',
+          }],
+          builder: (y) => y
+            .positional('table', { describe: 'Table name (e.g. sys_user_group)', type: 'string' })
+            .positional('identifier', { describe: 'Record sys_id, or the value of --identifier-field', type: 'string' })
+            .option('identifier-field', { type: 'string', describe: 'Exact identifier field (default sys_id), e.g. name' })
+            .option('mode', { type: 'string', choices: ['data', 'system'], default: 'data', describe: 'data: records on ordinary tables; system: configuration (sys_metadata tables, conditions, properties, defaults)' })
+            .option('plan', { type: 'boolean', describe: 'Read the dictionary and list the count queries without running any' })
+            .option('scripts', { type: 'boolean', describe: 'With --mode system, also scan script fields (business rules, script includes, client scripts, UI actions, ...)' })
+            .option('include-large', { type: 'boolean', describe: `Scan tables over ${100000} rows too (skipped and listed by default)` })
+            .option('limit', { type: 'number', default: 20, describe: 'Max rows listed per source (1-100)' })
+            .option('max-requests', { type: 'number', default: 2000, describe: 'Refuse a search that needs more count queries than this (1-20000)' })
+            .epilogue([
+              '--mode data (the default) reads the dictionary for reference and glide_list fields that can hold the record (its class and every parent class) on tables outside sys_metadata, skipping child tables that only repeat a parent\'s field, then adds catalog variable answers, workflow variable values and preferences. --mode system searches configuration: reference, glide_list and document ID fields on tables that extend sys_metadata, then conditions, encoded queries, properties, templates, dictionary and variable defaults and reference qualifiers; --scripts adds script fields. Neither mode searches the record\'s own child items (journal, attachments, audit, approvals, translations, emails) or log tables.',
+              'Counts come before rows, one request at a time. A count or row read with no answer in 20 seconds is cancelled on the instance; three slow or rate-limited counts stop the run. LIKE scans of list fields and data tables follow a row count of their table, and tables over 100000 rows are only scanned with --include-large. Ctrl-C stops the run and cancels the count in flight on the instance.',
+              'The output ends with what was not searched. A run with a failed count, a skipped large table, three slow or rate-limited counts, a budget stop or Ctrl-C is marked partial and exits 1. Flows are not searched; use jsn flows search.',
+              'A run makes up to a few hundred counts and can take minutes on a busy instance (--plan shows the number first). --csv, --tsv and --markdown print only the referring records; --json adds the plan and what was not searched.',
+              'Examples:',
+              '  jsn records references sys_user_group <sys_id> --plan',
+              '  jsn records references sys_user_group "Service Desk" --identifier-field name',
+              '  jsn records references sys_user_group "Service Desk" --identifier-field name --mode system --scripts --json',
+            ].join('\n')),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const { findReferences, formatReferences } = await import('../records/references.js');
+            // Ctrl-C stops between requests and cancels the count in flight; a second Ctrl-C exits at once.
+            const controller = new AbortController();
+            const interrupt = () => { process.stderr.write('\nStopping...\n'); controller.abort(); };
+            process.once('SIGINT', interrupt);
+            let data;
+            try {
+              data = await findReferences(app.sdk, { table: argv.table, identifier: argv.identifier, identifierField: argv.identifierField, mode: argv.mode, planOnly: argv.plan, scripts: argv.scripts, includeLarge: argv.includeLarge, limit: argv.limit, maxRequests: argv.maxRequests, signal: controller.signal, profile: argv.profile, instance: argv.instance });
+            } finally {
+              process.removeListener('SIGINT', interrupt);
+            }
+            Object.defineProperty(data, '_formatted', { value: formatReferences(data), enumerable: false });
+            if (data.partial) process.exitCode = 1;
+            // Delimited output carries only the records, so say there is a gap.
+            if (data.partial && ['csv', 'tsv', 'markdown'].includes(argv.format)) process.stderr.write('⚠ Partial: some sources were not searched; run without --csv, --tsv or --markdown to see which.\n');
+            if (data.mode === 'data' && !data.plan_only && ['csv', 'tsv', 'markdown'].includes(argv.format)) process.stderr.write('Configuration such as scheduled jobs and assignment rules was not searched; add --mode system to search it.\n');
+            app.ok(data, { summary: data.plan_only ? `Plan: ${data.requests.planned} count queries for ${data.record.table} ${data.record.sys_id}` : `${data.records.length} ${data.mode} record(s) refer to ${data.record.table} ${data.record.sys_id}${data.partial ? ' (partial)' : ''}` });
           }),
         })
 

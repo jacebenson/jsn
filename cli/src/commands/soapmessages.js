@@ -1,8 +1,10 @@
+import { deferredFamilyDefinition } from '../command-families.js';
 import { buildDevCmd } from './_generic.js';
 import { getStringField } from '../helpers.js';
 
-export const soapmessagesCmd = (wrap) => buildDevCmd('soapmessages', 'sys_soap_message', ['soapmsg'],
+export const soapmessagesCmd = (wrap) => buildDevCmd('soapmessages', 'sys_soap_message', [],
   ['name', 'active', 'sys_scope'], wrap, {
+    definition: deferredFamilyDefinition('soapmessages'),
     singular: 'SOAP message',
     scopeValidation: true,
     onShow: async (record, app) => {

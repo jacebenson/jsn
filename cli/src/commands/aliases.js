@@ -1,8 +1,10 @@
+import { deferredFamilyDefinition } from '../command-families.js';
 import { buildDevCmd } from './_generic.js';
 import { getStringField } from '../helpers.js';
 
-export const aliasesCmd = (wrap) => buildDevCmd('aliases', 'sys_alias', ['alias', 'als'],
+export const aliasesCmd = (wrap) => buildDevCmd('aliases', 'sys_alias', [],
   ['name', 'table', 'sys_scope'], wrap, {
+    definition: deferredFamilyDefinition('aliases'),
     singular: 'alias',
     scopeValidation: true,
     onShow: async (record, app) => {

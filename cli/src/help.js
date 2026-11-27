@@ -76,6 +76,7 @@ const AUTOMATION_COMMANDS = [
   { name: 'scriptactions', desc: 'Script actions' },
   { name: 'scheduledjobs', desc: 'Scheduled jobs' },
   { name: 'triggers', desc: 'Event triggers' },
+  { name: 'events', desc: 'Event log, backlog and reprocessing' },
   { name: 'asyncrules', desc: 'Asynchronous business rules' },
 
   { divider: '── In Memory ──' },
@@ -88,19 +89,24 @@ const AUTOMATION_COMMANDS = [
   { name: 'email', desc: 'Inbound email actions' },
 
   { divider: '── Outbound ──' },
+  { name: 'notifications', alias: 'notification', desc: 'Outbound email notifications: list, show, why and preview (read-only; preview simulates)' },
   { name: 'restmessage', alias: 'rm', desc: 'REST Messages (sys_rest_message)' },
   { name: 'soapmessages', desc: 'SOAP Messages' },
 ];
 
 const ACCESS_COMMANDS = [
+  { name: 'access-analyzer', desc: 'Saved access analysis evidence, or a live access check (read-only)' },
   { name: 'acls', alias: 'acl', desc: 'Access controls' },
   { name: 'b4rules', alias: 'b4r', desc: 'Before-query business rules (see also Automation)' },
   { name: 'roles', alias: 'role', desc: 'Roles' },
   { name: 'privileges', alias: 'priv', desc: 'Scope privileges' },
+  { name: 'usercriteria', alias: 'uc', desc: 'User criteria (who can see catalog items)' },
   { name: 'aliases', alias: 'als', desc: 'Connection & credential aliases' },
+  { name: 'connections', desc: 'HTTP connections and the credentials they use (read-only)' },
   { name: 'groups', alias: 'group', desc: 'Manage groups' },
   { name: 'groupmembers', alias: 'gm', desc: 'Group memberships' },
   { name: 'grouproles', alias: 'gr', desc: 'Group roles' },
+  { name: 'userroles', alias: 'ur', desc: 'Direct user roles' },
   { name: 'users', alias: 'user', desc: 'Manage users' },
 ];
 
@@ -149,7 +155,7 @@ const DATA_COMMANDS = [
   { name: 'properties', alias: 'prop', desc: 'System properties' },
 
   { name: 'records', desc: 'Generic Table API (any table)' },
-  { name: 'transactions', desc: 'Client transaction timings' },
+  { name: 'transactions', desc: 'Transaction timings; list and kill running transactions' },
   { name: 'snippets', desc: 'Saved query snippets' },
 ];
 
@@ -168,13 +174,14 @@ const DEVELOPER_COMMANDS = [
   { name: 'scan', desc: 'Instance Scan checks, suites, explicit targets, progress and findings' },
   { name: 'atf', desc: 'Automated Test Framework (list, suites, run, results)' },
   { name: 'eval', desc: 'Run server-side JavaScript' },
+  { name: 'fixscripts', alias: 'fixscript', desc: 'Fix scripts (sys_script_fix)' },
   { name: 'rest', desc: 'Raw REST API calls' },
   { name: 'graphql', desc: 'GraphQL queries' },
   { name: 'codesearch', desc: 'Search code across ServiceNow artifacts' },
   { name: 'docs', desc: 'Local ServiceNow documentation search' },
   { name: 'document', desc: 'Read-only instance configuration documentation' },
   { name: 'diff', desc: 'Compare records across configured profiles' },
-  { name: 'perf', desc: 'Read-only performance capture and comparison' },
+  { name: 'perf', desc: 'Read-only performance capture, comparison and slow patterns' },
   { name: 'skill', desc: 'AI agent skill file (show, fetch, install)' },
   { name: 'version', desc: 'Version info (--check for npm updates)' },
 ];
@@ -278,7 +285,7 @@ function renderConciseHelp(config, registry, width) {
     `\nCOMMON COMMANDS\n${renderRows(common.map((command) => ({ label: command.name, description: command.desc })), { width, indent: 2 })}`,
     '',
     'ALL COMMANDS BY GROUP',
-    ...wrapText('names; jsn --all-commands --help for details', { width }),
+    ...wrapText('jsn --all-commands --help for details', { width }),
     renderRows(groups, { width, indent: 2 }),
     '',
     'EXAMPLES',
