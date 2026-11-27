@@ -188,8 +188,8 @@ const read = (sdk, table, query, fields, limit) => sdk.listStrict(table, new URL
 export async function listPlans(sdk, { limit = 20 } = {}) {
   boundedLimit(limit);
   const rows = await read(sdk, 'sys_batch_install_plan', 'ORDERBYDESCsys_updated_on', PLAN_FIELDS, limit + 1);
-  const plans = rows.slice(0, limit).map(planRow);
-  return { plans, count: plans.length, pagination: { limit, hasMore: rows.length > limit } };
+  const records = rows.slice(0, limit).map(planRow);
+  return { records, count: records.length, pagination: { limit, hasMore: rows.length > limit } };
 }
 
 // A plan by sys_id or exact name, and its items joined on the plan's raw sys_id.
@@ -197,9 +197,10 @@ export async function showPlan(sdk, identifier) {
   const id = String(identifier ?? '');
   if (!id || id.length > 100 || /[\^\n\r]/.test(id)) throw errUsage('Provide a batch install plan name or sys_id, up to 100 characters, without ^ or line breaks.');
   const rows = await read(sdk, 'sys_batch_install_plan', SYS_ID.test(id) ? `sys_id=${id}` : `name=${id}`, PLAN_FIELDS, 2);
-  if (!rows.length) throw errNotFoundHint('Batch install plan', id, 'List plans with jsn plugins plans.');
+  if (!rows.length) throw errNotFoundHint('Batch install plan', id, 'Check the name or sys_id, and that this profile can read sys_batch_install_plan; ACLs hide rows, so this does not prove the plan is absent. List plans with jsn plugins plans.');
   if (rows.length > 1) throw errUsage(`More than one batch install plan is named ${id}; name it by sys_id: ${rows.map(row => raw(row?.sys_id)).join(', ')}.`);
   const plan = planRow(rows[0]);
+  if (SYS_ID.test(id) ? plan.sys_id !== id : plan.name?.toLowerCase() !== id.toLowerCase()) throw malformedPlan(`asked for ${id}, got ${plan.name ?? plan.sys_id}`);
   const itemRows = await read(sdk, 'sys_batch_install_item', `batch_install_plan=${plan.sys_id}^ORDERBYname`, ITEM_FIELDS, ITEM_LIMIT + 1);
   const items = itemRows.slice(0, ITEM_LIMIT).map(row => {
     if (!SYS_ID.test(raw(row?.sys_id))) throw malformedPlan('an item row has no sys_id');
@@ -211,13 +212,13 @@ export async function showPlan(sdk, identifier) {
 }
 
 export function formatPlans(data) {
-  if (!data.plans.length) return 'No batch install plans.';
-  return data.plans.map(plan => `${plan.updated ?? 'never updated'}  ${plan.state ?? 'state unknown'}  ${plan.name ?? plan.sys_id}  ${plan.sys_id}${plan.notes ? `  ${plan.notes}` : ''}`).join('\n') + (data.pagination.hasMore ? `\nMore plans exist; raise --limit (now ${data.pagination.limit}).` : '');
+  if (!data.records.length) return 'No batch install plans this profile can read. ACLs can hide rows, so this does not prove there are none.';
+  return data.records.map(plan => `${plan.updated ?? 'never updated'}  ${plan.state ?? 'state unknown'}  ${plan.name ?? plan.sys_id}  ${plan.sys_id}${plan.notes ? `  ${plan.notes}` : ''}`).join('\n') + (data.pagination.hasMore ? `\nMore plans exist; raise --limit (now ${data.pagination.limit}).` : '');
 }
 
 export function formatPlan(data) {
   const p = data.plan;
-  const lines = [`${p.name ?? p.sys_id} [${p.sys_id}] ${p.state ?? 'state unknown'}, updated ${p.updated ?? 'unknown'}`, `Rollback context ${p.rollback_context_name ?? 'none'}${p.notes ? `; ${p.notes}` : ''}`, `${data.count} item(s), ${data.failed.length} failed or invalid${data.complete ? '' : `; INCOMPLETE, only the first ${ITEM_LIMIT} were read`}`];
+  const lines = [`${p.name ?? p.sys_id} [${p.sys_id}] ${p.state ?? 'state unknown'}, updated ${p.updated ?? 'unknown'}`, `Rollback context ${p.rollback_context_name ?? 'none'}${p.notes ? `; ${p.notes}` : ''}`, `${data.count ? `${data.count} item(s)` : 'No items this profile can read (ACLs can hide rows)'}, ${data.failed.length} failed or invalid${data.complete ? '' : `; INCOMPLETE, only the first ${ITEM_LIMIT} were read`}`];
   for (const item of data.items) lines.push(`  ${item.state ?? 'state unknown'}  ${item.type ?? 'type unknown'}  ${item.name ?? 'unnamed'} [${item.id ?? 'no id'}] ${item.version ?? ''}${item.reason ? `  ${item.reason}` : ''}${item.status_message ? `: ${item.status_message}` : ''}`.trimEnd());
   return lines.join('\n');
 }

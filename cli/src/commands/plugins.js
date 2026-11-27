@@ -77,7 +77,7 @@ const plansCommand = wrap => ({
     }
     const data = await showPlan(app.sdk, argv.plan);
     Object.defineProperty(data, '_formatted', { value: formatPlan(data), enumerable: false });
-    app.ok(data, { summary: `${data.plan.name ?? data.plan.sys_id}: ${data.plan.state ?? 'state unknown'}, ${data.count} item(s), ${data.failed.length} failed or invalid${data.complete ? '' : ' (incomplete)'}` });
+    app.ok(data, { summary: `${data.plan.name ?? data.plan.sys_id}: ${data.plan.state ?? 'state unknown'}, ${data.count ? `${data.count} item(s)` : 'no items this profile can read'}, ${data.failed.length} failed or invalid${data.complete ? '' : ' (incomplete)'}` });
   }),
 });
 

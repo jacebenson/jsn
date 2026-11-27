@@ -310,9 +310,10 @@ test('plugins plans lists the newest plans with a lookahead, and shows one plan 
   const list = planSdk({ plans: many });
   const listed = await listPlans(list, { limit: 2 });
   assert.deepEqual(list.calls, [{ table: 'sys_batch_install_plan', query: 'ORDERBYDESCsys_updated_on', limit: '3', display: 'all' }]);
-  assert.deepEqual([listed.count, listed.pagination.hasMore, listed.plans[0].name], [2, true, 'plan-0']);
+  assert.deepEqual([listed.count, listed.pagination.hasMore, listed.records[0].name], [2, true, 'plan-0']);
   assert.match(formatPlans(listed), /^2026-11-20 19:54:10 {2}partial_install {2}plan-0 {2}0{32} {2}Two items\n[\s\S]*More plans exist; raise --limit \(now 2\)\.$/);
-  assert.equal(formatPlans(await listPlans(planSdk({ plans: [] }))), 'No batch install plans.');
+  assert.equal(formatPlans(await listPlans(planSdk({ plans: [] }))), 'No batch install plans this profile can read. ACLs can hide rows, so this does not prove there are none.');
+  assert.match(formatPlan(await showPlan(planSdk({ items: [] }), PLAN)), /No items this profile can read \(ACLs can hide rows\), 0 failed or invalid/);
 
   for (const identifier of ['auto-upgrade-1', PLAN]) {
     const sdk = planSdk();
@@ -351,6 +352,12 @@ test('plugins plans refuses bad input before reading, and never reports a missin
   };
   for (const [name, options] of Object.entries(cases)) await assert.rejects(showPlan(planSdk(options), 'auto-upgrade-1'), /Malformed batch install plan response/, name);
   await assert.rejects(listPlans(planSdk({ plans: [{ ...planRecord(), sys_id: dv('') }] })), /Malformed batch install plan response/);
+  // A server that ignores the query must not pass another plan off as the one asked for.
+  const ignoring = { calls: [], listStrict: async table => { ignoring.calls.push(table); return [planRecord(OTHER, 'auto-upgrade-2')]; } };
+  for (const identifier of ['auto-upgrade-1', PLAN]) await assert.rejects(showPlan(ignoring, identifier), /Malformed batch install plan response: asked for/, identifier);
+  assert.deepEqual(ignoring.calls, ['sys_batch_install_plan', 'sys_batch_install_plan']);
+  // Instance name matching ignores case, so the check does too.
+  assert.equal((await showPlan({ listStrict: async table => table === 'sys_batch_install_item' ? planItems : [planRecord()] }, 'AUTO-UPGRADE-1')).plan.sys_id, PLAN);
   for (const table of ['sys_batch_install_plan', 'sys_batch_install_item']) await assert.rejects(showPlan(planSdk({ fail: t => t === table }), PLAN), /Forbidden/, table);
   const huge = await showPlan(planSdk({ items: Array.from({ length: 1001 }, (_, i) => itemRecord(i)) }), PLAN);
   assert.deepEqual([huge.count, huge.complete], [1000, false]);
@@ -398,6 +405,7 @@ test('real CLI shows the tree read-only with JSON, --get, human output and stric
     await assert.rejects(run(['plugins', 'install', 'com.example.root', 'com.example.a', '--yes', '--profile', 'writable', '--json']), error => /one plugin at a time/.test(error.stderr + error.stdout));
     assert.ok(!calls.some(call => call.pathname.startsWith('/api/sn_cicd/')));
     assert.equal(JSON.parse((await run(['plugins', 'plans', '--json'])).stdout).data.count, 1);
+    assert.match((await run(['plugins', 'plans', '--csv'])).stdout, /^sys_id,name,state,[^\n]*\na{32},auto-upgrade-1,partial_install,/);
     assert.deepEqual(JSON.parse((await run(['plugins', 'plans', 'auto-upgrade-1', '--get', 'data.failed'])).stdout), ['com.example.i1']);
     assert.match((await run(['plugins', 'plans', PLAN, '--format', 'styled'])).stdout, /2 item\(s\), 1 failed or invalid/);
     const reads = calls.filter(call => call.pathname.startsWith('/api/now/table/'));
