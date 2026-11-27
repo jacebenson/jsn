@@ -9,7 +9,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { enrichEssentialRecords } from '../src/essential-records.js';
-import { buildRecordProfile, validateRecordProfiles, getRecordProfile } from '../src/record-profiles.js';
+import { buildRecordProfile, buildProfileCommand, validateRecordProfiles, getRecordProfile } from '../src/record-profiles.js';
 import { captureCommands } from './support/command-test-helpers.js';
 
 const relationship = { name: 'actions', table: 'x_child', foreignKey: 'parent', orderBy: 'order', limit: 2, columns: ['name'] };
@@ -53,6 +53,24 @@ test('custom profiles compose hooks and essential policy while invalid declarati
     const invalid = structuredClone(profile); change(invalid.relationships.essential[0]);
     assert.throws(() => validateRecordProfiles([invalid]));
   }
+});
+test('roles show lists directly contained roles joined on the raw role sys_id; --no-essential skips the read', async () => {
+  const show = captureCommands(buildProfileCommand('roles', fn => fn)).find(c => c.command.startsWith('show'));
+  const role = 'b'.repeat(32), calls = [];
+  let output;
+  const app = { sdk: { list: async (table, params) => { calls.push([table, Object.fromEntries(params)]);
+    return table === 'sys_user_role' ? [{ sys_id: { value: role, display_value: 'itil' }, name: 'itil' }]
+      : [{ sys_id: 'c1', contains: { value: 'c'.repeat(32), display_value: 'snc_internal' } }]; } },
+    getEffectiveInstance: () => 'https://fixture.invalid', ok: data => { output = data; } };
+  await show.handler({ identifier: 'itil' }, app);
+  assert.deepEqual(calls.map(([table]) => table), ['sys_user_role', 'sys_user_role_contains']);
+  assert.equal(calls[1][1].sysparm_query, `role=${role}^ORDERBYcontains`);
+  assert.equal(calls[1][1].sysparm_limit, '101'); assert.equal(calls[1][1].sysparm_fields, 'sys_id,contains');
+  assert.equal(output._essential.contained_roles.records[0].contains.display_value, 'snc_internal');
+  assert.equal(output._essential.contained_roles.has_more, false);
+  calls.length = 0;
+  await show.handler({ identifier: 'itil', essential: false }, app);
+  assert.deepEqual(calls.map(([table]) => table), ['sys_user_role']); assert.equal(output._essential, undefined);
 });
 test('real CLI UI-policy show emits one JSON envelope with actions; human and extraction share bounded data', async t => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'jsn essential '));
