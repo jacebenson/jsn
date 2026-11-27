@@ -602,3 +602,39 @@ test('a regular expression after a control statement does not confuse extraction
   assert.equal(result.body, body);
   assert.equal(recordSymbolName(result.metadata.script), 'U');
 });
+
+test('slash classification preserves the record body', () => {
+  const cases = [
+    "if (true) {} /}/.test('}');",
+    "if (false) {} else {} /}/.test('}');",
+    "try {} catch {} finally {} /}/.test('}');",
+    "if (true) { {} /}/.test('}'); } /}/.test('}');",
+    'var half = obj.return / 2;',
+    'var half = obj?.in / 2;',
+    'var half = obj.if() / 2;',
+    'class C { #return = 8; half() { return this.#return / 2; } }',
+    'var half = {} / 2;',
+    'var half = function () {} / 2;',
+    'for (var i = obj.of / 2; i; i--) {}',
+    'for (; of / 2; ) {}',
+    'for (const of of /}/.exec(text)) {}',
+    'async function each() { for await (const item of /}/.exec(text)) {} /}/.test("}"); }',
+    'var text = `${obj.throw / 2}`;',
+    'var text = `${(() => { if (true) {} /[}`]/.test("}"); return 1; })()}`;',
+  ];
+  for (const statement of cases) {
+    const body = `\uFEFFvar U = 1;\r\n  ${statement}\r\n`;
+    const result = extractRecordSource(`${body}\r\nexport default { script: U };\r\n`);
+    assert.equal(result.ok, true, `${statement}: ${result.error}`);
+    assert.equal(result.body, body);
+    assert.equal(recordSymbolName(result.metadata.script), 'U');
+  }
+});
+
+test('division after a keyword property preserves the metadata literal', () => {
+  const literal = '{ fields: { half: ({ return: 8 }).return / 2 } }';
+  const result = extractRecordSource(`export default ${literal};\n`);
+  assert.equal(result.ok, true, result.error);
+  assert.equal(result.literal, literal);
+  assert.equal(result.metadata.fields.half, 4);
+});

@@ -50,55 +50,31 @@ import { createContext, runInContext } from 'node:vm';
 const IDENT = /[$_\p{ID_Start}][$\u200C\u200D\p{ID_Continue}]*/uy;
 const NUMBER = /(?:0[xX][0-9a-fA-F_]+|0[bB][01_]+|0[oO][0-7_]+|(?:\d[\d_]*(?:\.[\d_]*)?|\.\d[\d_]*)(?:[eE][+-]?\d+)?)n?/y;
 
-// After these keywords a `/` starts a regular expression, not a division.
 // After these a `(` opens a statement condition, so the matching `)` allows a
 // regular expression to follow: `if (x) /re/.test(y)`.
 const CONTROL_KEYWORDS = new Set(['if', 'while', 'for', 'with', 'switch', 'catch']);
+const BLOCK_KEYWORDS = new Set(['do', 'else', 'try', 'catch', 'finally']);
 // `of` is not here: it is an identifier outside a `for (… of …)` header, and
 // `const of = 8; of / 2` divides. The scanner marks the token instead.
 const REGEX_KEYWORDS = new Set([
   'return', 'typeof', 'instanceof', 'in', 'new', 'delete', 'void',
   'do', 'else', 'case', 'yield', 'await', 'throw',
 ]);
-
-
 function regexAllowed(previous) {
-  if (!previous) return true;
+  if (!previous || previous.statement) return true;
   if (previous.type === 'punct') {
-    // `)` closing an `if`/`while`/`for`/... condition is followed by a statement,
-    // not by an operand: `if (x) /re/.test(y)` starts a regular expression.
-    if (previous.value === ')' && previous.control === true) return true;
     // An update (`i++`, `--i`) always leaves an operand behind it, so a `/`
     // that follows one divides: `i++ / 2`.
     if (previous.value === '++' || previous.value === '--') return false;
-    // A `}` that closed a block ends a statement, so `if (x) {} /re/` starts a
-    // regular expression; a `}` that closed an object literal leaves an operand,
-    // so `{ a: 1 } / 2` divides. Function bodies keep the operand reading.
-    if (previous.value === '}') return previous.blockEnd === true;
-    return ![')', ']'].includes(previous.value);
+    return ![')', ']', '}'].includes(previous.value);
   }
-  if (previous.type === 'ident') {
+  if (previous.type === 'ident' && !previous.property) {
     // `of` starts a regular expression only as the operator of a for…of header.
     if (previous.value === 'of') return previous.forOf === true;
     return REGEX_KEYWORDS.has(previous.value);
   }
   // A number, string, template literal or regex is an operand: `/` divides.
   return false;
-}
-
-/**
- * Whether a `{` opens a statement block rather than an object literal.
- *
- * A `{` after `;`, `{`, `}`, or a control condition's `)` is a block. After an
- * operator, `(`, `,`, `:`, `return` and the like it is an object. A function
- * body (`) {`) is treated as an object so a following `/` still divides, which
- * is what `var f = function () {} / 2` needs; `if (ready) {} /re/` is the case
- * the control flag separates out.
- */
-function opensBlock(previous) {
-  if (!previous) return true;
-  if (previous.type === 'punct') return [';', '{', '}'].includes(previous.value) || (previous.value === ')' && previous.control === true);
-  return previous.type === 'ident' && ['else', 'do', 'try', 'finally'].includes(previous.value);
 }
 
 /** Skip a body, collecting nothing, and report the tokens a caller asked for. */
@@ -139,16 +115,11 @@ class SourceScanner {
    */
   code(inTemplate, sink) {
     const source = this.source;
-    // One entry per open `{`: true when it opened a block, false for an object
-    // literal. The length is the depth the template scanner needs.
-    const braces = [];
-    // What each open `(` belongs to: null, or the control keyword whose
-    // condition it opens (`for (… of …)` needs the difference).
-    const parens = [];
-    let pendingControl = null;
+    const delimiters = [];
     while (this.index < source.length && !this.error) {
       const start = this.index;
       const char = source[start];
+      const previous = this.previous;
       if (/\s/.test(char)) {
         if (char === '\n' || char === '\r' || char === '\u2028' || char === '\u2029') this.lineBreak = true;
         this.index += 1;
@@ -170,23 +141,24 @@ class SourceScanner {
         this.skipTemplate(start, sink);
         continue;
       }
-      if (char === '/' && regexAllowed(this.previous)) {
+      if (char === '/' && regexAllowed(previous)) {
         this.skipRegex(start, sink);
         continue;
       }
       IDENT.lastIndex = start;
       const ident = IDENT.exec(source);
+      const frame = delimiters.at(-1);
       if (ident) {
-        // `obj.if()` names a property, not a control statement: the `(` after it
-        // is a call, so a `/` following the `)` divides rather than starting a
-        // regular expression. Read the previous token before this one replaces it.
-        const property = this.previous !== null && this.previous.type === 'punct' && this.previous.value === '.';
+        // Keywords are ordinary operands after member access, including `?.`.
+        const property = previous?.type === 'punct' && (previous.value === '.' || previous.value === '#');
         this.index = start + ident[0].length;
-        const token = { type: 'ident', value: ident[0], start, end: this.index };
-        // `of` is a keyword only as the operator of a `for (… of …)` header, so
-        // only there may a `/` after it start a regular expression.
-        if (ident[0] === 'of' && parens.length > 0 && parens[parens.length - 1] === 'for') token.forOf = true;
-        pendingControl = !property && CONTROL_KEYWORDS.has(ident[0]) ? ident[0] : null;
+        const token = { type: 'ident', value: ident[0], property, start, end: this.index };
+        if (!property && token.value === 'await' && previous?.value === 'for' && !previous.property) token.forAwait = true;
+        if (!property && token.value === 'of' && frame?.forBinding && !regexAllowed(previous)
+          && !(previous.type === 'ident' && !previous.property && ['var', 'let', 'const'].includes(previous.value))) {
+          token.forOf = true;
+          frame.forBinding = false;
+        }
         this.emit(token, sink);
         continue;
       }
@@ -197,29 +169,37 @@ class SourceScanner {
         this.emit({ type: 'number', value: number[0], start, end: this.index }, sink);
         continue;
       }
-      if (char === '{') braces.push(opensBlock(this.previous));
-      if (inTemplate && char === '}' && braces.length === 0) {
+      if (inTemplate && char === '}' && !frame) {
         this.index += 1;
         return; // the `}` belongs to the template, not to the code
       }
       // `++` and `--` are one token: `i++ / 2` divides, and two single `+`
       // characters would leave the `/` looking like the start of a regex.
-      if ((char === '+' || char === '-') && source[start + 1] === char) {
-        this.index = start + 2;
-        pendingControl = null;
-        this.emit({ type: 'punct', value: char + char, start, end: this.index }, sink);
-        continue;
-      }
-      this.index += 1;
-      const token = { type: 'punct', value: char, start, end: this.index };
-      if (char === '}') token.blockEnd = braces.pop() === true;
+      let value = char;
+      if ((char === '+' || char === '-') && source[start + 1] === char) value = char + char;
+      else if (char === '=' && source[start + 1] === '>') value = '=>';
+      else if (char === '.' && source.startsWith('...', start)) value = '...';
+      this.index += value.length;
+      const token = { type: 'punct', value, start, end: this.index };
+      const keyword = previous?.type === 'ident' && !previous.property ? previous.value : null;
       if (char === '(') {
-        parens.push(pendingControl);
-        pendingControl = null;
-      } else if (char === ')') {
-        token.control = Boolean(parens.pop());
-      } else if (!/^\s$/.test(char)) {
-        pendingControl = null;
+        const forBinding = keyword === 'for' || previous?.forAwait === true;
+        delimiters.push({ close: ')', statementAfter: forBinding || CONTROL_KEYWORDS.has(keyword), forBinding });
+      } else if (char === '[') {
+        delimiters.push({ close: ']' });
+      } else if (char === '{') {
+        // Statement blocks allow a new statement after the closing brace.
+        // Object literals and expression bodies leave an operand behind.
+        const statementAfter = (!previous && !inTemplate) || previous?.statement || BLOCK_KEYWORDS.has(keyword);
+        const statementInside = statementAfter || previous?.value === ')' || previous?.value === '=>';
+        token.statement = statementInside;
+        delimiters.push({ close: '}', statementAfter, statementInside });
+      } else if (char === frame?.close) {
+        token.statement = frame.statementAfter;
+        delimiters.pop();
+      } else if (char === ';') {
+        token.statement = frame ? frame.statementInside : !inTemplate;
+        if (frame?.forBinding) frame.forBinding = false;
       }
       this.emit(token, sink);
     }
