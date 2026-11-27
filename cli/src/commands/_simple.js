@@ -117,7 +117,7 @@ export const appmodulesCmd = (wrap) => buildProfileCommand('appmodules', wrap);
 export const listcontrolsCmd = (wrap) => buildProfileCommand('listcontrols', wrap);
 export const viewsCmd = (wrap) => buildProfileCommand('views', wrap);
 export const privilegesCmd = (wrap) => withPrivilegeRequests(buildProfileCommand('privileges', wrap, {
-  extraSubcommands: [{ name: 'requests', description: 'Restricted Caller Access requests: requested, denied, invalidated or allowed, and where each came from' }],
+  extraSubcommands: [{ name: 'requests', description: 'Restricted Caller Access requests: requested, denied, invalidated or allowed, and where each came from' }, { name: 'allow', description: 'Allow one Restricted Caller Access request, previewed first' }],
 }), wrap);
 export const uxscriptsCmd = (wrap) => buildProfileCommand('uxscripts', wrap);
 export { aliasesCmd } from './aliases.js';

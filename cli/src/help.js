@@ -76,6 +76,7 @@ const AUTOMATION_COMMANDS = [
   { name: 'scriptactions', desc: 'Script actions' },
   { name: 'scheduledjobs', desc: 'Scheduled jobs' },
   { name: 'triggers', desc: 'Event triggers' },
+  { name: 'events', desc: 'Event log, backlog and reprocessing' },
   { name: 'asyncrules', desc: 'Asynchronous business rules' },
 
   { divider: '── In Memory ──' },

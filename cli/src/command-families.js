@@ -133,7 +133,7 @@ const deferredFamilies = {
   appmodules: profileFamily("appmodules", "./commands/_simple.js", "appmodulesCmd"),
   listcontrols: profileFamily("listcontrols", "./commands/_simple.js", "listcontrolsCmd"),
   views: profileFamily("views", "./commands/_simple.js", "viewsCmd"),
-  privileges: profileFamily("privileges", "./commands/_simple.js", "privilegesCmd"),
+  privileges: profileFamily("privileges", "./commands/_simple.js", "privilegesCmd", { mutationSubcommands: ["allow"] }),
   uxscripts: profileFamily("uxscripts", "./commands/_simple.js", "uxscriptsCmd"),
   catalogscripts: profileFamily("catalogscripts", "./commands/_simple.js", "catalogscriptsCmd"),
   cataloguipolicies: profileFamily("cataloguipolicies", "./commands/_simple.js", "cataloguipoliciesCmd"),
@@ -166,6 +166,19 @@ const deferredFamilies = {
 // Hand-written families declare their root identity here, once. The command
 // module spreads this same object instead of publishing a second copy.
 
+  "events": {
+    definition: {
+      command: "events [subcommand]",
+      describe: "Inspect the event log, its backlog and reprocess a recorded event",
+    },
+    capabilities: {
+      queryTable: "sysevent",
+      mutationContext: "operational",
+      mutationSubcommands: ["reprocess"],
+      localPreviewSubcommands: ["reprocess"],
+    },
+    module: "./commands/events.js", exportName: "eventsCmd",
+  },
   "tower": {
     definition: {
       command: "tower",

@@ -1,4 +1,5 @@
-import { readPrivilegeRequests, formatPrivilegeRequests, privilegeRequestsSummary } from '../privilege-requests.js';
+import { readPrivilegeRequests, formatPrivilegeRequests, privilegeRequestsSummary, allowPrivilegeRequest, formatPrivilegeAllow, privilegeAllowSummary } from '../privilege-requests.js';
+import { buildRerunCommand } from '../helpers.js';
 
 export function withPrivilegeRequests(command, wrap) {
   const originalBuilder = command.builder;
@@ -23,9 +24,26 @@ export function withPrivilegeRequests(command, wrap) {
       Object.defineProperty(data, '_formatted', { value: formatPrivilegeRequests(data), enumerable: false });
       app.ok(data, { summary: privilegeRequestsSummary(data) });
     }),
+  }).command({
+    command: 'allow <request>',
+    describe: 'Allow one Restricted Caller Access request: set its status to Allowed and read it back; previews without --yes',
+    discoveryTasks: [{ phrases: ['allow restricted caller access', 'approve rca', 'approve cross-scope access request', 'allow blocked cross-scope call'], args: [], description: 'Allow one Restricted Caller Access request, previewed first' }],
+    builder: (y) => y.strict()
+      .positional('request', { type: 'string', describe: 'The request sys_id, from jsn privileges requests' })
+      .option('yes', { type: 'boolean', default: false, describe: 'Write the change; without it, show what would change' })
+      .epilogue('Changes the one row\'s status to Allowed and nothing else, refuses a row that is already Allowed, and exits nonzero unless the read-back says Allowed.\n'
+        + 'With application administration on in the target application, only its application admins can allow the request. The row is an application file, so the write needs a capture context like any customization write.'),
+    handler: wrap(async (argv, app) => {
+      app.requireInstance();
+      const data = await allowPrivilegeRequest(app.sdk, { request: argv.request, yes: argv.yes });
+      if (data.rerun) data.rerun = buildRerunCommand(argv, { rerun: data.rerun });
+      Object.defineProperty(data, '_formatted', { value: formatPrivilegeAllow(data), enumerable: false });
+      app.ok(data, { summary: privilegeAllowSummary(data) });
+    }),
   });
   if (Array.isArray(command.discovery?.benefits)) {
-    command.discovery.benefits.push('Restricted Caller Access requests blocking a cross-scope call: jsn privileges requests [--status requested] [--target-scope <scope>]');
+    command.discovery.benefits.push('Restricted Caller Access requests blocking a cross-scope call: jsn privileges requests [--status requested] [--target-scope <scope>]',
+      'Allow one of those requests, previewed first: jsn privileges allow <request> [--yes]');
   }
   return command;
 }
