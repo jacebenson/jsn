@@ -147,6 +147,12 @@ export function validatePackageTarget(project) {
         errors.push(`${record.file}: fields.${name} is written by the package backend `
           + '(it comes from the record identity and the application); remove it from the record');
       }
+      // The writer emits code fields after the reserved ones, so the same name
+      // there would put the element in the payload twice.
+      if (record.code && Object.prototype.hasOwnProperty.call(record.code, name)) {
+        errors.push(`${record.file}: code.${name} is written by the package backend `
+          + '(it comes from the record identity and the application); remove it from the record');
+      }
     }
     if (record.code && Object.prototype.hasOwnProperty.call(record.code, 'sys_id')) {
       errors.push(`${record.file}: code.sys_id is written by the package backend; remove it from the record`);

@@ -291,6 +291,13 @@ const REJECTIONS = [
     error: /records\/sys_script\/rule\.json: field "script" is defined in both fields and code/,
   },
   {
+    // Both writers emit <sys_id> from the identity; a second one in code would
+    // put the element in the payload twice.
+    label: 'a code field named sys_id',
+    spec: { code: baseCode, records: oneRecord({ code: { sys_id: 'code/rule.js' } }) },
+    error: /records\/sys_script\/rule\.json: code\.sys_id is written from the record identity; remove it from the record/,
+  },
+  {
     label: 'code is not an object',
     spec: { code: baseCode, records: oneRecord({ code: 'code/rule.js' }) },
     error: /records\/sys_script\/rule\.json: code must be an object/,
@@ -725,6 +732,47 @@ test('a function expression name is not a top-level declaration', (t) => {
   assert.equal(readAppProject(ok).records[0].code.script.text, body);
   const bad = writeAppProject(t, jsProject(body, singleFileMetadata({ script: sym('OldName') })));
   expectInvalid(bad, /names "OldName", which is not declared at the top level of this file/);
+});
+
+test('an async lead-in only declares when it starts a statement', (t) => {
+  // `async function f() {}` declares f; `const run = async function Hidden() {}`
+  // declares run and gives the expression a private name.
+  const declared = writeAppProject(t, jsProject('async function helper() { return 1; }\n', singleFileMetadata({ script: sym('helper') })));
+  assert.equal(readAppProject(declared).records[0].code.script.text, 'async function helper() { return 1; }\n');
+  const body = 'const run = async function Hidden() { return 1; };\n';
+  expectInvalid(writeAppProject(t, jsProject(body, singleFileMetadata({ script: sym('Hidden') }))),
+    /names "Hidden", which is not declared at the top level of this file/);
+});
+
+test('a declaration after a new line is a new statement (automatic semicolon insertion)', (t) => {
+  const body = 'setup()\nfunction helper() { return 1; }\n';
+  const root = writeAppProject(t, jsProject(body, singleFileMetadata({ script: sym('helper') })));
+  assert.equal(readAppProject(root).records[0].code.script.text, body);
+});
+
+test('an identifier named of is not a keyword in front of a division', (t) => {
+  // `of` is contextual: `const of = 8; of / 2` divides, and only a for…of
+  // header may put a regular expression after it.
+  const body = 'var of = 8;\nvar half = of / 2;\n';
+  const root = writeAppProject(t, jsProject(body, singleFileMetadata({ script: sym('half') })));
+  assert.equal(readAppProject(root).records[0].code.script.text, body);
+
+  const header = 'function each() {\n  for (var item of /re/.exec("x")) {}\n}\n';
+  const forOf = writeAppProject(t, jsProject(header, singleFileMetadata({ script: sym('each') })));
+  assert.equal(readAppProject(forOf).records[0].code.script.text, header);
+});
+
+test('a postfix update leaves an operand, so the next slash divides', (t) => {
+  const body = 'var i = 4;\nvar half = i++ / 2;\nvar quarter = --i / 2;\n';
+  const root = writeAppProject(t, jsProject(body, singleFileMetadata({ script: sym('half') })));
+  assert.equal(readAppProject(root).records[0].code.script.text, body);
+});
+
+test('a .js body nothing claims is refused instead of dropped', (t) => {
+  // The metadata would ship alone: no field names a declaration and no field
+  // points at a .js file, so the code above the export would be lost.
+  const root = writeAppProject(t, jsProject('var DemoRule = 1;', singleFileMetadata({ script: undefined })));
+  expectInvalid(root, /the script body above "export default" is not used by any field/);
 });
 
 test('a quoted string may continue across CRLF after a backslash', (t) => {

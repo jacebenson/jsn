@@ -54,8 +54,10 @@ const NUMBER = /(?:0[xX][0-9a-fA-F_]+|0[bB][01_]+|0[oO][0-7_]+|(?:\d[\d_]*(?:\.[
 // After these a `(` opens a statement condition, so the matching `)` allows a
 // regular expression to follow: `if (x) /re/.test(y)`.
 const CONTROL_KEYWORDS = new Set(['if', 'while', 'for', 'with', 'switch', 'catch']);
+// `of` is not here: it is an identifier outside a `for (… of …)` header, and
+// `const of = 8; of / 2` divides. The scanner marks the token instead.
 const REGEX_KEYWORDS = new Set([
-  'return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void',
+  'return', 'typeof', 'instanceof', 'in', 'new', 'delete', 'void',
   'do', 'else', 'case', 'yield', 'await', 'throw',
 ]);
 
@@ -66,9 +68,16 @@ function regexAllowed(previous) {
     // `)` closing an `if`/`while`/`for`/... condition is followed by a statement,
     // not by an operand: `if (x) /re/.test(y)` starts a regular expression.
     if (previous.value === ')' && previous.control === true) return true;
+    // An update (`i++`, `--i`) always leaves an operand behind it, so a `/`
+    // that follows one divides: `i++ / 2`.
+    if (previous.value === '++' || previous.value === '--') return false;
     return ![')', ']', '}'].includes(previous.value);
   }
-  if (previous.type === 'ident') return REGEX_KEYWORDS.has(previous.value);
+  if (previous.type === 'ident') {
+    // `of` starts a regular expression only as the operator of a for…of header.
+    if (previous.value === 'of') return previous.forOf === true;
+    return REGEX_KEYWORDS.has(previous.value);
+  }
   // A number, string, template literal or regex is an operand: `/` divides.
   return false;
 }
@@ -80,6 +89,9 @@ class SourceScanner {
     this.index = 0;
     this.previous = null;
     this.error = null;
+    // Whether a line terminator was passed since the last token: automatic
+    // semicolon insertion needs to know where a statement ended.
+    this.lineBreak = false;
   }
 
   scan(sink) {
@@ -95,6 +107,8 @@ class SourceScanner {
   }
 
   emit(token, sink) {
+    token.newlineBefore = this.lineBreak === true;
+    this.lineBreak = false;
     this.previous = token;
     sink.push(token);
   }
@@ -107,13 +121,15 @@ class SourceScanner {
   code(inTemplate, sink) {
     const source = this.source;
     let braces = 0;
-    // Whether each open `(` is a control-statement condition.
+    // What each open `(` belongs to: null, or the control keyword whose
+    // condition it opens (`for (… of …)` needs the difference).
     const parens = [];
-    let pendingControl = false;
+    let pendingControl = null;
     while (this.index < source.length && !this.error) {
       const start = this.index;
       const char = source[start];
       if (/\s/.test(char)) {
+        if (char === '\n' || char === '\r' || char === '\u2028' || char === '\u2029') this.lineBreak = true;
         this.index += 1;
         continue;
       }
@@ -140,13 +156,17 @@ class SourceScanner {
       IDENT.lastIndex = start;
       const ident = IDENT.exec(source);
       if (ident) {
-        this.index = start + ident[0].length;
-        this.emit({ type: 'ident', value: ident[0], start, end: this.index }, sink);
         // `obj.if()` names a property, not a control statement: the `(` after it
         // is a call, so a `/` following the `)` divides rather than starting a
-        // regular expression.
+        // regular expression. Read the previous token before this one replaces it.
         const property = this.previous !== null && this.previous.type === 'punct' && this.previous.value === '.';
-        pendingControl = !property && CONTROL_KEYWORDS.has(ident[0]);
+        this.index = start + ident[0].length;
+        const token = { type: 'ident', value: ident[0], start, end: this.index };
+        // `of` is a keyword only as the operator of a `for (… of …)` header, so
+        // only there may a `/` after it start a regular expression.
+        if (ident[0] === 'of' && parens.length > 0 && parens[parens.length - 1] === 'for') token.forOf = true;
+        pendingControl = !property && CONTROL_KEYWORDS.has(ident[0]) ? ident[0] : null;
+        this.emit(token, sink);
         continue;
       }
       NUMBER.lastIndex = start;
@@ -164,15 +184,23 @@ class SourceScanner {
         }
         braces -= 1;
       }
+      // `++` and `--` are one token: `i++ / 2` divides, and two single `+`
+      // characters would leave the `/` looking like the start of a regex.
+      if ((char === '+' || char === '-') && source[start + 1] === char) {
+        this.index = start + 2;
+        pendingControl = null;
+        this.emit({ type: 'punct', value: char + char, start, end: this.index }, sink);
+        continue;
+      }
       this.index += 1;
       const token = { type: 'punct', value: char, start, end: this.index };
       if (char === '(') {
         parens.push(pendingControl);
-        pendingControl = false;
+        pendingControl = null;
       } else if (char === ')') {
-        token.control = parens.pop() === true;
+        token.control = Boolean(parens.pop());
       } else if (!/^\s$/.test(char)) {
-        pendingControl = false;
+        pendingControl = null;
       }
       this.emit(token, sink);
     }
@@ -196,6 +224,8 @@ class SourceScanner {
       this.fail('unterminated block comment', start);
       return;
     }
+    // A comment spanning lines leaves a line break behind it for ASI purposes.
+    if (/[\r\n\u2028\u2029]/.test(this.source.slice(this.index, end + 2))) this.lineBreak = true;
     this.index = end + 2;
   }
 
@@ -472,8 +502,19 @@ const STATEMENT_LEAD_INS = new Set(['export', 'default', 'async']);
 function startsStatement(tokens, index) {
   const previous = tokens[index - 1];
   if (!previous) return true;
-  if (previous.type === 'punct') return previous.value === ';' || previous.value === '}' || previous.value === '{';
-  return STATEMENT_LEAD_INS.has(previous.value);
+  const afterLineBreak = tokens[index].newlineBefore === true;
+  if (previous.type === 'punct') {
+    if (previous.value === ';' || previous.value === '{' || previous.value === '}') return true;
+    // Automatic semicolon insertion: `setup()` on its own line is a complete
+    // expression statement, so the `function` below it declares a new name.
+    return afterLineBreak && (previous.value === ')' || previous.value === ']');
+  }
+  if (previous.type !== 'ident') return afterLineBreak;
+  // `async` is a lead-in only when it starts a statement itself: in
+  // `const run = async function Hidden() {}` it does not, so `Hidden` is a
+  // function expression's own name and not a top-level declaration.
+  if (previous.value === 'async') return startsStatement(tokens, index - 1);
+  return STATEMENT_LEAD_INS.has(previous.value) || afterLineBreak;
 }
 
 /**

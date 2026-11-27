@@ -359,6 +359,13 @@ function assembleRecord({ root, table, file, display, raw, errors, seenSysIds, b
     errors, allowBody: body !== null, body: body || '', declarations: body ? topLevelDeclarations(body) : [] });
 
   const claims = resolved.filter(entry => entry.body).map(entry => entry.name);
+  // A `.js` record ships the body above `export default` only when a field
+  // names a declaration in it. With neither a claim nor a path elsewhere, the
+  // code would be dropped and the metadata shipped alone, so refuse it here.
+  if (body !== null && body.trim() !== '' && claims.length === 0 && resolved.length === 0) {
+    errors.push(`${display}: the script body above "export default" is not used by any field `
+      + '(name a declaration with script or code.<field>, or point that field at a .js file)');
+  }
   if (claims.length > 1) {
     errors.push(`${display}: fields ${claims.map(name => `"${name}"`).join(' and ')} `
       + 'both claim the file body; only one field may name a declaration');
@@ -405,6 +412,12 @@ function resolveCodeFields({ root, display, raw, fields, errors, allowBody, body
   if (codeIsObject) {
     for (const [name, value] of Object.entries(code)) {
       if (!FIELD_NAME.test(name)) errors.push(`${display}: field "${name}" is not a valid field name`);
+      // Both writers emit <sys_id> from the record identity, so a code field of
+      // that name would put the element in the payload twice.
+      if (name === 'sys_id') {
+        errors.push(`${display}: code.sys_id is written from the record identity; remove it from the record`);
+        continue;
+      }
       if (Object.hasOwn(fields, name)) {
         errors.push(`${display}: field "${name}" is defined in both fields and code`);
       }
@@ -519,11 +532,15 @@ function resolveCodePath({ root, display, label, value, errors }) {
   }
   try {
     if (!fs.statSync(resolvedPath).isFile()) throw Object.assign(new Error('not a file'), { code: 'ENOENT' });
-    if (containedRealPath(root, resolvedPath) === null) {
+    const realFile = containedRealPath(root, resolvedPath);
+    if (realFile === null) {
       errors.push(`${display}: ${label} resolves outside the project root through a link (${value})`);
       return null;
     }
-    return { path: value, text: readUtf8(resolvedPath) };
+    // Read the path containment was proved for, not the written one: a link
+    // swapped between the check and the read would otherwise carry the build
+    // outside the project. `realFile` has no links left to follow.
+    return { path: value, text: readUtf8(realFile) };
   } catch (error) {
     errors.push(`${display}: ${label} file not found: ${inside} (${error.code || oneLine(error.message)})`);
     return null;
@@ -556,7 +573,8 @@ function resolveScriptValue({ root, display, value, errors }) {
   }
 
   if (stats) {
-    if (containedRealPath(root, resolvedPath) === null) {
+    const realFile = containedRealPath(root, resolvedPath);
+    if (realFile === null) {
       errors.push(`${display}: script resolves outside the project root through a link (${value})`);
       return null;
     }
@@ -569,9 +587,10 @@ function resolveScriptValue({ root, display, value, errors }) {
       return null;
     }
     // A file can pass both checks and still fail the read (EACCES). Report it
-    // with the other project errors instead of throwing out of validation.
+    // with the other project errors instead of throwing out of validation. The
+    // read uses the canonical path containment was proved for, never the link.
     try {
-      return { path: value, text: readUtf8(resolvedPath) };
+      return { path: value, text: readUtf8(realFile) };
     } catch (error) {
       errors.push(`${display}: script cannot be read (${error.code || oneLine(error.message)})`);
       return null;

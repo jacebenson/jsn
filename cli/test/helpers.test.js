@@ -1,4 +1,4 @@
-import { describe, it } from 'node:test';
+import { before, describe, it } from 'node:test';
 import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -337,7 +337,11 @@ describe('verifyWriteBack', () => {
 
 describe('buildRerunCommand', () => {
   let buildRerunCommand;
-  it('loads', async () => { ({ buildRerunCommand } = await import('../src/helpers.js')); });
+
+  // A hook, not a leading test: the helper is loaded for any subset of this
+  // suite, including a focused --test-name-pattern run, not only for a full
+  // pass where the first test happens to run first.
+  before(async () => ({ buildRerunCommand } = await import('../src/helpers.js')));
 
   it('pins the selector even when a path or query merely contains its name', () => {
     const argv = { _: ['app', 'deploy'], profile: 'dev' };

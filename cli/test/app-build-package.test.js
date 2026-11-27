@@ -714,13 +714,18 @@ test('refuses the identity fields the package writer generates', () => {
     app: { name: 'Demo', scope: 'x_1_demo', sys_id: APP_SYS_ID, version: '1.0.0' },
     records: [{
       file: 'records/sys_script/rule.js', table: 'sys_script', sys_id: SYS_ID_A,
-      fields: { name: 'Rule', sys_scope: 'global' }, code: { sys_id: { path: null, text: 'x' } },
+      fields: { name: 'Rule', sys_scope: 'global' },
+      // `code` is emitted after the generated elements, so a reserved name there
+      // would put the same element in the payload twice, exactly like `fields`.
+      code: { sys_id: { path: null, text: 'x' }, sys_scope: { path: null, text: 'y' }, sys_update_name: { path: null, text: 'z' } },
     }],
   };
   const errors = validatePackageTarget(project).join('\n');
   // Two <sys_scope> elements, or two record ids, make a readback impossible.
   assert.match(errors, /fields\.sys_scope is written by the package backend/);
   assert.match(errors, /code\.sys_id is written by the package backend/);
+  assert.match(errors, /code\.sys_scope is written by the package backend/);
+  assert.match(errors, /code\.sys_update_name is written by the package backend/);
 });
 
 test('refuses surrounding whitespace in the identity it writes', () => {
