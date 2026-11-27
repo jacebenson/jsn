@@ -11,7 +11,7 @@
 // emails, so callers preview the consumers and confirm before the write.
 
 import { errNotFound, errUsage } from './errors.js';
-import { EVENT_FIELDS, getEvent, isSysId, projectEvent, raw } from './events.js';
+import { EVENT_FIELDS, getEvent, isQueryableEventName, isSysId, projectEvent, raw } from './events.js';
 
 export const REPROCESS_ACTION_NAME = 'Reprocess Event';
 export const REPROCESS_LIMIT_DEFAULT = 10;
@@ -105,12 +105,10 @@ async function selectEvents(sdk, argv = {}) {
   };
 }
 
-const SAFE_NAME = /^[A-Za-z0-9_.-]+$/;
-
 async function loadConsumers(sdk, events) {
   const allNames = [...new Set(events.map(event => event.name).filter(Boolean))];
-  const names = allNames.filter(name => SAFE_NAME.test(name));
-  const skippedNames = allNames.filter(name => !SAFE_NAME.test(name));
+  const names = allNames.filter(name => isQueryableEventName(name));
+  const skippedNames = allNames.filter(name => !isQueryableEventName(name));
   if (!names.length) {
     return { names: [], skipped_names: skippedNames, script_actions: [], notifications: [] };
   }

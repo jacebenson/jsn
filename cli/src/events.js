@@ -230,9 +230,10 @@ export async function describeEvent(sdk, sysId) {
   const record = await getEvent(sdk, sysId);
   const event = projectEvent(record);
   const name = event.name;
-  // A name carrying a query operator would rewrite the consumer lookup; skip
-  // the join and say so rather than reading the wrong rows.
-  const queryableName = name && !/[\^,]/.test(name);
+  // A name that is not a plain name (a leading operator or `javascript:`) would
+  // be evaluated by the instance and rewrite the consumer lookup; skip the join
+  // and say so rather than read the wrong rows.
+  const queryableName = isQueryableEventName(name);
 
   const [registry, scriptActions, notifications, emailLogs] = await Promise.all([
     queryableName ? listConsumerRows(sdk, EVENT_REGISTRY_TABLE, `event_name=${name}`, 'sys_id,event_name,table,description') : [],
@@ -249,7 +250,7 @@ export async function describeEvent(sdk, sysId) {
   ]);
 
   const stateNotes = [];
-  if (name && !queryableName) stateNotes.push('The event name carries a query operator, so consumer and registry lookups were skipped rather than risk reading unrelated rows.');
+  if (name && !queryableName) stateNotes.push('The event name is not a plain name (letters, digits, dot, dash and underscore), so the registry, script-action and notification lookups were skipped rather than send it as a query value the instance would evaluate.');
   if (event.state === 'error') stateNotes.push(NO_ERROR_REASON);
   if (event.state === 'transferred') stateNotes.push(TRANSFERRED_NOTE);
 
@@ -303,6 +304,19 @@ export async function describeEvent(sdk, sysId) {
       : null,
     notes: stateNotes,
   };
+}
+
+/**
+ * An event name read out of the event log is instance data, so it only reaches
+ * an encoded query when it is a plain name. The instance evaluates a
+ * `javascript:` query value server-side under the caller's session, and `^`,
+ * `,`, spaces and operator punctuation all change what a query matches. Names
+ * that fail this allowlist are reported to the caller, never queried.
+ */
+export const SAFE_EVENT_NAME = /^[A-Za-z0-9_.-]+$/;
+
+export function isQueryableEventName(name) {
+  return Boolean(name) && SAFE_EVENT_NAME.test(String(name));
 }
 
 /** The three "has process_on passed?" questions, asked on the instance clock. */

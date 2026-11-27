@@ -11,7 +11,7 @@ import { captureSubcommands, findCommand, wrapHandler } from './support/command-
 import { eventsCmd } from '../src/commands/events.js';
 import {
   BACKLOG_DEFAULT_SINCE, NO_ERROR_REASON, backlogQueries, buildEventQuery, describeEvent,
-  formatBacklog, formatEventDetail, formatEventList, getBacklog, jobMatch, listEvents,
+  formatBacklog, formatEventDetail, formatEventList, getBacklog, isQueryableEventName, jobMatch, listEvents,
   normalizeCounts, sinceClause,
 } from '../src/events.js';
 
@@ -21,6 +21,7 @@ const SCHEDULED_ID = '2'.repeat(32);
 const UNSCHEDULED_ID = '3'.repeat(32);
 const PROCESSED_ID = '4'.repeat(32);
 const ERROR_ID = '5'.repeat(32);
+const HOSTILE_ID = '6'.repeat(32);
 
 const EVENTS = [
   {
@@ -237,6 +238,45 @@ describe('events show', () => {
     const text = formatEventDetail(data);
     assert.match(text, /does not record why an event ended in error/);
     assert.doesNotMatch(text, /because the/i);
+  });
+
+  // An event name read from the instance is instance-controlled data. A name
+  // with a leading query operator or a `javascript:` prefix must never reach an
+  // encoded query, because the instance evaluates it under the CLI user's
+  // session; the consumer join is skipped and the reason is reported instead.
+  for (const name of ['javascript:gs.getUserName()', '!=x', 'flow.fire^state=ready', 'asset.restock,login', 'flow fire']) {
+    it(`does not send the instance-supplied name ${JSON.stringify(name)} into a consumer query`, async () => {
+      const hostile = {
+        sys_id: HOSTILE_ID, name, queue: '', state: 'processed',
+        process_on: '', processed: '', sys_created_on: '2026-11-26 10:00:00',
+      };
+      const sdk = makeSdk({ events: [...EVENTS, hostile], registry, actions, notifications, emails });
+      const data = await describeEvent(sdk, HOSTILE_ID);
+
+      assert.deepStrictEqual(data.registry, []);
+      assert.deepStrictEqual(data.script_actions, []);
+      assert.deepStrictEqual(data.notifications, []);
+      assert.match(data.notes.join(' '), /not a plain name/);
+      // The email join is by sys_id, so it still works for such an event.
+      assert.strictEqual(data.emails.length, 1);
+
+      const consumerCalls = sdk.calls.filter(call => call.op === 'list'
+        && ['sysevent_register', 'sysevent_script_action', 'sysevent_email_action'].includes(call.table));
+      assert.deepStrictEqual(consumerCalls, [], 'no consumer lookup may run for an unqueryable name');
+      assert.ok(
+        !sdk.calls.some(call => String(call.params?.sysparm_query || '').includes(name)),
+        'the raw name must not appear in any encoded query',
+      );
+    });
+  }
+
+  it('still queries the consumers of a plain dotted name', async () => {
+    const sdk = makeSdk({ registry, actions, notifications, emails });
+    await describeEvent(sdk, PROCESSED_ID);
+    assert.ok(sdk.calls.some(call => call.table === 'sysevent_register'));
+    assert.strictEqual(isQueryableEventName('asset.restock'), true);
+    assert.strictEqual(isQueryableEventName('javascript:gs.getUserName()'), false);
+    assert.strictEqual(isQueryableEventName(''), false);
   });
 
   it('performs no writes on the show path', async () => {

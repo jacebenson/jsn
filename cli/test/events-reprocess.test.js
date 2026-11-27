@@ -11,13 +11,14 @@ import { eventsCmd } from '../src/commands/events.js';
 import { isMutationCommand } from '../src/mutations.js';
 import { collectCapabilities, isLocalPreview, mutationPaths } from '../src/capabilities.js';
 import {
-  REPROCESS_RESULT_MARKER, buildReprocessScript, executeReprocess, parseReprocessOutput, planReprocess,
+  REPROCESS_RESULT_MARKER, buildReprocessScript, executeReprocess, formatReprocessPreview, parseReprocessOutput, planReprocess,
 } from '../src/events-reprocess.js';
 
 const SOURCE_ID = 'a1'.repeat(16);
 const DERIVED_ID = 'b2'.repeat(16);
 const COPY_ID = 'c3'.repeat(16);
 const ACTION_ID = 'd4'.repeat(16);
+const HOSTILE_ID = '9a'.repeat(16);
 
 const ACTION_SCRIPT = [
   "current.state = 'ready';",
@@ -35,6 +36,13 @@ const EVENTS = [
   {
     sys_id: DERIVED_ID, name: 'asset.restock', queue: '', state: 'ready',
     parm1: 'orig_event:abc', parm2: '5', process_on: '2026-11-22 01:00:05', processed: '',
+    sys_created_on: '2026-11-22 01:00:02',
+  },
+  {
+    // An instance-supplied name that is not a plain name: the consumer preview
+    // must skip it instead of sending it as an encoded-query value.
+    sys_id: HOSTILE_ID, name: 'javascript:gs.getUserName()', queue: '', state: 'processed',
+    parm1: '1', parm2: '', process_on: '2026-11-22 01:00:02', processed: '2026-11-22 01:00:04',
     sys_created_on: '2026-11-22 01:00:02',
   },
 ];
@@ -157,6 +165,20 @@ describe('events reprocess planning', () => {
     assert.strictEqual(plan.consumers.notifications[0].name, 'Asset Restocking');
     assert.strictEqual(plan.consumers.script_actions[0].sys_id, 'e5'.repeat(16));
     assert.strictEqual(plan.selection.total_matching, 2);
+  });
+
+  it('skips a consumer name that is not a plain name instead of querying it', async () => {
+    const sdk = makeSdk();
+    const plan = await planReprocess(sdk, { 'sys-id': HOSTILE_ID });
+    assert.deepStrictEqual(plan.consumers.names, []);
+    assert.deepStrictEqual(plan.consumers.skipped_names, ['javascript:gs.getUserName()']);
+    assert.deepStrictEqual(plan.consumers.script_actions, []);
+    assert.deepStrictEqual(plan.consumers.notifications, []);
+    const consumerCalls = sdk.calls.filter(call => call.table === 'sysevent_script_action' || call.table === 'sysevent_email_action');
+    assert.deepStrictEqual(consumerCalls, [], 'no consumer query may carry an unqueryable name');
+    // The event is still selectable for reprocessing; only the preview lookup is skipped.
+    assert.deepStrictEqual(plan.queueable.map(event => event.sys_id), [HOSTILE_ID]);
+    assert.match(formatReprocessPreview(plan), /Names not queryable for consumers/);
   });
 
   it('embeds the platform script verbatim in a bounded runner', () => {
