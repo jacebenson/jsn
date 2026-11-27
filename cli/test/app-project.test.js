@@ -264,6 +264,28 @@ const REJECTIONS = [
     error: /records\/sys_script\/rule\.json: field "bad name" is not a valid field name/,
   },
   {
+    // A YAML number is not an id; it is reported once, as its own diagnostic.
+    label: 'app.sys_id that is not a string',
+    spec: { appYaml: DEFAULT_APP_YAML.replace(`  sys_id: ${APP_SYS_ID}`, '  sys_id: 1234'), code: baseCode, records: oneRecord() },
+    error: /app\.yaml: app\.sys_id must be 32 lowercase hexadecimal characters/,
+  },
+  {
+    label: 'a field holding a character XML cannot represent',
+    spec: { code: baseCode, records: oneRecord({ fields: { name: 'Rule\u0000' } }) },
+    error: /records\/sys_script\/rule\.json: field "name" contains U\+0000, which XML cannot represent/,
+  },
+  {
+    label: 'a code file holding a character XML cannot represent',
+    spec: { code: { 'code/rule.js': 'gs.info(1);\u0001' }, records: oneRecord() },
+    error: /records\/sys_script\/rule\.json: code\.script contains U\+0001, which XML cannot represent/,
+  },
+  {
+    // app.yaml names the application row, so a record may not claim its id.
+    label: 'a record reusing the app sys_id',
+    spec: { code: baseCode, records: oneRecord({ sys_id: APP_SYS_ID }) },
+    error: new RegExp(`records/sys_script/rule\\.json: duplicate sys_id d{32} \\(already used by app\\.yaml\\)`),
+  },
+  {
     label: 'field defined in both fields and code',
     spec: { code: baseCode, records: oneRecord({ fields: { name: 'Rule', script: 'stale copy' } }) },
     error: /records\/sys_script\/rule\.json: field "script" is defined in both fields and code/,
@@ -453,6 +475,15 @@ test('an empty code file is valid and reads as an empty string', (t) => {
   });
   const project = readAppProject(root);
   assert.equal(project.records[0].code.script.text, '');
+});
+
+test('app.scope is stored trimmed, the same value the scope check validated', (t) => {
+  const root = writeAppProject(t, {
+    appYaml: DEFAULT_APP_YAML.replace('  scope: x_1_demo', '  scope: "  x_1_demo  "'),
+    code: baseCode,
+    records: oneRecord(),
+  });
+  assert.equal(readAppProject(root).app.scope, 'x_1_demo');
 });
 
 test('an explicit global scope needs no app.sys_id (#399)', (t) => {

@@ -1,22 +1,22 @@
 {
- "commit": "re-recorded on current main after merging #708, #707 and the app family",
- "note": "Regenerated from the combined CLI after the merge; one recording covers what each PR recorded on its own. Help is asserted byte-for-byte; the json entry is informational.",
- "command": "piped (non-TTY) invocation from cli/, JSN_NO_VERSION_CHECK=1 JSN_NO_SKILL_CHECK=1, throwaway XDG_CONFIG_HOME",
- "bytes": {
-  "help": 2928,
-  "json": 87868,
-  "quiet": 2928,
-  "csv": 2928,
-  "markdown": 2928,
-  "get": 2928
- },
- "sha256": {
-  "help": "a1fe14f49ea6b4e88c83334c6e7f32ec4fa95889f03d06da659e1304b32a0e4e",
-  "json": "0335af96b49bf88a9a46a79cc3f8c24d464dd0ed2ac7ec354f4db53c37c56a04",
-  "quiet": "a1fe14f49ea6b4e88c83334c6e7f32ec4fa95889f03d06da659e1304b32a0e4e",
-  "csv": "a1fe14f49ea6b4e88c83334c6e7f32ec4fa95889f03d06da659e1304b32a0e4e",
-  "markdown": "a1fe14f49ea6b4e88c83334c6e7f32ec4fa95889f03d06da659e1304b32a0e4e",
-  "get": "a1fe14f49ea6b4e88c83334c6e7f32ec4fa95889f03d06da659e1304b32a0e4e"
- },
- "json_command_count": 96
+  "commit": "re-recorded on current main after merging #708, #707, the app family, usercriteria and connections",
+  "note": "Regenerated from the combined CLI after the merge; one recording covers what each PR recorded on its own. Help is asserted byte-for-byte; the json entry is informational and still from the app-family recording.",
+  "command": "piped (non-TTY) invocation from cli/, JSN_NO_VERSION_CHECK=1 JSN_NO_SKILL_CHECK=1, throwaway XDG_CONFIG_HOME",
+  "bytes": {
+    "help": 2960,
+    "json": 87868,
+    "quiet": 2960,
+    "csv": 2960,
+    "markdown": 2960,
+    "get": 2960
+  },
+  "sha256": {
+    "help": "f1c05aa2884f34d9901f291d92b7bb18926f093f44813ee10e4368cb014e8016",
+    "json": "0335af96b49bf88a9a46a79cc3f8c24d464dd0ed2ac7ec354f4db53c37c56a04",
+    "quiet": "f1c05aa2884f34d9901f291d92b7bb18926f093f44813ee10e4368cb014e8016",
+    "csv": "f1c05aa2884f34d9901f291d92b7bb18926f093f44813ee10e4368cb014e8016",
+    "markdown": "f1c05aa2884f34d9901f291d92b7bb18926f093f44813ee10e4368cb014e8016",
+    "get": "f1c05aa2884f34d9901f291d92b7bb18926f093f44813ee10e4368cb014e8016"
+  },
+  "json_command_count": 96
 }

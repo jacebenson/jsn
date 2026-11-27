@@ -60,7 +60,8 @@ Also refused before any request: local commands such as `setup`, `auth` and
 `upgrade`; `records watch` and `logs follow`, which keep running after the
 command returns; `compare`, `plugins compare`, `store compare`,
 `updatesets diff` and `diff record`, which read through other profiles;
-`access-analyzer check`, which impersonates its `--user` itself; `access-analyzer run`, whose `--save` writes the analysis; and
+`access-analyzer check`, which impersonates its `--user` itself; `access-analyzer run`, whose `--save` writes the analysis;
+`usercriteria check`, which evaluates its `<user>` itself; and
 browser-session profiles, whose cookies are the browser's own session.
 
 ## Credential destination policy

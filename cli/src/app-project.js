@@ -89,6 +89,17 @@ const FIELD_NAME = /^[A-Za-z_][A-Za-z0-9_.-]*$/;
 // treated as a path, so a missing file is reported instead of being silently
 // emitted as one line of script text.
 const PATH_CHARS = /^[A-Za-z0-9._~@+\\/-]+$/;
+// The XML 1.0 Char production. Everything else — NUL and the other C0 controls,
+// lone surrogates, U+FFFE/U+FFFF — cannot be carried in a document at all, so a
+// field or script holding one is refused instead of being stripped or escaped
+// into an artifact the importer would reject.
+const XML_INVALID = /[^\t\n\r\u0020-\uD7FF\uE000-\uFFFD\u{10000}-\u{10FFFF}]/u;
+
+/** `U+0001` for the first character XML cannot represent, or null when all can. */
+function invalidXmlCharacter(text) {
+  const match = XML_INVALID.exec(text);
+  return match ? `U+${match[0].codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}` : null;
+}
 
 /** One aggregated, ordered validation failure. */
 export function errInvalidProject(errors) {
@@ -196,14 +207,17 @@ export function validateAppProject(dir = '.') {
       // fallback for a scoped app. Without the application sys_id the writer
       // would have to invent one, and the set would silently claim Global.
       const scope = typeof doc.app.scope === 'string' ? doc.app.scope.trim() : '';
-      const sysId = doc.app.sys_id === null ? '' : String(doc.app.sys_id ?? '').trim();
+      // Only a string is an application sys_id. Coercing a rejected value would
+      // satisfy the presence check below with something that is not an id, so a
+      // YAML number or boolean stays one diagnostic, not two.
+      const sysId = typeof doc.app.sys_id === 'string' ? doc.app.sys_id.trim() : '';
       if (scope && scope !== 'global' && !sysId) {
         errors.push(`app.yaml: app.sys_id is required when app.scope is "${scope}": `
           + 'a scoped app must name its application sys_id (Global is never an implicit fallback)');
       }
       project.app = {
         ...(typeof doc.app.name === 'string' ? { name: doc.app.name } : {}),
-        ...(typeof doc.app.scope === 'string' ? { scope: doc.app.scope } : {}),
+        ...(typeof doc.app.scope === 'string' ? { scope } : {}),
         ...(typeof doc.app.sys_id === 'string' ? { sys_id: doc.app.sys_id } : {}),
         ...(doc.app.version !== undefined ? { version: doc.app.version } : {}),
       };
@@ -227,6 +241,9 @@ export function validateAppProject(dir = '.') {
   }
 
   const seenSysIds = new Map();
+  // app.yaml names an application row, and that row has an id like any other: a
+  // record reusing it would ship two definitions of the same sys_id.
+  if (project.app.sys_id) seenSysIds.set(project.app.sys_id, 'app.yaml');
   for (const table of tables) {
     const tableDir = path.join(recordsDir, table);
     let files;
@@ -332,6 +349,9 @@ function assembleRecord({ root, table, file, display, raw, errors, seenSysIds, b
     if (!FIELD_NAME.test(name)) errors.push(`${display}: field "${name}" is not a valid field name`);
     if (!['string', 'number', 'boolean'].includes(typeof value)) {
       errors.push(`${display}: field "${name}" must be a string, number, or boolean`);
+    } else if (typeof value === 'string') {
+      const invalid = invalidXmlCharacter(value);
+      if (invalid) errors.push(`${display}: field "${name}" contains ${invalid}, which XML cannot represent`);
     }
   }
 
@@ -349,6 +369,11 @@ function assembleRecord({ root, table, file, display, raw, errors, seenSysIds, b
   }
   for (const entry of resolved) {
     if (entry.body) entry.text = body ?? '';
+  }
+  for (const entry of resolved) {
+    if (typeof entry.text !== 'string') continue;
+    const invalid = invalidXmlCharacter(entry.text);
+    if (invalid) errors.push(`${display}: code.${entry.name} contains ${invalid}, which XML cannot represent`);
   }
 
   return {

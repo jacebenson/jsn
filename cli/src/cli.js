@@ -365,6 +365,7 @@ export function buildCLI() {
     .command(deferredFamily('b4rules', wrap))
     .command(deferredFamily('roles', wrap))
     .command(deferredFamily('privileges', wrap))
+    .command(deferredFamily('usercriteria', wrap))
     .command(deferredFamily('aliases', wrap))
     .command(deferredFamily('connections', wrap))
     .command(deferredFamily('groups', wrap))
