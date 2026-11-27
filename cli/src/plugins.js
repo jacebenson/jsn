@@ -122,7 +122,7 @@ export async function planActivation(sdk, ids) {
   };
   requested.forEach(visit);
   const plugins = order.map(id => nodes.get(id)).filter(node => node.active === false);
-  for (const node of plugins) if (node.block_install) refusals.push({ id: node.id, reason: requested.includes(node.id) ? 'install is blocked' : 'it is required, inactive and its install is blocked' });
+  for (const node of plugins) if (node.block_install !== false) refusals.push({ id: node.id, reason: node.block_install === null ? 'its install block could not be read' : requested.includes(node.id) ? 'install is blocked' : 'it is required, inactive and its install is blocked' });
   return { requested, plugins: plugins.map(({ id, name, version, depth }) => ({ id, name, version, required_by_request: !requested.includes(id), depth })), unlisted, cycles, refusals };
 }
 

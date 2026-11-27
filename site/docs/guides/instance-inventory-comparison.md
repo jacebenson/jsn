@@ -57,7 +57,7 @@ and not followed. `inactive` lists the required plugins that are not active.
 
 `jsn plugins install <id>` previews activating a plugin: the inactive plugins it
 would pull in, required plugins first, and any refusal (already active, install
-blocked, an incomplete tree). With `--yes` and one id it activates that plugin
+blocked or unreadable, an incomplete tree). With `--yes` and one id it activates that plugin
 through the CI/CD API, waits on the tracker, and reads every plugin it listed
 back from `v_plugin`. Activation cannot be undone from jsn.
 
