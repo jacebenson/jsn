@@ -207,6 +207,13 @@ export function validateAppProject(dir = '.') {
       // fallback for a scoped app. Without the application sys_id the writer
       // would have to invent one, and the set would silently claim Global.
       const scope = typeof doc.app.scope === 'string' ? doc.app.scope.trim() : '';
+      // Both values land in the <sys_app> document (the scope also in an
+      // attribute), so a character XML cannot carry is refused here rather than
+      // escaped into an artifact the importer would reject.
+      for (const [label, text] of [['name', doc.app.name], ['scope', scope]]) {
+        const invalid = typeof text === 'string' ? invalidXmlCharacter(text) : null;
+        if (invalid) errors.push(`app.yaml: app.${label} contains ${invalid}, which XML cannot represent`);
+      }
       // Only a string is an application sys_id. Coercing a rejected value would
       // satisfy the presence check below with something that is not an id, so a
       // YAML number or boolean stays one diagnostic, not two.

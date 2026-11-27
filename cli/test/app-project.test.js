@@ -275,6 +275,18 @@ const REJECTIONS = [
     error: /records\/sys_script\/rule\.json: field "name" contains U\+0000, which XML cannot represent/,
   },
   {
+    // app.name and the normalized app.scope are written into <sys_app>; the
+    // scope also becomes the display_value attribute of every record's scope.
+    label: 'an app.name holding a character XML cannot represent',
+    spec: { appYaml: DEFAULT_APP_YAML.replace('  name: Demo App', '  name: "Demo \\0 App"'), code: baseCode, records: oneRecord() },
+    error: /app\.yaml: app\.name contains U\+0000, which XML cannot represent/,
+  },
+  {
+    label: 'an app.scope holding a character XML cannot represent',
+    spec: { appYaml: DEFAULT_APP_YAML.replace('  scope: x_1_demo', '  scope: "x_1_\\0demo"'), code: baseCode, records: oneRecord() },
+    error: /app\.yaml: app\.scope contains U\+0000, which XML cannot represent/,
+  },
+  {
     label: 'a code file holding a character XML cannot represent',
     spec: { code: { 'code/rule.js': 'gs.info(1);\u0001' }, records: oneRecord() },
     error: /records\/sys_script\/rule\.json: code\.script contains U\+0001, which XML cannot represent/,
