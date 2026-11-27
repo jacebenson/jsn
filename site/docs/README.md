@@ -9,6 +9,7 @@ feature references named by `site/data/showcase-data.json` on their feature page
 - [Install](guides/install.md), [connect an instance](guides/setup.md),
   [safety and mutations](guides/safety.md), [output](guides/output.md)
 - [Agent usage](guides/agents.md), [CLI guide](guides/cli-guide.md)
+- [Workflow preferences](guides/preferences.md)
 - [Flows](guides/flows.md), [records](guides/records.md),
   [update sets](guides/updatesets.md), [MID Server](guides/midservers.md),
   [Store applications](guides/store.md)

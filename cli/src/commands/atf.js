@@ -25,6 +25,7 @@ import {
   resolveFieldsParam, assertSafeExactMatch, confirmDelete,
 } from '../helpers.js';
 import { errUsage, errNotFound } from '../errors.js';
+import { assertResultId, readAtfResultDetail, formatAtfResult } from '../atf-results.js';
 
 // run/run-suite schedule tests that act on records (top-level only).
 
@@ -605,14 +606,31 @@ export function atfCmd(wrap) {
         })
         .command({
           command: 'results <id>',
-          describe: 'Show an ATF execution result (id from run/run-suite)',
-          builder: (y) => y
-            .positional('id', { describe: 'Execution/result/progress sys_id', type: 'string' }),
+          describe: 'Show an ATF result with every step in order, or a suite result with its failed tests\' failed steps (id from run/run-suite)',
+          builder: (y) => y.strict()
+            .positional('id', { describe: 'Execution/result/progress sys_id', type: 'string' })
+            .option('logs', { type: 'boolean', default: false, describe: 'Also show the result\'s log lines (sys_atf_test_result_item)' }),
           handler: wrap(async (argv, app) => {
             app.requireInstance();
-            const result = await fetchAnyResult(app, argv.id);
-            if (!result) throw errNotFound('ATF execution', argv.id);
-            app.ok(result, { summary: `ATF result ${argv.id}: ${result.status}` });
+            assertResultId(argv.id);
+            // The instance returns sys_ids in lower case, and the detail read checks identity exactly.
+            const id = argv.id.toLowerCase();
+            const result = await fetchAnyResult(app, id);
+            if (!result) throw errNotFound('ATF execution', id);
+            const resultId = result.result_id || result.execution_id || id;
+            let detail = null, warning = `No step detail: no readable sys_atf_test_result or sys_atf_test_suite_result has sys_id ${resultId}. A run still in progress has no result yet, or ACLs hide it.`;
+            try {
+              if (/^[0-9a-f]{32}$/i.test(resultId)) detail = await readAtfResultDetail(app.sdk, resultId, { logs: argv.logs });
+            } catch (err) {
+              // The result itself was read; a denied detail table leaves it as it was before steps were added.
+              if (err.status !== 403) throw err;
+              warning = `No step detail: the profile may not read ${err.table} (HTTP 403).`;
+            }
+            if (!detail) return app.ok({ ...result, warnings: [warning] }, { summary: `ATF result ${argv.id}: ${result.status}` });
+            const data = { ...result, ...detail };
+            Object.defineProperty(data, '_formatted', { value: formatAtfResult(data), enumerable: false });
+            const failed = detail.steps.records.filter(step => ['failure', 'error'].includes(step.status)).length;
+            app.ok(data, { summary: `ATF result ${argv.id}: ${result.status}; ${detail.failed_tests ? `${detail.failed_tests.count} failed test(s), ${detail.failed_suites.count} failed child suite(s), ` : ''}${detail.steps.count} step(s) read, ${failed} failed` });
           }),
         });
     },
@@ -624,7 +642,7 @@ export function atfCmd(wrap) {
       console.log('  suites             List ATF test suites');
       console.log('  run <test>         Run a test by sys_id or name (polls by default)');
       console.log('  run-suite <suite>  Run a suite by sys_id or name');
-      console.log('  results <id>       Show an execution result');
+      console.log('  results <id>       Show a result and its steps (--logs adds log lines)');
       console.log('\nRun "jsn atf <command> --help" for details.');
       console.log('\nRun is a mutation: it schedules tests that act on records.');
       console.log('  Confirm when prompted, or pass --force / profile skip_confirmations.');

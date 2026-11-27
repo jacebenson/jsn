@@ -203,6 +203,19 @@ const deferredFamilies = {
     },
     module: "./commands/setup.js", exportName: "setupCmd",
   },
+  "preferences": {
+    definition: {
+      command: "preferences",
+      describe: "Show or change JSN workflow preferences (operations, testing, update-set naming)",
+      summary: "Configure JSN workflow opinions installation-wide or per profile",
+    },
+    capabilities: {
+      noInstance: true,
+      skipContextHeader: true,
+      skipDailyChecks: true,
+    },
+    module: "./commands/preferences.js", exportName: "preferencesCmd",
+  },
   "auth": {
     definition: {
       command: "auth [subcommand]",
@@ -611,6 +624,7 @@ const deferredFamilies = {
     },
     capabilities: {
       encodedQuery: false,
+      operations: { '': argv => ({ POST: 'create', PUT: 'update', PATCH: 'update', DELETE: 'delete' })[String(argv.method || 'GET').toUpperCase()] || null },
       mutationSubcommands: [""],
       mutationContextReadMethods: ["GET", "HEAD", "OPTIONS"],
     },
