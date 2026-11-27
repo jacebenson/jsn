@@ -1,0 +1,102 @@
+# CodeRabbit review configuration for jsn.
+# The repository is public and MIT-licensed, so reviews run on the free plan.
+# Rules below restate the contracts in AGENTS.md for the paths where they bite.
+
+language: en-US
+
+reviews:
+  profile: chill
+  high_level_summary: true
+  high_level_summary_in_walkthrough: false
+  review_status: true
+  review_details: false
+  poem: false
+  collapse_walkthrough: true
+  changed_files_summary: true
+  sequence_diagrams: false
+  estimate_code_review_effort: false
+  assess_linked_issues: true
+  related_prs: true
+  suggested_labels: false
+  auto_apply_labels: false
+  suggested_reviewers: false
+  auto_assign_reviewers: false
+
+  path_filters:
+    - "!cli/node_modules/**"
+    - "!cli/package-lock.json"
+    - "!cli/scripts/acceptance/**"
+    - "!cli/test/acceptance/**"
+    - "!site/tmp/**"
+    - "!**/_site/**"
+    - "!reports/mutation/**"
+    - "!.stryker-tmp/**"
+
+  path_instructions:
+    - path: "cli/src/**"
+      instructions: |
+        This is a published Node 24 ESM CLI with no build step and no TypeScript.
+        - Command modules must be registered in src/cli.js, and every handler must
+          be routed through wrap(handler).
+        - Capabilities are declared in src/capabilities.js. Instance requirements,
+          daily checks and mutation guards derive from that registry. Flag any new
+          parallel list of command names or mutation paths, and flag a handler that
+          enforces something the registry already derives.
+        - Command data must be emitted through app.output, never console.log.
+          Preserve JSON envelopes, --get extraction and existing human output shapes.
+        - Preserve the instance, read-only, confirmation and capture-context
+          safeguards. A rejected operation must not write. Flag any change that
+          weakens a guard, and flag test changes that loosen a guard to pass.
+        - Keep strict argument validation, aliases, help text and machine discovery.
+        - Prefer the _simple.js and _ticket.js factories over bespoke table or ticket CRUD.
+        - Reads that cap rows must disclose the cap in output. Flag any read that
+          presents a bounded result as the complete set.
+
+    - path: "cli/test/**"
+      instructions: |
+        Tests use node:test and assert observable behavior at the lowest useful layer.
+        - Fixture credentials and transports are injected; tests must not read a
+          personal profile, keyring or live instance. Importable fixtures set
+          JSN_NO_VERSION_CHECK=1 and JSN_NO_SKILL_CHECK=1.
+        - Failure paths must be covered, including that a rejected operation writes nothing.
+        - Structural assertions need an architectural rationale; flag brittle assertions
+          that lock in an incidental implementation detail.
+        - Do not accept deleted coverage, skipped tests or a loosened assertion without a
+          stated reason.
+
+    - path: "cli/scripts/**"
+      instructions: |
+        Test and acceptance harness code. Flag anything that hides a real failure behind
+        output filtering, swallows a non-zero exit status, or writes to a live instance
+        without explicit opt-in.
+
+    - path: "site/**"
+      instructions: |
+        Rails website plus Markdown docs. Documentation claims about commands, flags,
+        output shapes and exit codes must match the code in cli/src. Flag doc changes
+        that describe behavior the code does not implement.
+
+    - path: ".github/**"
+      instructions: |
+        CI and release automation. Flag steps that mask failures with output filtering,
+        pipelines that discard exit status, and version bumps made per change instead of
+        through the release workflow.
+
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    drafts: false
+    ignore_title_keywords:
+      - "WIP"
+      - "DO NOT MERGE"
+    base_branches:
+      - "main"
+
+chat:
+  auto_reply: true
+
+knowledge_base:
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - "**/AGENTS.md"
