@@ -181,7 +181,7 @@ export function validateAppProject(dir = '.') {
       }
       if (typeof doc.app.name !== 'string' || !doc.app.name.trim()) errors.push('app.yaml: app.name is required');
       if (typeof doc.app.scope !== 'string' || !doc.app.scope.trim()) errors.push('app.yaml: app.scope is required');
-      if (doc.app.sys_id !== undefined && !SYS_ID.test(String(doc.app.sys_id))) {
+      if (doc.app.sys_id !== undefined && (typeof doc.app.sys_id !== 'string' || !SYS_ID.test(doc.app.sys_id))) {
         errors.push('app.yaml: app.sys_id must be 32 lowercase hexadecimal characters');
       }
       // Issue #399: Global is an explicit project target, never the implicit
@@ -462,7 +462,9 @@ function containedRealPath(root, candidate) {
     return null;
   }
   const relative = path.relative(realRoot, realFile);
-  if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) return null;
+  // A parent segment is ".." alone or ".." followed by a separator; a file
+  // legitimately named "..notes.js" inside the root must not be refused.
+  if (relative === '' || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return null;
   return realFile;
 }
 
@@ -532,7 +534,14 @@ function resolveScriptValue({ root, display, value, errors }) {
       errors.push(`${display}: script path must point to a .js file (${value})`);
       return null;
     }
-    return { path: value, text: readUtf8(resolvedPath) };
+    // A file can pass both checks and still fail the read (EACCES). Report it
+    // with the other project errors instead of throwing out of validation.
+    try {
+      return { path: value, text: readUtf8(resolvedPath) };
+    } catch (error) {
+      errors.push(`${display}: script cannot be read (${error.code || oneLine(error.message)})`);
+      return null;
+    }
   }
 
   if (looksLikePath(value)) {

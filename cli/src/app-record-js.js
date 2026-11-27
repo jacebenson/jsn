@@ -176,8 +176,14 @@ class SourceScanner {
   }
 
   skipLineComment() {
-    const end = this.source.indexOf('\n', this.index);
-    this.index = end === -1 ? this.source.length : end;
+    // A `//` comment ends at any JavaScript line terminator, not just LF:
+    // CR, U+2028 and U+2029 end one too, and searching for LF would swallow
+    // the `export default` below a comment ending with one of them.
+    const source = this.source;
+    let end = this.index;
+    while (end < source.length && source[end] !== '\n' && source[end] !== '\r'
+      && source[end] !== '\u2028' && source[end] !== '\u2029') end += 1;
+    this.index = end;
   }
 
   skipBlockComment(start) {
@@ -195,7 +201,10 @@ class SourceScanner {
     while (this.index < source.length) {
       const char = source[this.index];
       if (char === '\\') {
-        this.index += 2;
+        // A backslash before CRLF is one line continuation: skip both newline
+        // characters, or the LF is left behind and rejected as an unescaped
+        // line break in a string.
+        this.index += source[this.index + 1] === '\r' && source[this.index + 2] === '\n' ? 3 : 2;
         continue;
       }
       if (char === quote) {
@@ -362,6 +371,7 @@ function evaluateMetadata(literal, bindings) {
   const sandbox = Object.create(null);
   for (const [name, sentinel] of bindings) sandbox[name] = sentinel;
   const snippet = `(() => {
+   try {
     const value = (${literal});
     const MARK = '${SYMBOL_MARK}';
     const MAX_DEPTH = 16;
@@ -383,7 +393,7 @@ function evaluateMetadata(literal, bindings) {
       if (depth >= MAX_DEPTH) throw new Error(at + ' is an object nested too deeply');
       if (seen.has(v)) throw new Error(at + ' is a circular reference');
       seen.add(v);
-      const out = {};
+      const out = Object.create(null);
       for (const key of Reflect.ownKeys(v)) {
         if (typeof key !== 'string') throw new Error(at + ' has a symbol key');
         const d = Object.getOwnPropertyDescriptor(v, key);
@@ -395,12 +405,25 @@ function evaluateMetadata(literal, bindings) {
       return out;
     };
     return JSON.stringify(walk(value, 0, 'the default export'));
+   } catch (thrown) {
+    // Convert the error inside the bounded context. Reading .message of a
+    // vm-thrown value on the host would run project code (a getter, a Proxy
+    // trap) after the timeout has already returned.
+    let detail;
+    try { detail = String(thrown && thrown.message).split('\\n')[0]; } catch (_) { detail = 'evaluation raised an unreadable value'; }
+    throw detail;
+   }
   })()`;
   try {
     const json = runInContext(snippet, createContext(sandbox), { timeout: 1000, displayErrors: false });
     return { ok: true, metadata: JSON.parse(json) };
-  } catch (error) {
-    const detail = String(error && error.message).split('\n')[0];
+  } catch (thrown) {
+    // A string here is what the snippet re-threw. Anything else is the VM's own
+    // error (a syntax error or the timeout), which this code created, so its
+    // message is safe to read.
+    const detail = typeof thrown === 'string'
+      ? thrown
+      : String((thrown && thrown.message) || 'evaluation did not complete').split('\n')[0];
     // Keep the established wording for "this is not data" refusals; the walk
     // builds them from the value's own path.
     if (detail.startsWith('the default export')) {
@@ -411,6 +434,17 @@ function evaluateMetadata(literal, bindings) {
   }
 }
 const DECLARATION_KEYWORDS = new Set(['var', 'let', 'const', 'function', 'class']);
+// A `function` or `class` only declares a top-level name when it starts a
+// statement. `const replacement = function OldName() {}` declares `replacement`
+// alone; `OldName` is a function expression's own name, not a binding above.
+const STATEMENT_LEAD_INS = new Set(['export', 'default', 'async']);
+
+function startsStatement(tokens, index) {
+  const previous = tokens[index - 1];
+  if (!previous) return true;
+  if (previous.type === 'punct') return previous.value === ';' || previous.value === '}' || previous.value === '{';
+  return STATEMENT_LEAD_INS.has(previous.value);
+}
 
 /**
  * Names declared at the top level of a script body, in source order.
@@ -436,6 +470,7 @@ export function topLevelDeclarations(source) {
       continue;
     }
     if (depth !== 0 || token.type !== 'ident' || !DECLARATION_KEYWORDS.has(token.value)) continue;
+    if ((token.value === 'function' || token.value === 'class') && !startsStatement(tokens, index)) continue;
     const name = tokens[index + 1];
     if (!name || name.type !== 'ident' || seen.has(name.value)) continue;
     seen.add(name.value);

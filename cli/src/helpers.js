@@ -103,19 +103,30 @@ export function quoteShellArg(value) {
  */
 export function buildRerunCommand(argv = {}, { rerun = null } = {}) {
   let parts;
+  let tokens = null;   // the argv tokens, when the caller supplied them
+  let text = null;     // a complete command string, used verbatim
   if (Array.isArray(rerun) && rerun.length > 0) {
-    parts = ['jsn', ...rerun].map(quoteShellArg);
+    tokens = [...rerun];
+    parts = ['jsn', ...tokens].map(quoteShellArg);
   } else if (typeof rerun === 'string' && rerun.trim()) {
-    parts = [rerun.trim()];
+    text = rerun.trim();
+    parts = [text];
   } else {
-    parts = ['jsn', ...(argv?._ || [])].map(quoteShellArg);
+    tokens = [...(argv?._ || [])];
+    parts = ['jsn', ...tokens].map(quoteShellArg);
   }
-  if (parts.length === 1) return ''; // no path known — nothing worth repeating
-  const joined = parts.join(' ');
+  if (parts.length === 1 && text === null) return ''; // no path known — nothing worth repeating
+  // A selector is present only as its own token (`--profile x`, `--profile=x`).
+  // Matching the joined command would let a directory or query that merely
+  // contains "--profile" suppress the pin, and the hint would then retarget
+  // the default profile or instance.
+  const selects = name => (text === null
+    ? tokens.some(token => String(token) === name || String(token).startsWith(`${name}=`))
+    : new RegExp(`(^|\\s)${name}(=|\\s|$)`).test(text));
   // Re-pin the profile/instance the caller was operating on, so following
   // the hint cannot silently retarget a different instance or profile.
-  if (argv?.profile && !joined.includes('--profile')) parts.push('--profile', quoteShellArg(argv.profile));
-  if (argv?.instance && !joined.includes('--instance')) parts.push('--instance', quoteShellArg(argv.instance));
+  if (argv?.profile && !selects('--profile')) parts.push('--profile', quoteShellArg(argv.profile));
+  if (argv?.instance && !selects('--instance')) parts.push('--instance', quoteShellArg(argv.instance));
   return parts.join(' ');
 }
 
