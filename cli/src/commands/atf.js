@@ -614,9 +614,11 @@ export function atfCmd(wrap) {
           handler: wrap(async (argv, app) => {
             app.requireInstance();
             assertResultId(argv.id);
-            const result = await fetchAnyResult(app, argv.id);
-            if (!result) throw errNotFound('ATF execution', argv.id);
-            const resultId = result.result_id || result.execution_id || argv.id;
+            // The instance returns sys_ids in lower case, and the detail read checks identity exactly.
+            const id = argv.id.toLowerCase();
+            const result = await fetchAnyResult(app, id);
+            if (!result) throw errNotFound('ATF execution', id);
+            const resultId = result.result_id || result.execution_id || id;
             let detail = null, warning = `No step detail: no readable sys_atf_test_result or sys_atf_test_suite_result has sys_id ${resultId}. A run still in progress has no result yet, or ACLs hide it.`;
             try {
               if (/^[0-9a-f]{32}$/i.test(resultId)) detail = await readAtfResultDetail(app.sdk, resultId, { logs: argv.logs });
