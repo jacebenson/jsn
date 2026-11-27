@@ -186,6 +186,26 @@ jsn customizations revert --scope sn_hr_core --confirm <token>
 repository application, 100 files a run, after a preview and its token. Files
 added on the instance are listed, never deleted.
 
+## Where a record is used
+
+```sh
+jsn records references sys_user_group <sys_id> --plan
+jsn records references sys_user_group "Service Desk" --identifier-field name
+jsn records references sys_user_group "Service Desk" --identifier-field name --mode system --scripts --json
+```
+
+Lists every record that holds the record's sys_id. The default, `--mode data`,
+searches reference and list fields on ordinary tables, catalog answers and
+workflow variable values. `--mode system` searches configuration: fields on
+tables that extend `sys_metadata`, conditions and encoded queries, properties,
+templates and defaults, with script fields under `--scripts`. Neither mode
+searches the record's own child items (journal, attachments, audit, approvals)
+or log tables. Counts run one at a time before any rows are read; a count with
+no answer in 20 seconds is cancelled on the instance, and three slow or
+rate-limited counts stop the run. Tables over 100,000 rows are scanned only with `--include-large`. The
+output ends with what was not searched; a run with a gap is partial and exits
+1. Flows are not searched. Read-only.
+
 ## Saved Access Analyzer evidence
 
 ```sh

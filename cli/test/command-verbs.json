@@ -250,6 +250,9 @@
     "queue": {
       "why": "list reads one table's newest page and show reads one record; neither aggregates a backlog over a window, so queue names the read that answers how much is stuck and for how long."
     },
+    "references": {
+      "why": "records references lists every record that holds one record's sys_id; related would suggest the form's configured related lists, which miss conditions, properties and document ID fields, and usage would suggest the platform's dependency views of application files."
+    },
     "reprocess": {
       "why": "events reprocess queues a copy of a recorded event again through the platform's own UI action script; update would write a payload the caller supplies to the existing row, and create would invent a new event instead of replaying the recorded one."
     },
@@ -280,7 +283,7 @@
   },
   "budgets": {
     "$comment": "Subcommand count per family. A budget is a ratchet, not a ban: when a new command earns its place, raise the number in the same diff and say why in the PR. Adding a family means adding its budget entry.",
-    "total": 476,
+    "total": 477,
     "families": {
       "access-analyzer": 4,
       "acls": 5,
@@ -336,7 +339,7 @@
       "plugins": 1,
       "privileges": 7,
       "properties": 5,
-      "records": 20,
+      "records": 21,
       "relationships": 5,
       "requests": 5,
       "rest": 0,
