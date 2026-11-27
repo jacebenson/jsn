@@ -1012,6 +1012,54 @@ export function recordsCmd(wrap) {
             if (!data.found) process.exitCode = 1;
           }),
         })
+        .command({
+          command: 'references <table> <identifier>',
+          describe: 'List records that hold a record\'s sys_id: data records by default, configuration with --mode system (read-only)',
+          discoveryTasks: [{
+            phrases: ['where is this record used', 'what refers to this record', 'where used', 'find references to a record', 'is it safe to delete this group'],
+            args: ['--plan'], description: 'Count every field holding one record\'s sys_id, then list the records; --mode system searches configuration',
+          }],
+          builder: (y) => y
+            .positional('table', { describe: 'Table name (e.g. sys_user_group)', type: 'string' })
+            .positional('identifier', { describe: 'Record sys_id, or the value of --identifier-field', type: 'string' })
+            .option('identifier-field', { type: 'string', describe: 'Exact identifier field (default sys_id), e.g. name' })
+            .option('mode', { type: 'string', choices: ['data', 'system'], default: 'data', describe: 'data: records on ordinary tables; system: configuration (sys_metadata tables, conditions, properties, defaults)' })
+            .option('plan', { type: 'boolean', describe: 'Read the dictionary and list the count queries without running any' })
+            .option('scripts', { type: 'boolean', describe: 'With --mode system, also scan script fields (business rules, script includes, client scripts, UI actions, ...)' })
+            .option('include-large', { type: 'boolean', describe: `Scan tables over ${100000} rows too (skipped and listed by default)` })
+            .option('limit', { type: 'number', default: 20, describe: 'Max rows listed per source (1-100)' })
+            .option('max-requests', { type: 'number', default: 2000, describe: 'Refuse a search that needs more count queries than this (1-20000)' })
+            .epilogue([
+              '--mode data (the default) reads the dictionary for reference and glide_list fields that can hold the record (its class and every parent class) on tables outside sys_metadata, skipping child tables that only repeat a parent\'s field, then adds catalog variable answers, workflow variable values and preferences. --mode system searches configuration: reference, glide_list and document ID fields on tables that extend sys_metadata, then conditions, encoded queries, properties, templates, dictionary and variable defaults and reference qualifiers; --scripts adds script fields. Neither mode searches the record\'s own child items (journal, attachments, audit, approvals, translations, emails) or log tables.',
+              'Counts come before rows, one request at a time. A count or row read with no answer in 20 seconds is cancelled on the instance; three slow or rate-limited counts stop the run. LIKE scans of list fields and data tables follow a row count of their table, and tables over 100000 rows are only scanned with --include-large. Ctrl-C stops the run and cancels the count in flight on the instance.',
+              'The output ends with what was not searched. A run with a failed count, a skipped large table, three slow or rate-limited counts, a budget stop or Ctrl-C is marked partial and exits 1. Flows are not searched; use jsn flows search.',
+              'A run makes up to a few hundred counts and can take minutes on a busy instance (--plan shows the number first). --csv, --tsv and --markdown print only the referring records; --json adds the plan and what was not searched.',
+              'Examples:',
+              '  jsn records references sys_user_group <sys_id> --plan',
+              '  jsn records references sys_user_group "Service Desk" --identifier-field name',
+              '  jsn records references sys_user_group "Service Desk" --identifier-field name --mode system --scripts --json',
+            ].join('\n')),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const { findReferences, formatReferences } = await import('../records/references.js');
+            // Ctrl-C stops between requests and cancels the count in flight; a second Ctrl-C exits at once.
+            const controller = new AbortController();
+            const interrupt = () => { process.stderr.write('\nStopping...\n'); controller.abort(); };
+            process.once('SIGINT', interrupt);
+            let data;
+            try {
+              data = await findReferences(app.sdk, { table: argv.table, identifier: argv.identifier, identifierField: argv.identifierField, mode: argv.mode, planOnly: argv.plan, scripts: argv.scripts, includeLarge: argv.includeLarge, limit: argv.limit, maxRequests: argv.maxRequests, signal: controller.signal, profile: argv.profile, instance: argv.instance });
+            } finally {
+              process.removeListener('SIGINT', interrupt);
+            }
+            Object.defineProperty(data, '_formatted', { value: formatReferences(data), enumerable: false });
+            if (data.partial) process.exitCode = 1;
+            // Delimited output carries only the records, so say there is a gap.
+            if (data.partial && ['csv', 'tsv', 'markdown'].includes(argv.format)) process.stderr.write('⚠ Partial: some sources were not searched; run without --csv, --tsv or --markdown to see which.\n');
+            if (data.mode === 'data' && !data.plan_only && ['csv', 'tsv', 'markdown'].includes(argv.format)) process.stderr.write('Configuration such as scheduled jobs and assignment rules was not searched; add --mode system to search it.\n');
+            app.ok(data, { summary: data.plan_only ? `Plan: ${data.requests.planned} count queries for ${data.record.table} ${data.record.sys_id}` : `${data.records.length} ${data.mode} record(s) refer to ${data.record.table} ${data.record.sys_id}${data.partial ? ' (partial)' : ''}` });
+          }),
+        })
 
     },
     // Parent discovery through the output controller: the subcommand list is
