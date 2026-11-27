@@ -290,7 +290,8 @@ test('install --yes never reports a rejected, failed, unreadable or unverified a
   ];
   for (const [code, options] of cases) {
     const f = installFixture(options);
-    await assert.rejects(f.run({ ids: ['com.example.root'], yes: true }), error => error.code === code, code);
+    // Every recovery hint keeps the selectors, so following one reads the instance that ran the activation.
+    await assert.rejects(f.run({ ids: ['com.example.root'], yes: true, profile: 'vendor' }), error => error.code === code && (code === 'api_error' || /plugins show com\.example\.root --profile vendor/.test(error.hint)), code);
     assert.equal(f.sent.filter(s => s.url.includes('/activate')).length, 1, code);
     assert.equal(f.data, undefined, code);
   }

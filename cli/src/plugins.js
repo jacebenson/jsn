@@ -127,8 +127,8 @@ export async function planActivation(sdk, ids) {
 }
 
 // One plugin through the CI/CD API, then the tracker, then v_plugin. A tracker alone is never success.
-export async function activatePlugin(sdk, plan, { pollIntervalMs, timeoutMs } = {}) {
-  const [id] = plan.requested;
+export async function activatePlugin(sdk, plan, { pollIntervalMs, timeoutMs, rerun = tokens => ['jsn', ...tokens].join(' ') } = {}) {
+  const [id] = plan.requested, show = rerun(['plugins', 'show', id]);
   let response;
   try {
     response = await sdk.request(`${sdk.baseURL}/api/sn_cicd/plugin/${encodeURIComponent(id)}/activate`, { method: 'POST' });
@@ -136,26 +136,26 @@ export async function activatePlugin(sdk, plan, { pollIntervalMs, timeoutMs } = 
     // A 4xx is the instance's answer; a timeout, dropped connection or 5xx may follow a request it accepted.
     if (error instanceof AppError && error.code !== CodeNetwork && !(error.status >= 500)) throw error;
     throw new AppError('plugin_activation_unknown', `Activation of ${id} may have started, but the request failed (${error.message}), so its state is unknown.`,
-      `Read jsn plugins show ${id} before any retry; jsn never resends an activation.`);
+      `Read ${show} before any retry; jsn never resends an activation.`);
   }
   const result = response?.result;
-  if (!result || typeof result !== 'object') throw errAPI(200, `The activation request for ${id} returned no result, so its state is unknown. Read jsn plugins show ${id} before retrying.`);
+  if (!result || typeof result !== 'object') throw errAPI(200, `The activation request for ${id} returned no result, so its state is unknown. Read ${show} before retrying.`);
   const tracker = result.links?.progress?.id;
   // A tracker means the activation was queued, even beside error text (a license warning on a PDI).
   if (!isSysId(String(tracker ?? '')) && result.error) {
     throw new AppError('plugin_activation_rejected', `Activation of ${id} was not started: ${raw(result.error)}.`,
-      `Read jsn plugins show ${id} before retrying; jsn never resends an activation.`);
+      `Read ${show} before retrying; jsn never resends an activation.`);
   }
   // No tracker does not prove a rejection: the activation may be running.
   if (!isSysId(String(tracker ?? ''))) {
     throw new AppError('plugin_activation_unknown', `Activation of ${id} may have started, but no progress tracker came back, so its state is unknown.`,
-      `Read jsn plugins show ${id} before any retry; jsn never resends an activation.`);
+      `Read ${show} before any retry; jsn never resends an activation.`);
   }
   let progress;
   try { progress = await waitForOperation(sdk, tracker, { pollIntervalMs, timeoutMs }); }
   catch (error) {
     throw new AppError('plugin_progress_unavailable', `Activation of ${id} was started (tracker ${tracker}) but its progress could not be read: ${error.message}. It may still be running.`,
-      `Read jsn store status ${tracker} and jsn plugins show ${id}; do not resend.`);
+      `Read ${rerun(['store', 'status', tracker])} and ${show}; do not resend.`);
   }
   const data = { ...plan, tracker_id: tracker, activation_warning: result.error ? raw(result.error) : null, ...progress, still_inactive: null, verified: false };
   if (progress.wait_timed_out || !progress.succeeded) return data;
@@ -164,7 +164,7 @@ export async function activatePlugin(sdk, plan, { pollIntervalMs, timeoutMs } = 
   try { found = await readPlugins(sdk, ids); }
   catch (error) {
     throw new AppError('plugin_readback_unavailable', `Tracker ${tracker} reported success, but v_plugin could not be read back: ${error.message}.`,
-      `Read jsn plugins show ${id}; a reported success is not a completed activation.`);
+      `Read ${show}; a reported success is not a completed activation.`);
   }
   data.still_inactive = ids.filter(dep => found.get(dep)?.active !== true);
   data.verified = !data.still_inactive.length;

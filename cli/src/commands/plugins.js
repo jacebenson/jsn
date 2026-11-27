@@ -45,7 +45,7 @@ const installCommand = wrap => ({
         breadcrumbs: rerun ? [{ action: 'install', cmd: rerun, description: 'Activate it' }] : [] });
     }
     if (plan.refusals.length) throw errUsage(`Not activated: ${refused}. Nothing was sent.`);
-    const data = await activatePlugin(app.sdk, plan, { pollIntervalMs, timeoutMs });
+    const data = await activatePlugin(app.sdk, plan, { pollIntervalMs, timeoutMs, rerun: tokens => buildRerunCommand(argv, { rerun: tokens }) });
     Object.defineProperty(data, '_formatted', { value: formatActivation(data), enumerable: false });
     const [id] = plan.requested;
     if (!data.wait_timed_out && !data.succeeded) {
