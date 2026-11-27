@@ -343,6 +343,13 @@ test('Ctrl-C during a scan cancels it on the instance in its session and stops b
   assert.equal(rows.partial, true);
   const unread = rows.sources.filter(source => source.reason === 'Interrupted before its rows were read');
   assert.ok(unread.length && unread.every(source => source.command?.startsWith('jsn records list')));
+  // Ctrl-C during a request that is also refused a session does not start a stateless retry.
+  const midAuth = new AbortController();
+  const authSdk = fixture({ scan: async () => { midAuth.abort(); throw Object.assign(new Error('Authentication rejected (HTTP 401).'), { code: 'auth_error', status: 401 }); } });
+  const stoppedByAuth = await findReferences(authSdk, { ...base, signal: midAuth.signal });
+  assert.equal(authSdk.calls.filter(call => call.kind === 'scan').length, 1);
+  assert.equal(stoppedByAuth.scan_session, undefined);
+  assert.equal(stoppedByAuth.interrupted, true);
 });
 
 test('real CLI reads only with GETs on a read-only profile, exits 1 when partial and rejects bad input before transport', async () => {

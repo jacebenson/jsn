@@ -241,7 +241,8 @@ export async function findReferences(sdk, { table, identifier, identifierField, 
     const run = () => call({ method: 'GET', readOnly: true, stateful: session, timeout: COUNT_TIMEOUT });
     try {
       // A refused UI login (flapping instance, web-service-only user) fails every session read, not just this one.
-      try { return await run(); } catch (error) { if (!session || error.code !== CodeAuth) throw error; session = false; data.scan_session = 'refused'; return await run(); }
+      // After Ctrl-C there is nothing to retry for: the abort listener already fired, so a stateless retry could not be cancelled either.
+      try { return await run(); } catch (error) { if (!session || error.code !== CodeAuth || interrupted()) throw error; session = false; data.scan_session = 'refused'; return await run(); }
     } catch (error) {
       if (interrupted()) throw error;
       const timedOut = error.code === CodeNetwork && /timed out/i.test(error.message);
