@@ -49,6 +49,12 @@ Plugins use `v_plugin.id`, not instance-local `sys_id`. Store applications use
 can supply plugins, so counts are unique within each inventory, not a
 deduplicated product count. Custom `sys_app` applications are excluded.
 
+`jsn plugins show <id>` reads one plugin and every plugin it requires, nested,
+from `v_plugin` by `id`, one level per query, up to 50 levels and 2000 plugins;
+a tree cut short is marked incomplete. A required id `v_plugin` does not list is
+named with its state unknown, never reported as missing, and a cycle is named
+and not followed. `inactive` lists the required plugins that are not active.
+
 Human output lists up to 50 differing/unknown rows per inventory by default,
 with omitted counts. `--verbose` expands all differences. Matching entries need
 no action and are summarized. JSON includes all entries, their `before`, `after`,

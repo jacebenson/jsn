@@ -1,4 +1,4 @@
-import { errNotFound, errUsage } from './errors.js';
+import { errNotFoundHint, errUsage } from './errors.js';
 
 // v_plugin's sys_id is not the plugin id on every row, so every read and every join uses id.
 const TABLE = 'v_plugin';
@@ -43,7 +43,7 @@ export async function readPlugins(sdk, ids) {
 export async function readDependencyTree(sdk, id) {
   validatePluginId(id);
   const root = (await readPlugins(sdk, [id])).get(id);
-  if (!root) throw errNotFound('Plugin', id);
+  if (!root) throw errNotFoundHint('Plugin', id, 'v_plugin does not list this id. Some plugins that others require are never listed there, so this does not show it is absent or inactive; check the id and that this profile can read v_plugin.');
   const nodes = new Map([[id, { ...root, depth: 0 }]]);
   let level = root.requires, depth = 0, limit = null;
   while (level.length) {
