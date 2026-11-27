@@ -66,6 +66,7 @@ const CORE_COMMANDS = [
   { name: 'requests', alias: 'req', desc: 'Manage service catalog requests' },
   { name: 'tasks', alias: 'task', desc: 'Manage catalog tasks' },
   { name: 'tickets', desc: 'Query generic tickets' },
+  { name: 'slas', desc: 'SLA definitions and task SLAs (read-only)' },
   { name: 'approvals', desc: 'Approval requests (list, approve, reject, submit, history)' },
 ];
 
