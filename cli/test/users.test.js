@@ -108,7 +108,7 @@ describe('Users command', () => {
         update: async (...args) => { calls.push(['update', ...args]); return updated; },
         delete: async (...args) => { calls.push(['delete', ...args]); },
       } });
-      await handler(name)({ app, identifier: 'todelete', ...(name === 'update' ? { data: '{"active":false}' } : {}) });
+      await handler(name)({ app, identifier: 'todelete', ...(name === 'update' ? { data: '{"active":false}' } : { force: true }) });
       assert.deepEqual(calls, [
         ['list', 'sys_user', { sysparm_query: 'user_name=todelete', sysparm_limit: '2', sysparm_display_value: 'all', sysparm_fields: 'sys_id' }],
         name === 'update' ? ['update', 'sys_user', 'abc123', { active: false }] : ['delete', 'sys_user', 'abc123'],
@@ -123,6 +123,28 @@ describe('Users command', () => {
     });
   }
 
+  it('delete without --force refuses with a rerun line and deletes nothing', async () => {
+    const previous = process.env.JSN_NO_PROMPTS;
+    process.env.JSN_NO_PROMPTS = '1';
+    try {
+      let deletes = 0;
+      const app = makeApp({ sdk: {
+        list: async () => [{ sys_id: 'abc123', user_name: 'abel.tuter' }],
+        delete: async () => { deletes++; },
+      } });
+      await assert.rejects(() => handler('delete')({ app, _: ['users', 'delete'], identifier: 'abel.tuter', profile: 'dev' }), (err) => {
+        assert.equal(err.code, 'confirmation_required');
+        assert.match(err.message, /^Delete user abel\.tuter .+confirmation required/);
+        assert.match(err.hint, /jsn users delete abel\.tuter --profile dev --force/);
+        return true;
+      });
+      assert.equal(deletes, 0);
+      assert.deepEqual(app.outputCalls, []);
+    } finally {
+      if (previous === undefined) delete process.env.JSN_NO_PROMPTS; else process.env.JSN_NO_PROMPTS = previous;
+    }
+  });
+
   // Regression: all resolve paths request display values; mutations unwrap the
   // raw sys_id, not its display value, before sending an SDK destination.
   for (const name of ['show', 'update', 'delete']) {
@@ -134,7 +156,7 @@ describe('Users command', () => {
         update: async (table, id) => { calls.push([table, id]); return record; },
         delete: async (table, id) => { calls.push([table, id]); },
       } });
-      await handler(name)({ app, identifier: 'target', ...(name === 'update' ? { data: '{"active":"false"}' } : {}) });
+      await handler(name)({ app, identifier: 'target', ...(name === 'update' ? { data: '{"active":"false"}' } : { force: true }) });
       assert.deepEqual(calls, name === 'show' ? [] : [['sys_user', 'raw123']]);
       if (name === 'show') assert.deepEqual(app.lastOk.data, record);
     });
