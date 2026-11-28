@@ -142,6 +142,13 @@ function scriptStoppedError(stop, timeout, cancel) {
   return error;
 }
 
+// A background script is not one transaction: what it wrote before the error stays, so the failure keeps the
+// output and the execution id, and names the rollback when the script ran with a rollback context recorded.
+function scriptFailedError(message, output, execution_id, recorded) {
+  const undo = execution_id && recorded ? `\nAnything it wrote is kept; preview undoing it with jsn eval rollback ${execution_id}` : '';
+  return Object.assign(new Error(message + undo), { output, execution_id });
+}
+
 export class SDKClient {
   constructor(baseURL, authProvider, opts = {}) {
     this.baseURL = baseURL.replace(/\/$/, '');
@@ -1281,12 +1288,16 @@ export class SDKClient {
     // The response body is needed twice: for the output and for the execution id.
     const html = await run;
     const output = this._extractScriptOutput(html);
+    const execution_id = html.match(/sys_script_execution_history\.do\?sys_id=([0-9a-f]{32})/)?.[1] || null;
     // The platform ended it (transaction quota, or an admin's kill) before it finished.
-    if (cancelledByPlatform(output)) throw new Error(`Background script was cancelled on the instance before it finished: ${output}`);
+    // A rollback context is recorded unless turned off (the form's default); a sandbox run writes nothing.
+    const recorded = opts.rollback !== false && !opts.sandbox;
+    if (cancelledByPlatform(output)) throw scriptFailedError(`Background script was cancelled on the instance before it finished: ${output}`, output, execution_id, recorded);
     const scriptError = detectScriptError(output);
     // opts.finished: the script printed this when it completed, so a logged error it ran past (a user criteria script that threw) is the caller's to report.
-    if (scriptError && !opts.finished?.test(output)) throw new Error(`Background script failed: ${scriptError}`);
-    return { output, execution_id: html.match(/sys_script_execution_history\.do\?sys_id=([0-9a-f]{32})/)?.[1] || null };
+    // A script that did not compile never ran, so it has nothing to roll back.
+    if (scriptError && !opts.finished?.test(output)) throw scriptFailedError(`Background script failed: ${scriptError}\nScript output:\n${output}`, output, execution_id, recorded && !/^(?:Script compilation error|Javascript compiler exception):/.test(scriptError));
+    return { output, execution_id };
   }
 
   /**
@@ -1669,7 +1680,8 @@ export class SDKClient {
     out = out.replace(/<[^>]+>/g, '');
 
     // Clean up: decode HTML entities, trim lines
-    out = out.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"');
+    // &amp; last, so a printed "&lt;" (sent as "&amp;lt;") stays "&lt;".
+    out = out.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
 
     // Trim each line and remove empty lines
     const lines = out.split('\n').map(l => l.trim()).filter(l => l.length > 0);
@@ -1687,8 +1699,10 @@ function detectScriptError(output) {
   const kitty = text.match(/KittyScript validation failed[^\n]*?with error:\s*([^\n]+)/i)
     || text.match(/Evaluator\.evaluateString\(\) problem:\s*([^\n]+)/i);
   if (kitty) return `KittyScript: ${kitty[1].replace(/:\s*com\.[\s\S]*$/, '').trim()}`;
+  // Only the platform's own error lines start a line; everything a script prints carries its source ("*** Script: "),
+  // so a finished script that prints a syslog message mentioning TypeError is not a failure.
   const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
-  const errorLine = lines.find(line => /(?:ReferenceError|TypeError|RhinoEcmaError|Script execution error|undefined is not a function|is not defined)/i.test(line));
+  const errorLine = lines.find(line => /^(?:Script (?:execution|compilation) error:|Javascript compiler exception:|Evaluator: (?:com|org)\.[\w.$]+(?:Error|Exception)\b)/.test(line));
   return errorLine || '';
 }
 
