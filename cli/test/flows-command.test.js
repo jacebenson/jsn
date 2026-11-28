@@ -240,6 +240,15 @@ test('flows show renders a draft whose label cache is JSON null', async () => {
   assert.match(styled, /nice!/);
 });
 
+test('flows executions --active asks only for the unfinished states sys_flow_context stores', async () => {
+  const queries = [];
+  const sdk = { list: async (table, params) => { if (table === 'sys_flow_context') queries.push(params.get('sysparm_query')); return []; } };
+  const { app, envelope } = jsonApp(sdk);
+  await handler('executions').handler({ active: true, limit: 50 }, app);
+  assert.deepEqual(queries, ['stateINQUEUED,IN_PROGRESS,CONTINUE_SYNC,WAITING,PAUSED,PAUSED_IN_DEBUG^ORDERBYDESCsys_created_on']);
+  assert.equal(envelope().data.query, queries[0]);
+});
+
 test('flows list handler emits the normal JSON envelope for an interactive selection', async () => {
   const list = commandTree().find(command => command.command === 'list');
   assert.ok(list);

@@ -306,7 +306,7 @@ jsn incidents create --description "Server down" --priority 1
 jsn flows list                                # Interactive picker with pagination
 jsn flows show "Assign Task"                  # Full flow detail
 jsn flows executions                          # All states, newest first
-jsn flows executions --active                  # Only waiting/running/queued
+jsn flows executions --active                  # Only unfinished: queued, in progress, waiting, paused
 jsn flows executions --since "2026-08-25 00:00:00" --until "2026-08-26 00:00:00"
 jsn flows executions --summary                 # Server totals + sampled duration metrics by flow
 jsn flows executions --limit 100               # Inspect more rows from the matching population

@@ -38,7 +38,7 @@ function isWaiting(status) {
 }
 
 function isRunning(status) {
-  return /running|executing|processing/i.test(status);
+  return /in.progress|continue.sync/i.test(status); // IN_PROGRESS and CONTINUE_SYNC, by value or label
 }
 
 export function normalizeFlowContext(record, { now = new Date() } = {}) {
