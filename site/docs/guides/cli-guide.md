@@ -342,6 +342,7 @@ jsn import load u_staging --file rows.csv                                   # pr
 jsn import load u_staging --file rows.csv --yes                             # one row per request; prints inserted/updated/ignored/skipped/error
 jsn import transform ISET0010001 --yes                                      # rerun the maps on a set; reports each row as read back
 jsn import runs ISET0010001                                                 # transform history, newest first, and the newest run's error rows (read-only)
+jsn import maps u_staging                                                   # its transform maps, field maps, coalesce fields and scripts by when they fire (read-only)
 
 # Attachment transfers (standalone, also discoverable via jsn attachments --help)
 jsn attachments list --sys-id <record-id> --json
@@ -689,7 +690,7 @@ Run `jsn` for the full grouped list. Commands are organized by ServiceNow domain
 
 **Data** — `records` (list/get/create/update/delete/count/bulk), `attachments` (list/download/upload), `diff record` (cross-profile read-only comparison), `tables`, `columns`, `includes`, `import`, `logs` (list/show/follow), `snippets` (save/run), `users` (list/show/roles/access/unlock), `groups`
 **Data** — `records` (list/get/create/update/delete/count/bulk), `attachments` (list/download/upload), `diff record` (cross-profile read-only comparison), `tables`, `columns`, `includes`, `import` (list/show/load), `logs` (list/show/follow), `snippets` (save/run), `users`, `groups`
-**Data** — `records` (list/get/create/update/delete/count/bulk), `attachments` (list/download/upload), `diff record` (cross-profile read-only comparison), `tables`, `columns`, `includes`, `import` (list/show/load/transform/runs), `logs` (list/show/follow), `snippets` (save/run), `users`, `groups`
+**Data** — `records` (list/get/create/update/delete/count/bulk), `attachments` (list/download/upload), `diff record` (cross-profile read-only comparison), `tables`, `columns`, `includes`, `import` (list/show/load/transform/runs/maps), `logs` (list/show/follow), `snippets` (save/run), `users`, `groups`
 
 **Platform** — `platform health` (cluster records) and `platform stats` (bounded, read-only `/xmlstats.do` summary; allowlisted metrics only)
 
