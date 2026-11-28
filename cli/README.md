@@ -177,6 +177,16 @@ the group; `remove` deletes every row for the users, and `--yes` needs the
 `--expect-count` its preview printed. Both match the group and users exactly,
 preview without `--yes`, take up to 100 users, read the rows back, and exit
 nonzero unless every change is there.
+
+```sh
+jsn grouproles add --group "Service Desk" --role itil    # preview
+jsn grouproles add --group "Service Desk" --role itil --yes
+```
+
+Child groups inherit a group's roles, so `grouproles add` previews the groups
+under the group and how many visible members of that tree would get the role;
+`--yes` writes the one `sys_group_has_role` row and reads it back, exiting 1 when
+the row is not there. A name two groups share is refused.
 ```sh
 jsn customizations revert --scope sn_hr_core
 jsn customizations revert --scope sn_hr_core --confirm <token>
