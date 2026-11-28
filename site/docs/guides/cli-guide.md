@@ -1166,9 +1166,10 @@ RITM directly. `order_now` returns the request (REQ); JSN then reads the request
 items and reports `request_id`, `request_number` and `requested_items`
 (`sys_id`/`number`). If that follow-up read is denied, the order is still
 reported as placed with `requested_items_readable: false` — inspect requests
-rather than resubmitting. The command handles standard catalog items; record
-producers and order guides require separate workflows. Server rules validate
-dynamic variables at submission; a preview does not validate those rules.
+rather than resubmitting. The command handles standard, hardware and software
+catalog items; record producers and order guides require separate workflows.
+Server rules validate dynamic variables at submission; a preview does not
+validate those rules.
 Preview output lists variable names and required names, not entered values.
 Previews only read, so they work on a read-only profile; submitting requires a
 write-enabled profile and no development update set. Confirmation follows the
