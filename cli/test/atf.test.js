@@ -158,6 +158,15 @@ describe('scheduleTestRun endpoint ladder', () => {
     assert.strictEqual(calls.request.length, 3); // sn_cicd + sn_atf + legacy
   });
 
+  it('stops on a sn_cicd 403 with the role it needs, and inserts nothing', async () => {
+    const { scheduleTestRun } = await import('../src/commands/atf.js');
+    const { app, calls } = mockApp({ requestImpl: () => { throw errAPI(403, 'forbidden'); } });
+    await assert.rejects(scheduleTestRun(app, 't1'), (err) => err.code === 'forbidden' && err.status === 403
+      && /nothing was started/.test(err.message) && /admin/.test(err.hint) && /sn_cicd\.sys_ci_automation/.test(err.hint));
+    assert.strictEqual(calls.request.length, 1);
+    assert.strictEqual(calls.create.length, 0);
+  });
+
   it('aborts on non-endpoint-missing errors (no silent fallback)', async () => {
     const { scheduleTestRun } = await import('../src/commands/atf.js');
     const { app, calls } = mockApp({
@@ -191,6 +200,13 @@ describe('scheduleSuiteRun endpoint ladder', () => {
     const out = await scheduleSuiteRun(app, 's1');
     assert.deepStrictEqual(out, { executionId: 'sr2', progressId: '', resultId: 'sr2', kind: 'table', via: 'sn_atf' });
     assert.ok(calls.request[1].endpoint.endsWith('/api/sn_atf/rest/suite'));
+  });
+
+  it('stops on a sn_cicd 403 with the role it needs', async () => {
+    const { scheduleSuiteRun } = await import('../src/commands/atf.js');
+    const { app, calls } = mockApp({ requestImpl: () => { throw errAPI(403, 'forbidden'); } });
+    await assert.rejects(scheduleSuiteRun(app, 's1'), (err) => err.code === 'forbidden' && /sn_cicd\.sys_ci_automation/.test(err.hint));
+    assert.strictEqual(calls.request.length, 1);
   });
 
   it('throws usage when no suite API is available', async () => {

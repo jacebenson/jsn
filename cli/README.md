@@ -484,7 +484,9 @@ jsn atf results <result_sys_id> --logs
 ```
 
 `atf run` and `run-suite` wait for the result by default and exit 1 when the
-run failed, errored or was canceled.
+run failed, errored or was canceled. A 403 from the CICD API stops before
+anything runs and names the role it needs: admin or
+`sn_cicd.sys_ci_automation`.
 
 `atf results` takes the id `atf run` or `run-suite` printed, or a
 `sys_atf_test_result` or `sys_atf_test_suite_result` sys_id. A test result
