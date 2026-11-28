@@ -11,7 +11,7 @@ Run these from the JSN repository root (the CLI entry is `cli/bin/jsn.js`):
 ```bash
 node cli/bin/jsn.js platform health --all-nodes --json
 node cli/bin/jsn.js transactions --query 'sys_created_on>=javascript:gs.daysAgoStart(1)' --json
-node cli/bin/jsn.js logs list --query 'level=error' --columns 'level,message,source,sys_created_on,sys_id' --limit 50 --json
+node cli/bin/jsn.js logs list --query 'level=2' --columns 'level,message,source,sys_created_on,sys_id' --limit 50 --json
 node cli/bin/jsn.js logs follow --level error --tail 50 --interval 2000
 node cli/bin/jsn.js flows executions --since '<start>' --until '<end>' --summary --json
 node cli/bin/jsn.js records list --table syslog_transaction --query '<encoded query>' --columns 'sys_id,type,response_time,sys_created_on' --limit 50 --json
@@ -27,7 +27,7 @@ Use the installed binary instead of `node cli/bin/jsn.js` when appropriate. The 
 |---|---|---|---|
 | P-01 | Baseline platform health | `jsn platform health --all-nodes --json` | Node status/type, queue length/age, active sessions, semaphore usage, memory pressure, daily transaction stats, timestamp. |
 | P-02 | Transaction summary | `jsn transactions --query '<bounded query>' --json` | Counts and average/min/max response time by transaction type. JSN groups `syslog_transaction` by type. |
-| P-03 | Error and warning baseline | `jsn logs list --query 'level=error^ORlevel=warning' --limit 100 --json` | Complete output, query, timestamp, level, source, message, sys_id. |
+| P-03 | Error and warning baseline | `jsn logs list --query 'level=2^ORlevel=1' --limit 100 --json` | Complete output, query, timestamp, level, source, message, sys_id. |
 | P-04 | Live error monitoring | `jsn logs follow --level error --tail 50 --interval 2000` | Errors generated during the test. Stop with Ctrl-C. Use `--source` or `--query` to narrow it. |
 | P-05 | Slow transaction detail | `jsn records list --table syslog_transaction --query '<time and response filters>' --columns '<timing fields>' --limit 50 --json` | Response time, processing start, SQL/ACL/script timing if ACLs expose those fields, user, URL, node, transaction number. Keep the time range bounded. |
 | P-06 | Transaction-log coverage | Compare `jsn transactions` and `jsn records list` results with node logs and cancelled-transaction data. | Evidence that an empty `syslog_transaction` result does not mean no transaction occurred. Include node, session, transaction number, and txid where available. |
