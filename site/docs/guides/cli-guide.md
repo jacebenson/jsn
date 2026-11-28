@@ -1121,6 +1121,12 @@ Search text is literal; encoded-query operators and query scripts are rejected.
 Existing `cmdb list --query` remains available for deliberate encoded queries.
 Results include show/relationship hints and preserve the selected connection.
 
+`jsn cmdb show <name-or-sys_id>` reads the CI from its class table, so class
+fields such as `os` and `os_version` appear, and reports `sys_class_name` as the
+class table name (`cmdb_ci_linux_server`, not "Linux Server"). A name that
+matches more than one CI is refused with the candidates' sys_ids and classes;
+`cmdb relationships --ci` resolves names the same way.
+
 ### Commands for the connected account
 
 Login and OAuth refresh check for the current account's `admin` role. Profiles

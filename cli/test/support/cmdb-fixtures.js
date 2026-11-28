@@ -74,7 +74,7 @@ export function makeSDK({ withSiblings = false } = {}) {
           }
           return [];
         }
-        if (table === 'cmdb_ci') {
+        if (table.startsWith('cmdb_ci')) {
           const q = params.get('sysparm_query');
           if (!q) {
             const all = Object.values(cis);

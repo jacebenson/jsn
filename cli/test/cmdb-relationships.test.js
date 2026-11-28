@@ -34,13 +34,22 @@ describe('cmdb relationships — root resolution', () => {
     assert.strictEqual(app.okCalls[0].data.root.class, 'cmdb_ci_app_server');
   });
 
-  it('resolves a non-hex --ci as a name lookup (limit 5) and takes the first row', async () => {
+  it('resolves a non-hex --ci as a name lookup (limit 5)', async () => {
     const { listCalls, app } = await run({ ci: 'app1' });
     const ciCall = listCalls.find((c) => c.table === 'cmdb_ci' && c.query.startsWith('name='));
     assert.ok(ciCall, 'should look up cmdb_ci by name');
     assert.strictEqual(ciCall.query, 'name=app1');
     assert.strictEqual(ciCall.limit, '5');
     assert.strictEqual(app.okCalls[0].data.root.sys_id, ROOT);
+  });
+
+  it('refuses a --ci name that matches more than one CI and reads no relationships', async () => {
+    const calls = [];
+    const sdk = { async list(table) { calls.push(table); return [{ sys_id: ROOT, name: 'app1', sys_class_name: 'cmdb_ci_app_server' }, { sys_id: SERVER, name: 'app1', sys_class_name: 'cmdb_ci_server' }]; } };
+    const app = makeApp(sdk);
+    const rel = (await collectHandlers()).find((s) => s.command === 'relationships');
+    await assert.rejects(rel.handler(baseArgv(app, { ci: 'app1' })), (err) => err.code === 'ambiguous' && err.hint.includes(`${SERVER} (cmdb_ci_server)`));
+    assert.deepStrictEqual(calls, ['cmdb_ci']);
   });
 
   it('throws not_found when the CI does not exist', async () => {
