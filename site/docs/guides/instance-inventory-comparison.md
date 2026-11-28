@@ -40,7 +40,7 @@ installed. Missing installation evidence requires investigation, not an install
 or uninstall recommendation. Recommendations are guidance, not executable
 remediation or a guarantee of entitlement, compatibility or upgrade availability.
 
-These commands only read instance data. They never install, activate, upgrade,
+The compare commands only read instance data. They never install, activate, upgrade,
 execute scripts or modify instance records. Normal authentication may refresh
 local OAuth credentials or bootstrap a session.
 
@@ -54,6 +54,12 @@ from `v_plugin` by `id`, one level per query, up to 50 levels and 2000 plugins;
 a tree cut short is marked incomplete. A required id `v_plugin` does not list is
 named with its state unknown, never reported as missing, and a cycle is named
 and not followed. `inactive` lists the required plugins that are not active.
+
+`jsn plugins install <id>` previews activating a plugin: the inactive plugins it
+would pull in, required plugins first, and any refusal (already active, install
+blocked or unreadable, an incomplete tree). With `--yes` and one id it activates that plugin
+through the CI/CD API, waits on the tracker, and reads every plugin it listed
+back from `v_plugin`. Activation cannot be undone from jsn.
 
 Human output lists up to 50 differing/unknown rows per inventory by default,
 with omitted counts. `--verbose` expands all differences. Matching entries need

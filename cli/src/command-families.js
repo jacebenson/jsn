@@ -694,11 +694,14 @@ const deferredFamilies = {
   "plugins": {
     definition: {
       command: "plugins",
-      describe: "Show a plugin with its nested dependencies, and compare plugins across instances",
+      describe: "Show a plugin with its nested dependencies, compare plugins across instances, and activate one",
     },
     capabilities: {
       skipContextHeader: true,
       noImpersonateSubcommands: ["compare"],
+      // Activation writes plugin state, not metadata an update set captures, as store install does.
+      mutationSubcommands: ["install"],
+      mutationContextExemptSubcommands: ["install"],
     },
     module: "./commands/plugins.js", exportName: "pluginsCmd",
   },
