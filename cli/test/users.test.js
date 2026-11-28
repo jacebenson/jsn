@@ -124,19 +124,25 @@ describe('Users command', () => {
   }
 
   it('delete without --force refuses with a rerun line and deletes nothing', async () => {
-    let deletes = 0;
-    const app = makeApp({ sdk: {
-      list: async () => [{ sys_id: 'abc123', user_name: 'abel.tuter' }],
-      delete: async () => { deletes++; },
-    } });
-    await assert.rejects(() => handler('delete')({ app, _: ['users', 'delete'], identifier: 'abel.tuter', profile: 'dev' }), (err) => {
-      assert.equal(err.code, 'confirmation_required');
-      assert.match(err.message, /^Delete user abel\.tuter — confirmation required/);
-      assert.match(err.hint, /jsn users delete abel\.tuter --profile dev --force/);
-      return true;
-    });
-    assert.equal(deletes, 0);
-    assert.deepEqual(app.outputCalls, []);
+    const previous = process.env.JSN_NO_PROMPTS;
+    process.env.JSN_NO_PROMPTS = '1';
+    try {
+      let deletes = 0;
+      const app = makeApp({ sdk: {
+        list: async () => [{ sys_id: 'abc123', user_name: 'abel.tuter' }],
+        delete: async () => { deletes++; },
+      } });
+      await assert.rejects(() => handler('delete')({ app, _: ['users', 'delete'], identifier: 'abel.tuter', profile: 'dev' }), (err) => {
+        assert.equal(err.code, 'confirmation_required');
+        assert.match(err.message, /^Delete user abel\.tuter .+confirmation required/);
+        assert.match(err.hint, /jsn users delete abel\.tuter --profile dev --force/);
+        return true;
+      });
+      assert.equal(deletes, 0);
+      assert.deepEqual(app.outputCalls, []);
+    } finally {
+      if (previous === undefined) delete process.env.JSN_NO_PROMPTS; else process.env.JSN_NO_PROMPTS = previous;
+    }
   });
 
   // Regression: all resolve paths request display values; mutations unwrap the

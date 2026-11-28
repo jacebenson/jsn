@@ -151,7 +151,8 @@ export function groupsCmd(wrap) {
             const group = await resolveRecord(app.sdk, { table: 'sys_user_group', identifier: id, matchField: 'name', resource: 'Group', fields: ['name'], partial: false });
             const sysID = unwrapSysId(group);
             if (!sysID) throw new Error('The matched group has no readable sys_id; nothing deleted.');
-            await confirmDelete(app, argv, `Delete group ${id}`, { rerun: ['groups', 'delete', id] });
+            const name = getStringField(group, 'name') || id;
+            await confirmDelete(app, argv, `Delete group ${name}${name === id ? '' : ` (${id})`}`, { rerun: ['groups', 'delete', id] });
             await app.sdk.delete('sys_user_group', sysID);
             app.ok({ identifier: id, message: 'Group deleted' }, {
               summary: `Deleted group ${id}`,

@@ -82,26 +82,39 @@ describe('groups delete', () => {
     assert.deepStrictEqual(app.outputCalls, []);
   });
 
-  it('without --force refuses with a rerun line and deletes nothing', async () => {
-    let deletes = 0;
-    const { app, done } = run({
-      list: async () => [{ sys_id: 'g1', name: 'Team A' }],
-      delete: async () => { deletes++; },
-    }, { name: 'Team A' });
-    await assert.rejects(done, (err) => {
-      assert.strictEqual(err.code, 'confirmation_required');
-      assert.match(err.message, /^Delete group Team A — confirmation required/);
-      assert.match(err.hint, /jsn groups delete 'Team A' --force/);
-      return true;
+  for (const [label, name, prompt, hint] of [
+    ['a name', 'Team A', /^Delete group Team A .+confirmation required/, /jsn groups delete 'Team A' --force/],
+    ['a sys_id, naming the group it found', 'a'.repeat(32), new RegExp(`^Delete group Team A \\(${'a'.repeat(32)}\\) .+confirmation required`), new RegExp(`jsn groups delete ${'a'.repeat(32)} --force`)],
+  ]) {
+    it(`without --force refuses ${label} with a rerun line and deletes nothing`, async () => {
+      const previous = process.env.JSN_NO_PROMPTS;
+      process.env.JSN_NO_PROMPTS = '1';
+      try {
+        let deletes = 0;
+        const { app, done } = run({
+          list: async () => [{ sys_id: 'g1', name: { value: 'Team A', display_value: 'Team A' } }],
+          delete: async () => { deletes++; },
+        }, { name });
+        await assert.rejects(done, (err) => {
+          assert.strictEqual(err.code, 'confirmation_required');
+          assert.match(err.message, prompt);
+          assert.match(err.hint, hint);
+          return true;
+        });
+        assert.strictEqual(deletes, 0);
+        assert.deepStrictEqual(app.outputCalls, []);
+      } finally {
+        if (previous === undefined) delete process.env.JSN_NO_PROMPTS; else process.env.JSN_NO_PROMPTS = previous;
+      }
     });
-    assert.strictEqual(deletes, 0);
-    assert.deepStrictEqual(app.outputCalls, []);
-  });
+  }
 
-  it('reports a missing group as not found and deletes nothing', async () => {
+  it('reports a missing group as not found without a sys_id prefix match, and deletes nothing', async () => {
     let deletes = 0;
-    const { done } = run({ list: async () => [], delete: async () => { deletes++; } }, { name: 'Nobody', force: true });
+    const queries = [];
+    const { done } = run({ list: async (_table, params) => { queries.push(params.get('sysparm_query')); return []; }, delete: async () => { deletes++; } }, { name: 'Nobody', force: true });
     await assert.rejects(done, { code: 'not_found', message: 'Group not found: Nobody' });
+    assert.deepStrictEqual(queries, ['name=Nobody', 'sys_id=Nobody']);
     assert.strictEqual(deletes, 0);
   });
 });
