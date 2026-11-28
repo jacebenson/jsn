@@ -176,5 +176,5 @@ export async function discoverSkippedUpdates(sdk, { limit = 100, offset = 0, inc
   if (rows.some(row => !unresolved(row))) throw errUsage('Provider returned a finding outside the unresolved skipped state.');
   if (!includeUnchanged && rows.some(row => raw(row.changed) !== 'true')) throw errUsage('Provider returned a finding whose Changed flag is not true; use --include-unchanged to list every skip.');
   return { findings: rows.slice(0, limit), count: Math.min(rows.length, limit),
-    limit, offset, has_more: rows.length > limit, total: null };
+    limit, offset, has_more: rows.length > limit, total: null, changed_only: !includeUnchanged };
 }

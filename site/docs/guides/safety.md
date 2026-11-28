@@ -229,7 +229,7 @@ jsn skipped-updates review <finding-sys-id> --json
 jsn skipped-updates preview --ids <finding-1>,<finding-2> --action retain --json
 ```
 
-Discovery includes raw dispositions 4, 104, 9, 10 and 11 with blank or `not_reviewed` resolution and `changed=true`, the filter ServiceNow's Revert a customization steps add so only objects whose base changed in that upgrade remain. `--include-unchanged` adds the skips whose Changed flag is false; `upgrade prep` reads changed skips only. A page reports its fetched count, offset and `has_more`; the instance-wide total is unknown. Use the next offset to continue. A normal prompt-capable terminal uses the shared select-to-review picker. `process` offers a bounded 100-finding multi-select page and an explicit action picker when IDs or the action are omitted. Other pages can be selected with explicit IDs.
+Discovery includes raw dispositions 4, 104, 9, 10 and 11 with blank or `not_reviewed` resolution and `changed=true`, the filter ServiceNow's Revert a customization steps add to return only the objects that changed since the last upgrade. `--include-unchanged` on `list`, and on the guided `preview` and `process` page, adds the skips whose Changed flag is false; the JSON page says which with `changed_only`. `upgrade prep` reads changed skips only. A page reports its fetched count, offset and `has_more`; the instance-wide total is unknown. Use the next offset to continue. A normal prompt-capable terminal uses the shared select-to-review picker. `process` offers a bounded 100-finding multi-select page and an explicit action picker when IDs or the action are omitted. Other pages can be selected with explicit IDs.
 
 ### Evidence and impact
 

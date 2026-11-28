@@ -7,7 +7,8 @@ import { discoverSkippedUpdates, reviewSkippedUpdate, prepareSkippedBatch, proce
 const label = row => `${raw(row.sys_id)}  ${getStringField(row, 'target_name') || getStringField(row, 'file_name')}`;
 const selectionOptions = y => y
   .option('ids', { type: 'string', describe: 'Comma-separated literal finding sys_ids, maximum 100' })
-  .option('action', { type: 'string', choices: ['retain', 'revert'], describe: 'Explicit selected action, never inferred from recommendations' });
+  .option('action', { type: 'string', choices: ['retain', 'revert'], describe: 'Explicit selected action, never inferred from recommendations' })
+  .option('include-unchanged', { type: 'boolean', default: false, describe: 'Guided page also offers skips whose base did not change in that upgrade (Changed false)' });
 
 export function renderSkippedPreview(preview) {
   const lines = [`Instance: ${preview.instance}`, `Exact selected batch: ${preview.count} finding(s)`];
@@ -37,8 +38,8 @@ export function skippedUpdatesCmd(wrap, ui = {}) {
     let ids = typeof argv.ids === 'string' ? argv.ids.split(',') : undefined;
     let action = argv.action;
     if (!ids && guided) {
-      const page = await discoverSkippedUpdates(app.sdk, { limit: 100, offset: 0 });
-      if (!page.count) throw errUsage('No unresolved skipped findings were returned.');
+      const page = await discoverSkippedUpdates(app.sdk, { limit: 100, offset: 0, includeUnchanged: argv.includeUnchanged });
+      if (!page.count) throw errUsage(page.changed_only ? 'No unresolved changed skipped findings were returned; --include-unchanged adds the rest.' : 'No unresolved skipped findings were returned.');
       ids = await prompts.checkbox({ message: `Select findings from this page${page.has_more ? ' (more exist; use list --offset for others)' : ''}`,
         choices: page.findings.map(row => ({ name: label(row), value: raw(row.sys_id) })), required: true });
     }
