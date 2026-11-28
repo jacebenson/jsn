@@ -697,8 +697,9 @@ export function recordsCmd(wrap) {
             .option('field', { alias: 'f', type: 'string', array: true, describe: 'Set a field as name=value; repeatable' })
             .option('dry-run', { type: 'boolean', default: true, describe: 'Preview the count + a sample without mutating (default)' })
             .option('execute', { type: 'boolean', default: false, describe: 'Perform the update after confirmation' })
-            .option('limit', { type: 'number', default: 200, describe: 'Max records to update when executing' })
-            .option('force', { type: 'boolean', default: false, describe: 'Skip confirmation (with --execute)' }),
+            .option('limit', { type: 'number', default: 200, describe: 'Safety cap: --execute refuses if matches exceed this count' })
+            .option('force', { type: 'boolean', default: false, describe: 'Skip confirmation (with --execute)' })
+            .epilogue('--execute lists every match in sys_id order before the first write, updates each one, then reads back up to 5 updated records. Any failed write, or a field the read-back shows was not persisted, exits nonzero.'),
           handler: wrap(async (argv, app) => {
             app.requireInstance();
             // Validate the complete original filter before confirmation, count or any write.
@@ -708,7 +709,9 @@ export function recordsCmd(wrap) {
               argv.execute = true; // explicit --no-dry-run implies execute intent
             }
             const dryRun = argv['dry-run'] && !argv.execute;
+            if (!dryRun && (!Number.isSafeInteger(argv.limit) || argv.limit < 1)) throw errUsage('--limit must be a positive safe integer.');
             const count = await app.sdk.aggregateCount(argv.table, argv.query);
+            if (!Number.isSafeInteger(count) || count < 0) throw new Error('Cannot verify the matching count; refusing bulk update.');
 
             if (dryRun) {
               const params = new URLSearchParams();
@@ -729,50 +732,50 @@ export function recordsCmd(wrap) {
               return;
             }
 
+            if (count > argv.limit) throw errUsage(`Matched ${count} records, exceeding --limit ${argv.limit}. Raise --limit explicitly to proceed. No records updated.`);
             await confirmDelete(app, argv, `Bulk update ${count} record(s) in ${argv.table}?`);
-            const sysIDs = [];
-            const pageSize = Math.min(argv.limit, 1000);
-            const params = new URLSearchParams();
-            params.set('sysparm_query', argv.query);
-            params.set('sysparm_limit', String(pageSize));
-            params.set('sysparm_fields', 'sys_id');
-            let offset = 0;
-            while (sysIDs.length < argv.limit) {
-              params.set('sysparm_offset', String(offset));
-              let recs;
-              try { recs = await app.sdk.list(argv.table, params); } catch { break; }
-              if (!recs || recs.length === 0) break;
-              for (const r of recs) {
-                const id = getStringField(r, 'sys_id');
-                if (id) sysIDs.push(id);
-              }
-              if (recs.length < pageSize) break;
-              offset += recs.length;
+            // Snapshot every target in sys_id order before the first write, so neither the writes nor an unordered read can shift a page.
+            const targets = [];
+            while (targets.length < count) {
+              const rows = await listRecords(app.sdk, { table: argv.table,
+                params: recordListParams({ query: `${argv.query}^ORDERBYsys_id`, limit: Math.min(1000, count - targets.length), offset: targets.length, fields: ['sys_id'], displayValue: 'false' }) });
+              if (!rows.length) break;
+              targets.push(...rows.map(unwrapSysId));
             }
-            const targets = sysIDs.slice(0, argv.limit);
+            if (targets.length !== count || targets.some(id => !id) || new Set(targets).size !== count) {
+              throw errUsage(`Enumeration differs from the ${count} counted records or contains unreadable/duplicate sys_ids. No records updated.`);
+            }
             if (app.mutationContext?.verified) {
               if (Object.hasOwn(set, 'sys_scope')) assertMutationScope(app.mutationContext, set.sys_scope, 'Bulk payload');
               for (const id of targets) await assertMutationRecordScope(app, argv.table, id);
             }
-            let updated = 0;
+            const updated = [];
             const failures = [];
             for (const id of targets) {
               try {
                 await app.sdk.update(argv.table, id, set);
-                updated += 1;
+                updated.push(id);
               } catch (e) {
                 failures.push({ sys_id: id, error: e.message || String(e) });
               }
             }
+            const readBack = updated.slice(0, 5);
+            const mismatches = [];
+            for (const id of readBack) mismatches.push(...(await verifyWriteBack(app, argv.table, id, set)).map(m => ({ sys_id: id, ...m })));
+            const verified = failures.length === 0 && mismatches.length === 0;
             app.ok({
               table: argv.table,
               query: argv.query,
               set,
               matched: count,
-              updated,
+              updated: updated.length,
               failed: failures,
+              read_back: { sys_ids: readBack, mismatches },
+              verified,
               context: { instance_url: app.getEffectiveInstance() },
-            }, { summary: `Updated ${updated} of ${count} matching record(s) in ${argv.table}` });
+            }, { summary: verified ? `Updated ${updated.length} of ${count} matching record(s) in ${argv.table}; read back ${readBack.length} with every field persisted`
+              : `Bulk update incomplete or unverified: ${updated.length} updated, ${failures.length} failed of ${count} in ${argv.table}; ${mismatches.length} field(s) not persisted in a read-back of ${readBack.length}` });
+            if (!verified) process.exitCode = 1;
           }),
         })
         .command({

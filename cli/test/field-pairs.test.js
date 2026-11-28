@@ -109,10 +109,12 @@ describe('registered mutation commands accept field pairs', () => {
 
   it('records bulk accepts several field pairs and keeps --set JSON compatible', async () => {
     const updates = [];
+    const rows = [{ sys_id: 'a' }, { sys_id: 'b' }];
     const app = makeApp({ sdk: {
       aggregateCount: async () => 2,
-      list: async (table, params, opts) => queryMetadataFixture(table, params, opts) ?? [{ sys_id: 'a' }, { sys_id: 'b' }],
-      update: async (table, id, body) => { updates.push({ table, id, body }); },
+      list: async (table, params, opts) => queryMetadataFixture(table, params, opts)
+        ?? rows.filter(r => !params.get('sysparm_query').startsWith('sys_id=') || params.get('sysparm_query') === `sys_id=${r.sys_id}`),
+      update: async (table, id, body) => { updates.push({ table, id, body }); Object.assign(rows.find(r => r.sys_id === id), body); },
     } });
     const bulk = command(recordsCmd, 'bulk');
     await bulk.handler({ app, table: 'incident', query: 'priority=1', field: ['state=2', 'active=false'], 'dry-run': false, execute: true, force: true, limit: 200 });

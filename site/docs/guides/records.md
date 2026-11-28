@@ -630,6 +630,11 @@ byte-identically.
 - Filter-based mutations (`delete-many`, `bulk`) validate the complete filter
   before any count, enumeration, scope read or write, and fail closed with zero
   writes on any non-valid state. There is no skip-validation flag.
+- `records bulk --execute` refuses when more records match than `--limit` (200
+  by default), lists every match in sys_id order before the first write, and
+  writes nothing when that list differs from the count. It exits nonzero when
+  any write fails or a read-back of up to five updated records shows a field
+  was not persisted.
 - `records export` holds its query to the same standard before counting or
   exporting, because the export processor drops a term on an unknown column and
   writes unfiltered rows.

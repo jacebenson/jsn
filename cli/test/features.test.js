@@ -72,10 +72,12 @@ describe('records bulk (dry-run by default)', () => {
     const bulk = findCommand(captureSubcommands(cmd), 'bulk');
 
     const updated = [];
+    const rows = [{ sys_id: 'aaa' }, { sys_id: 'bbb' }];
     const sdk = {
       aggregateCount: async () => 2,
-      list: async (table, params, opts) => queryMetadataFixture(table, params, opts) ?? [{ sys_id: 'aaa' }, { sys_id: 'bbb' }],
-      update: async (t, id) => { updated.push(id); },
+      list: async (table, params, opts) => queryMetadataFixture(table, params, opts)
+        ?? rows.filter(r => !params.get('sysparm_query').startsWith('sys_id=') || params.get('sysparm_query') === `sys_id=${r.sys_id}`),
+      update: async (t, id, body) => { updated.push(id); Object.assign(rows.find(r => r.sys_id === id), body); },
     };
     // --force bypasses the interactive confirmation
     const app = makeApp({ sdk });
@@ -85,6 +87,7 @@ describe('records bulk (dry-run by default)', () => {
     );
     assert.strictEqual(app.lastOk.data.updated, 2);
     assert.deepStrictEqual(updated, ['aaa', 'bbb']);
+    assert.strictEqual(app.lastOk.data.verified, true);
   });
 });
 
