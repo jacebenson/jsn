@@ -1,5 +1,6 @@
-import { formatRecordForDisplay, getStringField, resolveFieldsParam, assertSafeExactMatch, confirmDelete, quoteShellArg } from '../helpers.js';
+import { formatRecordForDisplay, getStringField, resolveFieldsParam, assertSafeExactMatch, confirmDelete, quoteShellArg, buildRerunCommand } from '../helpers.js';
 import { deferredFamilyDefinition } from '../command-families.js';
+import { addGroupRole, formatGroupRolePreview, groupRolePreviewSummary } from '../group-role-grants.js';
 
 // add/remove write sys_group_has_role; the mutation guard (instance +
 // read-only profile) and the delete confirmation both key off this.
@@ -37,56 +38,21 @@ export function groupRolesCmd(wrap) {
         })
         .command({
           command: 'add',
-          describe: 'Add a role to a group',
+          describe: 'Add a role to a group; previews without --yes',
           builder: (y) => y
             .option('group', { alias: 'g', type: 'string', demandOption: true, describe: 'Group name or sys_id (required)' })
-            .option('role', { alias: 'r', type: 'string', demandOption: true, describe: 'Role name or sys_id (required)' }),
+            .option('role', { alias: 'r', type: 'string', demandOption: true, describe: 'Role name or sys_id (required)' })
+            .option('yes', { type: 'boolean', default: false, describe: 'Write the grant; without it, show who would get the role' }),
           handler: wrap(async (argv, app) => {
             const groupName = argv.group;
             const roleName = argv.role;
-            assertSafeExactMatch(groupName);
-            assertSafeExactMatch(roleName);
-
-            // Resolve group sys_id
-            const isGroupSysID = groupName.length === 32 && /^[0-9a-fA-F]+$/.test(groupName);
-            const groupParams = new URLSearchParams();
-            groupParams.set('sysparm_query', isGroupSysID ? `sys_id=${groupName}` : `name=${groupName}`);
-            groupParams.set('sysparm_limit', '1');
-            groupParams.set('sysparm_fields', 'sys_id');
-            const groupRecords = await app.sdk.list('sys_user_group', groupParams);
-            if (groupRecords.length === 0) {
-              throw new Error(`Group not found: ${groupName}`);
+            const data = await addGroupRole(app.sdk, { group: groupName, role: roleName, yes: argv.yes });
+            if (data.dry_run) {
+              data.rerun = buildRerunCommand(argv, { rerun: data.rerun });
+              Object.defineProperty(data, '_formatted', { value: formatGroupRolePreview(data), enumerable: false });
+              return app.ok(data, { summary: groupRolePreviewSummary(data) });
             }
-            const groupSysID = getStringField(groupRecords[0], 'sys_id');
-
-            // Resolve role sys_id
-            const isRoleSysID = roleName.length === 32 && /^[0-9a-fA-F]+$/.test(roleName);
-            const roleParams = new URLSearchParams();
-            roleParams.set('sysparm_query', isRoleSysID ? `sys_id=${roleName}` : `name=${roleName}`);
-            roleParams.set('sysparm_limit', '1');
-            roleParams.set('sysparm_fields', 'sys_id');
-            const roleRecords = await app.sdk.list('sys_user_role', roleParams);
-            if (roleRecords.length === 0) {
-              throw new Error(`Role not found: ${roleName}`);
-            }
-            const roleSysID = getStringField(roleRecords[0], 'sys_id');
-
-            // Check if role assignment already exists
-            const checkParams = new URLSearchParams();
-            checkParams.set('sysparm_query', `group=${groupSysID}^role=${roleSysID}`);
-            checkParams.set('sysparm_limit', '1');
-            checkParams.set('sysparm_fields', 'sys_id');
-            const existing = await app.sdk.list('sys_group_has_role', checkParams);
-            if (existing.length > 0) {
-              throw new Error(`Role ${roleName} is already assigned to group ${groupName}`);
-            }
-
-            // Create the role assignment
-            const record = await app.sdk.create('sys_group_has_role', {
-              group: groupSysID,
-              role: roleSysID,
-            });
-            app.ok(record, {
+            app.ok(data.record, {
               summary: `Added role ${roleName} to ${groupName}`,
               breadcrumbs: [
                 { action: 'list', cmd: `jsn grouproles list --query "group.name=${groupName}"`, description: 'List group roles' },
@@ -165,7 +131,7 @@ export function groupRolesCmd(wrap) {
       console.log('');
       console.log('Available subcommands:');
       console.log('  list                  List group roles');
-      console.log('  add                   Add a role to a group');
+      console.log('  add                   Add a role to a group (previews without --yes)');
       console.log('  remove                Remove a role from a group');
       console.log('');
       console.log('Run "jsn grouproles <command> --help" for details.');
