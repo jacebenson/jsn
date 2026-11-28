@@ -186,6 +186,8 @@ export function diffCmd(wrap) {
           }),
         };
         app.ok(data, { summary: `Record diff ${status}: ${table} ${identifier}` });
+        // Checked per side: a missing side outranks an error in status, but the error still fails the run.
+        if ([sideA, sideB].some(side => !['found', 'missing'].includes(side.status))) process.exitCode = 1;
       }),
     }),
     handler: wrap(async (_argv, app) => {

@@ -329,3 +329,65 @@ describe('suiteTestIds', () => {
     assert.strictEqual(calls.list[0].params.get('sysparm_query'), 'test_suite=s1');
   });
 });
+
+// ─── run / run-suite exit codes ───
+
+describe('run and run-suite exit 1 when the run does not pass', () => {
+  async function runHandler(name) {
+    const { atfCmd } = await import('../src/commands/atf.js');
+    const commands = [];
+    const yargs = { command: (c) => { commands.push(c); return yargs; } };
+    atfCmd((fn) => fn).builder(yargs);
+    return commands.find((c) => c.command.startsWith(`${name} `)).handler;
+  }
+
+  async function exitCodeOf(name, argv, { progress, result }) {
+    const handler = await runHandler(name);
+    const { app } = mockApp({
+      listImpl: () => [{ sys_id: 'a'.repeat(32), name: 'Login' }],
+      requestImpl: (endpoint) => {
+        if (endpoint.includes('/run')) return { result: { links: { progress: { id: 'p1' }, results: { id: 'r1' } } } };
+        if (endpoint.includes('/progress/')) return { result: progress };
+        if (result && endpoint.includes('/results/')) return { result };
+        throw errAPI(404, 'missing');
+      },
+    });
+    app.config = {};
+    let summary = '';
+    app.ok = (_data, opts) => { summary = opts.summary; };
+    const previous = process.exitCode;
+    try {
+      await handler({ force: true, wait: true, ...argv }, app);
+      return { code: process.exitCode, summary };
+    } finally { process.exitCode = previous; }
+  }
+
+  it('a failed test result exits 1 and still prints the result', async () => {
+    const out = await exitCodeOf('run', { test: 'Login' }, { progress: { status: '3' }, result: { test_status: 'failure' } });
+    assert.strictEqual(out.code, 1);
+    assert.strictEqual(out.summary, 'ATF test Login: failed');
+  });
+
+  it('a canceled run with no result record exits 1', async () => {
+    const out = await exitCodeOf('run', { test: 'Login' }, { progress: { status: '4' } });
+    assert.strictEqual(out.code, 1);
+  });
+
+  it('a Failed (3) tracker exits 1 even when the result record carries no status', async () => {
+    const out = await exitCodeOf('run-suite', { suite: 'Login' }, { progress: { status: '3' }, result: { rolledup_test_failure_count: 1 } });
+    assert.strictEqual(out.summary, 'ATF suite Login: complete');
+    assert.strictEqual(out.code, 1);
+  });
+
+  it('a suite whose test_suite_status is failure exits 1', async () => {
+    const out = await exitCodeOf('run-suite', { suite: 'Login' }, { progress: { status: '2' }, result: { test_suite_status: 'failure', rolledup_test_failure_count: 1 } });
+    assert.strictEqual(out.code, 1);
+  });
+
+  it('a passing test and a passing suite leave the exit code alone', async () => {
+    const test = await exitCodeOf('run', { test: 'Login' }, { progress: { status: '2' }, result: { test_status: 'success' } });
+    const suite = await exitCodeOf('run-suite', { suite: 'Login' }, { progress: { status: '2' }, result: { test_suite_status: 'success' } });
+    assert.strictEqual(test.code, undefined);
+    assert.strictEqual(suite.code, undefined);
+  });
+});

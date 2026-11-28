@@ -547,6 +547,9 @@ jsn atf results <result_sys_id> --logs
 jsn atf steps "<test name>" --full
 ```
 
+`atf run` and `run-suite` wait for the result by default and exit 1 when the
+run failed, errored or was canceled.
+
 `atf results` takes the id `atf run` or `run-suite` printed, or a
 `sys_atf_test_result` or `sys_atf_test_suite_result` sys_id. A test result
 lists every step from `sys_atf_test_result_step` in order with its status and,

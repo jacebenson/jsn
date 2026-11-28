@@ -355,10 +355,11 @@ Documentation: ${docLink('flows')}`),
             const { summary, results, via } = result;
             const lines = results.map(r => `  ${r.status === 'success' ? '✅' : '❌'} ${r.flow_name ?? r.sys_id}: ${r.message ?? r.status}${r.errorMessage ? ` — ${r.errorMessage}` : ''}`);
 
-            return app.ok({ summary, results, via }, {
+            app.ok({ summary, results, via }, {
               summary: `Published ${summary.succeeded}/${summary.total} (via ${via})\n${lines.join('\n')}`,
               breadcrumbs: [{ action: 'status', cmd: `jsn flows status ${sysID}`, description: 'Verify the flow will run' }],
             });
+            if (summary.failed > 0) process.exitCode = 1;
           }),
         })
         .command({
@@ -429,11 +430,12 @@ Documentation: ${docLink('flows')}`),
             if (record === undefined) return;
             await confirmDesignerMutation(argv, app, `Execute flow test for ${identifier} against record ${record}; actions may cause side effects`);
             const result = await testFlow(app.sdk, app.getEffectiveInstance(), identifier, record);
-            return app.ok(result, {
+            app.ok(result, {
               summary: result.status === 'completed'
                 ? `Flow test completed (${result.success ? 'success' : 'failed'})`
                 : 'Flow test accepted for execution',
             });
+            if (result.success === false) process.exitCode = 1;
           }),
         })
         .command({

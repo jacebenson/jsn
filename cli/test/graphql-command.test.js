@@ -41,7 +41,11 @@ describe('graphql command', () => {
       ok: (value, options) => { app.result = { value, options }; },
     };
 
-    await handler({ app, document: '{ viewer { name } }' });
+    const previous = process.exitCode;
+    try {
+      await handler({ app, document: '{ viewer { name } }' });
+      assert.strictEqual(process.exitCode, 1, 'a response with errors exits 1');
+    } finally { process.exitCode = previous; }
 
     assert.strictEqual(calls[0][0], 'https://example.service-now.com/api/now/graphql');
     assert.deepStrictEqual(JSON.parse(calls[0][1].body), {
@@ -68,6 +72,7 @@ describe('graphql command', () => {
         ok: () => {},
       };
       await handler({ app, ...argv, variables: '{"limit":1}' });
+      assert.strictEqual(process.exitCode, undefined, 'a response without errors leaves the exit code alone');
       assert.strictEqual(JSON.parse(calls[0][1].body).query, expected);
       assert.deepStrictEqual(JSON.parse(calls[0][1].body).variables, { limit: 1 });
     }

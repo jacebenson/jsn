@@ -88,6 +88,7 @@ export function graphqlCmd(wrap) {
           ? `GraphQL returned ${errorCount} error(s)`
           : 'GraphQL request succeeded',
       });
+      if (errorCount) process.exitCode = 1;
     }),
   };
 }

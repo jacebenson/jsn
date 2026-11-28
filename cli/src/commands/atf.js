@@ -40,6 +40,8 @@ const PROGRESS_TERMINAL = new Set([PROGRESS_SUCCESSFUL, PROGRESS_ERROR, PROGRESS
 
 // Terminal statuses for sys_atf_test_result (older instances that expose a status field)
 const TERMINAL_TABLE_STATUSES = new Set(['passed', 'failed', 'error', 'canceled', 'cancelled', 'skipped']);
+// A run that ended in any of these exits 1 (sn_cicd results normalize failure to failed).
+const FAILED_RUN_STATUSES = new Set(['failed', 'error', 'canceled', 'cancelled']);
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -483,6 +485,7 @@ async function handleRun(app, argv, { entity, label, scheduled }) {
     via: scheduled.via,
     ...result,
   }, { summary: `ATF ${entity} ${label}: ${result.status}` });
+  if (FAILED_RUN_STATUSES.has(result.status) || [PROGRESS_ERROR, PROGRESS_CANCELED].includes(result.tracker?.status)) process.exitCode = 1;
 }
 
 export function atfCmd(wrap) {
