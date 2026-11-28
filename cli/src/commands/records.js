@@ -13,6 +13,7 @@ import { assertMutationRecordScope, assertMutationScope } from '../intended-cont
 import { validateReadQuery, assertWriteQuery, queryDiagnostics, invalidateAfterMutation } from '../query-validate.js';
 import { previewCascade } from '../delete-cascade.js';
 import { recordPipeline, formatRecordPipeline } from '../record-pipeline.js';
+import { JOURNAL_ELEMENTS } from '../records/journal.js';
 import { FormatAuto, FormatStyled } from '../output.js';
 
 const tableDefaultColumns = {
@@ -699,7 +700,7 @@ export function recordsCmd(wrap) {
             .option('execute', { type: 'boolean', default: false, describe: 'Perform the update after confirmation' })
             .option('limit', { type: 'number', default: 200, describe: 'Safety cap: --execute refuses if matches exceed this count' })
             .option('force', { type: 'boolean', default: false, describe: 'Skip confirmation (with --execute)' })
-            .epilogue('--execute lists every match in sys_id order before the first write, updates each one, then reads back up to 5 updated records. Any failed write, or a field the read-back shows was not persisted, exits nonzero.'),
+            .epilogue('--execute lists every match in sys_id order before the first write, updates each one, then reads back up to 5 updated records (journal fields such as work_notes are not compared). Any failed write, or a field the read-back shows was not persisted, exits nonzero.'),
           handler: wrap(async (argv, app) => {
             app.requireInstance();
             // Validate the complete original filter before confirmation, count or any write.
@@ -710,8 +711,7 @@ export function recordsCmd(wrap) {
             }
             const dryRun = argv['dry-run'] && !argv.execute;
             if (!dryRun && (!Number.isSafeInteger(argv.limit) || argv.limit < 1)) throw errUsage('--limit must be a positive safe integer.');
-            const count = await app.sdk.aggregateCount(argv.table, argv.query);
-            if (!Number.isSafeInteger(count) || count < 0) throw new Error('Cannot verify the matching count; refusing bulk update.');
+            const count = await app.sdk.aggregateCount(argv.table, argv.query, { strict: true });
 
             if (dryRun) {
               const params = new URLSearchParams();
@@ -735,10 +735,12 @@ export function recordsCmd(wrap) {
             if (count > argv.limit) throw errUsage(`Matched ${count} records, exceeding --limit ${argv.limit}. Raise --limit explicitly to proceed. No records updated.`);
             await confirmDelete(app, argv, `Bulk update ${count} record(s) in ${argv.table}?`);
             // Snapshot every target in sys_id order before the first write, so neither the writes nor an unordered read can shift a page.
+            // A lone trailing caret would escape the appended one (^^ is a literal caret); the extra row on the last page catches a wider live set.
+            const ordered = `${argv.query.replace(/\^+$/, r => r.length % 2 ? r.slice(1) : r)}^ORDERBYsys_id`;
             const targets = [];
             while (targets.length < count) {
               const rows = await listRecords(app.sdk, { table: argv.table,
-                params: recordListParams({ query: `${argv.query}^ORDERBYsys_id`, limit: Math.min(1000, count - targets.length), offset: targets.length, fields: ['sys_id'], displayValue: 'false' }) });
+                params: recordListParams({ query: ordered, limit: Math.min(1000, count - targets.length + 1), offset: targets.length, fields: ['sys_id'], displayValue: 'false' }) });
               if (!rows.length) break;
               targets.push(...rows.map(unwrapSysId));
             }
@@ -759,9 +761,11 @@ export function recordsCmd(wrap) {
                 failures.push({ sys_id: id, error: e.message || String(e) });
               }
             }
-            const readBack = updated.slice(0, 5);
+            // Journal fields read back as the whole rendered journal, never the note sent.
+            const checked = Object.fromEntries(Object.entries(set).filter(([field]) => !JOURNAL_ELEMENTS.includes(field)));
+            const readBack = Object.keys(checked).length ? updated.slice(0, 5) : [];
             const mismatches = [];
-            for (const id of readBack) mismatches.push(...(await verifyWriteBack(app, argv.table, id, set)).map(m => ({ sys_id: id, ...m })));
+            for (const id of readBack) mismatches.push(...(await verifyWriteBack(app, argv.table, id, checked)).map(m => ({ sys_id: id, ...m })));
             const verified = failures.length === 0 && mismatches.length === 0;
             app.ok({
               table: argv.table,
@@ -774,7 +778,7 @@ export function recordsCmd(wrap) {
               verified,
               context: { instance_url: app.getEffectiveInstance() },
             }, { summary: verified ? `Updated ${updated.length} of ${count} matching record(s) in ${argv.table}; read back ${readBack.length} with every field persisted`
-              : `Bulk update incomplete or unverified: ${updated.length} updated, ${failures.length} failed of ${count} in ${argv.table}; ${mismatches.length} field(s) not persisted in a read-back of ${readBack.length}` });
+              : `Bulk update incomplete or unverified: ${updated.length} updated, ${failures.length} failed of ${count} in ${argv.table}; read-back of ${readBack.length} found ${mismatches.length} field(s) not persisted or unreadable` });
             if (!verified) process.exitCode = 1;
           }),
         })

@@ -634,7 +634,8 @@ byte-identically.
   by default), lists every match in sys_id order before the first write, and
   writes nothing when that list differs from the count. It exits nonzero when
   any write fails or a read-back of up to five updated records shows a field
-  was not persisted.
+  was not persisted. Journal fields (`comments`, `work_notes`) are left out of
+  the read-back, since the instance returns the whole rendered journal.
 - `records export` holds its query to the same standard before counting or
   exporting, because the export processor drops a term on an unknown column and
   writes unfiltered rows.

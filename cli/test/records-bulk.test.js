@@ -12,9 +12,16 @@ function fixture(size = 2) {
   const rows = Array.from({ length: size }, (_, i) => ({ sys_id: String(i).padStart(32, '0'), state: '1' }));
   const writes = [];
   const reads = [];
+  const state = {};
   const app = makeApp({
     sdk: {
-      aggregateCount: async () => rows.length,
+      // Like the SDK: a malformed count is 0 unless strict, which throws.
+      aggregateCount: async (table, query, opts) => {
+        const count = Object.hasOwn(state, 'count') ? state.count : rows.length;
+        if (Number.isSafeInteger(count) && count >= 0) return count;
+        if (opts?.strict === true) throw new Error(`Invalid aggregate count response for ${table}`);
+        return 0;
+      },
       list: async (table, params, opts) => {
         const metadata = queryMetadataFixture(table, params, opts);
         if (metadata) return metadata;
@@ -27,7 +34,7 @@ function fixture(size = 2) {
       update: async (table, id, body) => { writes.push(id); Object.assign(rows.find(r => r.sys_id === id), body); return { sys_id: id }; },
     },
   });
-  return { app, rows, writes, reads, get data() { return app.lastOk?.data; }, get summary() { return app.lastOk?.opts.summary; },
+  return { app, rows, writes, reads, state, get data() { return app.lastOk?.data; }, get summary() { return app.lastOk?.opts.summary; },
     run: (args = {}) => handler({ table: 'incident', query: 'priority=1', field: ['state=2'], 'dry-run': false, execute: true, force: true, limit: 200, ...args }, app) };
 }
 
@@ -59,8 +66,8 @@ test('bulk refuses an invalid --limit or unreadable count with zero writes', asy
   }
   for (const count of [null, undefined, -1, 'many']) {
     const f = fixture();
-    f.app.sdk.aggregateCount = async () => count;
-    await assert.rejects(f.run(), /Cannot verify the matching count/);
+    f.state.count = count;
+    await assert.rejects(f.run(), /Invalid aggregate count response for incident/);
     assert.deepEqual(f.writes, []);
   }
 });
@@ -71,7 +78,7 @@ test('bulk pages the whole confirmed count in sys_id order, then reads back a sa
   assert.equal(code, undefined);
   const pages = f.reads.filter(r => !r.sysparm_query.startsWith('sys_id='));
   assert.deepEqual(pages.map(r => [r.sysparm_query, r.sysparm_offset, r.sysparm_limit]),
-    [['priority=1^ORDERBYsys_id', '0', '1000'], ['priority=1^ORDERBYsys_id', '1000', '2']]);
+    [['priority=1^ORDERBYsys_id', '0', '1000'], ['priority=1^ORDERBYsys_id', '1000', '3']]);
   assert.equal(f.writes.length, 1002);
   assert.equal(new Set(f.writes).size, 1002);
   assert.equal(f.data.updated, 1002);
@@ -93,9 +100,48 @@ test('bulk refuses a failed or short enumeration page with zero writes', async (
   assert.deepEqual(failing.writes, []);
 
   const short = fixture(3);
-  short.app.sdk.aggregateCount = async () => 4;
+  short.state.count = 4;
   await assert.rejects(short.run(), /Enumeration differs from the 4 counted records.*No records updated/);
   assert.deepEqual(short.writes, []);
+
+  const wider = fixture(4);
+  wider.state.count = 3;
+  await assert.rejects(wider.run(), /Enumeration differs from the 3 counted records.*No records updated/);
+  assert.deepEqual(wider.writes, []);
+});
+
+test('bulk drops a lone trailing caret so the appended order cannot become a literal caret', async () => {
+  for (const [query, ordered] of [['priority=1^', 'priority=1^ORDERBYsys_id'], ['priority=1^^', 'priority=1^^^ORDERBYsys_id']]) {
+    const f = fixture(2);
+    f.app.sdk.list = async (table, params, opts) => {
+      const metadata = queryMetadataFixture(table, params, opts);
+      if (metadata) return metadata;
+      const q = params.get('sysparm_query');
+      if (q.startsWith('sys_id=')) return f.rows.filter(r => r.sys_id === q.slice(7));
+      f.reads.push(q);
+      return q === ordered ? f.rows : [...f.rows, { sys_id: 'f'.repeat(32) }];
+    };
+    const code = await exitCodeOf(() => f.run({ query }));
+    assert.equal(code, undefined);
+    assert.deepEqual(f.reads, [ordered]);
+    assert.equal(f.writes.length, 2);
+  }
+});
+
+test('bulk skips journal fields in the read-back, since they return the rendered journal', async () => {
+  const f = fixture(2);
+  const update = f.app.sdk.update;
+  f.app.sdk.update = async (table, id, body) => update(table, id, { ...body, ...(body.work_notes ? { work_notes: `2026-11-28 10:00:00 - System Administrator (Work notes)\n${body.work_notes}` } : {}) });
+  const code = await exitCodeOf(() => f.run({ field: ['state=2', 'work_notes=checked'] }));
+  assert.equal(code, undefined);
+  assert.equal(f.data.read_back.sys_ids.length, 2);
+  assert.deepEqual(f.data.read_back.mismatches, []);
+  assert.equal(f.data.verified, true);
+
+  const journalOnly = fixture(2);
+  assert.equal(await exitCodeOf(() => journalOnly.run({ field: ['work_notes=checked'] })), undefined);
+  assert.equal(journalOnly.writes.length, 2);
+  assert.deepEqual(journalOnly.data.read_back.sys_ids, []);
 });
 
 test('bulk counts each failed write and exits nonzero', async () => {
@@ -122,5 +168,5 @@ test('bulk read-back reports a field the instance ignored and exits nonzero', as
   assert.deepEqual(f.data.read_back.mismatches.map(m => [m.sys_id, m.field, m.sent, m.got]),
     [['0'.repeat(32), 'state', '2', '1'], ['0'.repeat(31) + '1', 'state', '2', '1']]);
   assert.equal(f.data.verified, false);
-  assert.match(f.summary, /2 field\(s\) not persisted/);
+  assert.match(f.summary, /read-back of 2 found 2 field\(s\) not persisted or unreadable/);
 });
