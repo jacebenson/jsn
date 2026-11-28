@@ -205,7 +205,7 @@ export function topTransactionsCmd(wrap) {
         averageFields: ['response_time'],
         minimumFields: ['response_time'],
         maximumFields: ['response_time'],
-        orderBy: 'countDESC',
+        orderBy: 'COUNT^DESC',
       });
       const groups = (Array.isArray(result.groups) ? result.groups : []).map(topGroup).slice(0, limit);
       app.ok({
