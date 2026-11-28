@@ -662,7 +662,7 @@ and ambiguous selectors are rejected before mutation.
 - `ended`: `ended`, `end_time`, `ended_at`, then `completed_on`
 - `duration_seconds`: stored `duration`, `run_time`, or `execution_duration`, otherwise `ended - started`
 - `waiting_age_seconds`: current time minus `started` while the status is waiting, queued, paused, or pending
-- `execution_age_seconds`: current time minus `started` while the status is running, executing, or processing
+- `execution_age_seconds`: current time minus `started` while the status is in progress or continue sync (`IN_PROGRESS`, `CONTINUE_SYNC`)
 - `status`: `state`, then `status`, then `execution_state`
 - `error`: `error`, `error_message`, `exception`, then `message`
 
