@@ -205,6 +205,27 @@ test('background scripts return the execution history id the page links to', asy
   assert.deepEqual(await sdk.runBackgroundScript('gs.print("x")', ''), { output: `*** Script: incident.do?sys_id=${CTX}`, execution_id: null });
 });
 
+test('a failed background script keeps its output and execution id, and names the rollback', async () => {
+  const sdk = new SDKClient('https://dev.example.service-now.com', null);
+  const output = '*** Script: updated 3\nEvaluator: com.glide.script.RhinoEcmaError: Cannot read property "x" from undefined\nscript : Line(4) column(0)';
+  sdk._warmSession = async () => '';
+  sdk._getScriptsPageCSRF = async () => 'token';
+  sdk.rawRequest = async () => `<HTML><BODY>Script execution history and recovery <A target='blank' HREF='sys_script_execution_history.do?sys_id=${EXEC}'>available here</A><HR/><PRE>${output.split('\n').join('<BR/>')}<BR/></PRE></BODY></HTML>`;
+  const failure = await sdk.runBackgroundScript('x', '').catch(error => error);
+  assert.equal(failure.message, `Background script failed: Evaluator: com.glide.script.RhinoEcmaError: Cannot read property "x" from undefined\nScript output:\n${output}\nWrites it made before it stopped are kept; preview undoing them with jsn eval rollback ${EXEC}`);
+  assert.equal(failure.output, output);
+  assert.equal(failure.execution_id, EXEC);
+  // No rollback context was recorded, so there is nothing to roll back with; the id is still kept.
+  const unrecorded = await sdk.runBackgroundScript('x', '', { rollback: false }).catch(error => error);
+  assert.doesNotMatch(unrecorded.message, /rollback/);
+  assert.equal(unrecorded.execution_id, EXEC);
+  // A script the platform cancels has written as much as it got through, so it names the rollback too.
+  sdk.rawRequest = async () => `<A HREF='sys_script_execution_history.do?sys_id=${EXEC}'>here</A><PRE>Transaction cancelled - maximum execution time exceeded</PRE>`;
+  const cancelled = await sdk.runBackgroundScript('x', '').catch(error => error);
+  assert.equal(cancelled.message, `Background script was cancelled on the instance before it finished: Transaction cancelled - maximum execution time exceeded\nWrites it made before it stopped are kept; preview undoing them with jsn eval rollback ${EXEC}`);
+  assert.equal(cancelled.execution_id, EXEC);
+});
+
 test('eval keeps taking a stray positional to its own handler now that it has a rollback subcommand', async () => {
   const route = async (args) => {
     const seen = [], failures = [];
