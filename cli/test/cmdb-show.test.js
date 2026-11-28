@@ -28,7 +28,7 @@ describe('cmdb show — CI details', () => {
     const data = app.okCalls[0].data;
     assert.strictEqual(data.sys_id, ROOT);
     assert.strictEqual(data.name, 'app1');
-    assert.strictEqual(data._context.table, 'cmdb_ci');
+    assert.strictEqual(data._context.table, 'cmdb_ci_app_server');
     // ROOT has two direct children in the fixture (SERVER downstream, WEB downstream)
     assert.ok(data.relationships, 'show should inline relationships');
     assert.strictEqual(data.relationships.parents.length, 0);
@@ -114,5 +114,80 @@ describe('cmdb show — CI details', () => {
     const subs = await collectHandlers();
     const sub = subs.find((s) => s.command.startsWith('show '));
     await assert.rejects(sub.handler({ ci: 'ghost', columns: undefined, app }), (err) => err.code === 'not_found');
+  });
+});
+
+describe('cmdb show — class table and identity', () => {
+  const LINUX = '1'.repeat(32);
+  const OTHER = '2'.repeat(32);
+  // Table API semantics the base fixture ignores: display values when asked,
+  // and class-only fields (os, os_version) only from the class table.
+  function classSDK(cis) {
+    const calls = [];
+    const label = { cmdb_ci_linux_server: 'Linux Server', cmdb_ci_win_server: 'Windows Server' };
+    const sdk = {
+      async list(table, params) {
+        const q = params.get('sysparm_query') || '';
+        calls.push({ table, query: q, display: params.get('sysparm_display_value') });
+        if (table === 'cmdb_rel_ci') return [];
+        const [field, value] = q.split('=');
+        return cis.filter((ci) => ci[field] === value && (table === 'cmdb_ci' || table === ci.sys_class_name)).map((ci) => {
+          const row = table === 'cmdb_ci' ? { sys_id: ci.sys_id, name: ci.name, sys_class_name: ci.sys_class_name } : { ...ci };
+          const display = params.get('sysparm_display_value');
+          if (display === 'true') return { ...row, sys_class_name: label[ci.sys_class_name] };
+          if (display === 'all') return Object.fromEntries(Object.entries(row).map(([k, v]) => [k, { value: v, display_value: k === 'sys_class_name' ? label[v] : v }]));
+          return row;
+        });
+      },
+    };
+    return { sdk, calls };
+  }
+  const linux = { sys_id: LINUX, name: 'web01', sys_class_name: 'cmdb_ci_linux_server', os: 'Linux Red Hat', os_version: '9.2' };
+
+  async function show(cis, ci) {
+    const { sdk, calls } = classSDK(cis);
+    const app = makeApp(sdk);
+    const sub = (await collectHandlers()).find((s) => s.command.startsWith('show '));
+    await sub.handler({ ci, columns: undefined, app });
+    return { app, calls };
+  }
+
+  it('reads the CI from its class table, so class fields appear', async () => {
+    const { app, calls } = await show([linux], 'web01');
+    const data = app.okCalls[0].data;
+    assert.strictEqual(data.os, 'Linux Red Hat');
+    assert.strictEqual(data.os_version, '9.2');
+    assert.strictEqual(data._context.table, 'cmdb_ci_linux_server');
+    assert.deepStrictEqual(calls.filter((c) => c.table !== 'cmdb_rel_ci').map((c) => c.table), ['cmdb_ci', 'cmdb_ci_linux_server']);
+    assert.ok(data._formatted.includes('os_version  9.2'), 'class field renders in the card');
+  });
+
+  it('reports the raw sys_class_name, not its label', async () => {
+    const { app } = await show([linux], LINUX);
+    const { data, opts } = app.okCalls[0];
+    assert.strictEqual(data.sys_class_name, 'cmdb_ci_linux_server');
+    assert.ok(data._formatted.includes('web01 (cmdb_ci_linux_server)'), 'card header names the class table');
+    assert.ok(opts.summary.startsWith('web01 (cmdb_ci_linux_server)'), opts.summary);
+    assert.ok(opts.breadcrumbs.some((b) => b.cmd === 'jsn cmdb list --query "sys_class_name=cmdb_ci_linux_server"'));
+  });
+
+  it('leaves cmdb relationships naming the root by its class label', async () => {
+    const { sdk } = classSDK([linux]);
+    const app = makeApp(sdk);
+    const rel = (await collectHandlers()).find((s) => s.command === 'relationships');
+    await rel.handler({ ci: 'web01', direction: 'both', depth: 1, limit: 100, impact: false, app });
+    assert.strictEqual(app.okCalls[0].data.root.class, 'Linux Server');
+  });
+
+  it('refuses a name that matches more than one CI, listing the candidates', async () => {
+    const twin = { sys_id: OTHER, name: 'web01', sys_class_name: 'cmdb_ci_win_server' };
+    const { sdk, calls } = classSDK([linux, twin]);
+    const app = makeApp(sdk);
+    const sub = (await collectHandlers()).find((s) => s.command.startsWith('show '));
+    await assert.rejects(sub.handler({ ci: 'web01', columns: undefined, app }), (err) => err.code === 'ambiguous'
+      && err.hint.includes(`${LINUX} (cmdb_ci_linux_server)`) && err.hint.includes(`${OTHER} (cmdb_ci_win_server)`)
+      && err.resolution.matches === 2 && !err.resolution.at_least);
+    assert.strictEqual(calls.length, 1, 'nothing is read after the ambiguous lookup');
+    assert.strictEqual(app.okCalls.length, 0);
   });
 });

@@ -15,7 +15,7 @@ import {
   interactiveList,
   resolveFieldsParam,
 } from '../helpers.js';
-import { errNotFound, errUsage } from '../errors.js';
+import { errAmbiguous, errNotFound, errUsage } from '../errors.js';
 
 import { cmdbSearchCmd } from './cmdb-search.js';
 
@@ -77,8 +77,10 @@ function extractDisplay(field) {
 }
 
 /**
- * Resolve a CI identifier (sys_id or name) to {sys_id, name, class}.
- * Throws not_found when nothing matches.
+ * Resolve a CI identifier (sys_id or name) to {sys_id, name, class, label}:
+ * class is the raw sys_class_name (the class table), label its display value.
+ * Throws not_found when nothing matches and ambiguous when a name matches
+ * more than one CI.
  */
 async function resolveCI(app, identifier) {
   const ciParam = String(identifier || '').trim();
@@ -91,16 +93,22 @@ async function resolveCI(app, identifier) {
   const bySysId = SYS_ID_RE.test(ciParam);
   const params = new URLSearchParams();
   params.set('sysparm_fields', 'sys_id,name,sys_class_name');
-  params.set('sysparm_display_value', 'true');
+  params.set('sysparm_display_value', 'all');
   params.set('sysparm_query', bySysId ? `sys_id=${ciParam}` : `name=${ciParam}`);
   params.set('sysparm_limit', bySysId ? '1' : '5');
   const rows = await app.sdk.list('cmdb_ci', params);
   if (!rows[0]) throw errNotFound('CMDB CI', ciParam);
+  if (rows.length > 1) {
+    // resolution (as in resolve-record) makes the renderer print the candidates and the JSON envelope.
+    const resolution = { table: 'cmdb_ci', field: 'name', mode: 'exact', matches: rows.length, ...(rows.length >= 5 ? { at_least: true } : {}) };
+    throw Object.assign(errAmbiguous('CMDB CIs', rows.map((r) => `${extractValue(r.sys_id)} (${extractValue(r.sys_class_name)})`)), { resolution });
+  }
 
   return {
-    sys_id: getStringField(rows[0], 'sys_id'),
+    sys_id: extractValue(rows[0].sys_id),
     name: getStringField(rows[0], 'name'),
-    class: getStringField(rows[0], 'sys_class_name') || 'unknown',
+    class: extractValue(rows[0].sys_class_name) || 'unknown',
+    label: getStringField(rows[0], 'sys_class_name') || 'unknown',
   };
 }
 
@@ -488,10 +496,12 @@ export function cmdbCmd(wrap) {
             params.set('sysparm_limit', '1');
             params.set('sysparm_display_value', 'true');
             if (argv.columns && argv.columns !== '*') params.set('sysparm_fields', `sys_id,${argv.columns}`);
-            const records = await app.sdk.list('cmdb_ci', params);
+            // The class table holds the class's own fields (os, os_version); cmdb_ci has only the base ones.
+            const records = await app.sdk.list(root.class, params);
             if (records.length === 0) throw errNotFound('CMDB CI', argv.ci);
             const record = records[0];
-            record._context = { instance_url: app.getEffectiveInstance(), table: 'cmdb_ci' };
+            record.sys_class_name = root.class;
+            record._context = { instance_url: app.getEffectiveInstance(), table: root.class };
 
             // Viewing a CI should answer "what does this connect to" without a
             // second command: parents (upstream), children (downstream), and
@@ -577,7 +587,7 @@ export function cmdbCmd(wrap) {
             const root = await resolveCI(app, ciParam);
             const rootId = root.sys_id;
             const rootName = root.name;
-            const rootClass = root.class;
+            const rootClass = root.label;
 
             // ── Traverse ──
             const visited = new Set([rootId]);

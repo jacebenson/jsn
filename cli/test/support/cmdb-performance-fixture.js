@@ -45,7 +45,7 @@ export async function runFixture({ command = 'relationships', failHop, failClass
         if (id === failHop || (failRootOnce && id === ROOT && rootAttempts === 1)) throw new Error('relationship read denied');
         return edges.filter((r) => r.parent.value === id || r.child.value === id).slice(0, Number(params.get('sysparm_limit')));
       }
-      if (table !== 'cmdb_ci') throw new Error(`unexpected table ${table}`);
+      if (!table.startsWith('cmdb_ci')) throw new Error(`unexpected table ${table}`);
       const id = query.slice('sys_id='.length);
       if (fields === 'sys_class_name') {
         active++;
