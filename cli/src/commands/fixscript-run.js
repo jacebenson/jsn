@@ -9,12 +9,16 @@ import { guardExit, errUsage, CodeUsage } from '../errors.js';
 import { buildRerunCommand } from '../helpers.js';
 
 const raw = value => value?.value ?? value;
+// ServiceNow's load balancers drop a UI request at five minutes, and past that jsn has no request left to cancel through.
+const DROP_SECONDS = 300;
+// Four minutes: jsn's cancel and its 15 s wait for the answer finish inside the drop.
+const DEFAULT_TIMEOUT = 240;
 // The terminal view shows the script on a preview and what it printed on a run; --json keeps the data as it is.
 const withText = (data, summary, text) => Object.defineProperty(data, '_formatted', { value: `${summary}\n\n${text}`, enumerable: false });
 const EPILOGUE = [
   'Without --yes, reads the fix script and shows what would run, without running it. With --yes, runs its stored script unchanged as a background script, in the fix script\'s own scope, with a rollback context when the record has Record for rollback ticked.',
   'It is a customization write: it needs --expect-scope and --expect-update-set, and the fix script\'s scope must be that scope. Customizations the script writes are captured in that update set, as with jsn eval, whatever the record\'s Unloadable setting says.',
-  'jsn cancels the script on the instance after --timeout seconds or on Ctrl-C. When it ran with a rollback context, undo what it wrote with jsn eval rollback <execution>.',
+  'jsn cancels the script on the instance after --timeout seconds or on Ctrl-C. The default stays inside the five minutes after which ServiceNow\'s load balancer drops the request while the script runs on; a fix that needs longer belongs in the platform\'s Run Fix Script with Proceed in Background. When it ran with a rollback context, undo what it wrote with jsn eval rollback <execution>.',
   'This does not start the platform\'s Run Fix Script worker, so no progress worker or fix script log is written; the run is in the background script execution history.',
 ].join('\n');
 
@@ -29,7 +33,7 @@ export function withFixScriptRun(command, wrap) {
       .middleware(argv => { if (!(Number.isInteger(argv.timeout) && argv.timeout >= 1 && argv.timeout <= 86400)) guardExit(argv, { code: CodeUsage, message: '--timeout must be a whole number of seconds from 1 to 86400. Nothing was run.' }); })
       .positional('identifier', { type: 'string', describe: 'Fix script name or sys_id' })
       .option('yes', { type: 'boolean', default: false, describe: 'Run it; without --yes, preview only' })
-      .option('timeout', { type: 'number', default: 30, describe: 'Seconds to wait before jsn cancels the script on the instance (Ctrl-C cancels it too)' })
+      .option('timeout', { type: 'number', default: DEFAULT_TIMEOUT, describe: 'Seconds to wait before jsn cancels the script on the instance (Ctrl-C cancels it too)' })
       .epilogue(EPILOGUE),
     handler: wrap(async (argv, app) => {
       app.requireInstance();
@@ -39,10 +43,10 @@ export function withFixScriptRun(command, wrap) {
       const scope = raw(record.sys_scope) || 'global';
       assertMutationScope(app.mutationContext, scope, 'Fix script');
       if (typeof script !== 'string' || !script.trim()) throw errUsage(`Fix script ${name} has no script to run. Nothing was run.`);
-      const plan = { sys_id: sysId, name, scope, record_for_rollback: raw(record.record_for_rollback) === 'true', unloadable: raw(record.unloadable) === 'true', script };
+      const plan = { sys_id: sysId, name, scope, record_for_rollback: raw(record.record_for_rollback) === 'true', unloadable: raw(record.unloadable) === 'true', timeout: argv.timeout, script };
       if (!argv.yes) {
-        const rerun = buildRerunCommand(argv, { rerun: ['fixscripts', 'run', sysId, '--yes'] });
-        const summary = `Dry run: would run fix script ${name} (${sysId}) in its scope, ${plan.record_for_rollback ? 'with' : 'without'} a rollback context`;
+        const rerun = buildRerunCommand(argv, { rerun: ['fixscripts', 'run', sysId, '--yes', '--timeout', String(argv.timeout)] });
+        const summary = `Dry run: would run fix script ${name} (${sysId}) in its scope, ${plan.record_for_rollback ? 'with' : 'without'} a rollback context; ${argv.timeout < DROP_SECONDS ? `jsn cancels it on the instance if it is still running after ${argv.timeout}s` : `jsn would wait ${argv.timeout}s, but ServiceNow's load balancer drops the request at five minutes, after which jsn can neither report on nor cancel it`}`;
         return app.ok(withText({ ...plan, dry_run: true }, summary, script), {
           summary,
           breadcrumbs: [{ action: 'run', cmd: rerun, description: 'Run this fix script' }],

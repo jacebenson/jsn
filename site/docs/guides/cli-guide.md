@@ -385,7 +385,8 @@ jsn eval rollback <execution>
 jsn eval rollback <execution> --yes
 
 # Run a stored fix script now, in its own scope, through the same path: preview
-# first, then --yes. --timeout and Ctrl-C cancel it as they do for jsn eval.
+# first, then --yes. --timeout (default 240 s, stated on the preview) and Ctrl-C
+# cancel it as they do for jsn eval.
 jsn fixscripts run "Lower incident impact" --expect-scope global --expect-update-set "Data fixes"
 
 # Now GraphQL (documents may contain mutations; read-only profiles are blocked)

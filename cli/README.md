@@ -414,8 +414,10 @@ application that holds it is installed or upgraded.
 `run` previews unless `--yes`, then runs the stored script unchanged as a
 background script in the fix script's own scope, which must be the intended
 scope, with a rollback context when Record for rollback is ticked. It is the
-`jsn eval` path: `--timeout` and Ctrl-C cancel it on the instance, and after a
-run with a rollback context `jsn eval rollback <execution>` undoes it. It does
+`jsn eval` path: `--timeout` (default 240 seconds, inside the five minutes
+after which ServiceNow's load balancer drops the request) and Ctrl-C cancel it
+on the instance, and the preview states the timeout. After a run with a
+rollback context `jsn eval rollback <execution>` undoes it. It does
 not start the platform's Run Fix Script worker, so no progress worker or fix
 script log is written, and it ignores the record's Unloadable setting:
 customizations the script writes are captured in the intended update set.
