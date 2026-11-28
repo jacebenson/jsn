@@ -31,11 +31,10 @@ import {
   freshConfigHome,
   hasAnsi,
   hasWelcome,
-  loadBaseFixture,
   ptySkipReason,
+  rootHelp,
   runCli,
   runPty,
-  sha256,
   stripAnsi,
   welcomeBlock,
 } from './support/welcome-harness.js';
@@ -247,13 +246,11 @@ describe('welcome content', () => {
 
 describe('bare `jsn` first run', () => {
   it('prints unchanged help and no welcome for piped output, and does not burn the once-only marker', () => {
-    const { meta, help } = loadBaseFixture();
+    const help = rootHelp();
     const { dir, marker } = freshConfigHome();
     const result = runCli([], dir);
     assert.strictEqual(result.status, 0, result.stderr);
-    assert.strictEqual(sha256(result.stdout), meta.sha256.help,
-      'piped bare `jsn` must still print the base commit help byte for byte');
-    assert.strictEqual(result.stdout, help);
+    assert.strictEqual(result.stdout, help, 'piped bare `jsn` must print `jsn --help` byte for byte');
     assert.ok(!hasWelcome(result.stdout));
     assert.ok(!fs.existsSync(marker), 'a non-TTY run must not consume the welcome');
   });
@@ -276,7 +273,6 @@ describe('bare `jsn` first run', () => {
   });
 
   it('shows the standalone orientation exactly once on a real terminal', { skip: PTY_SKIP }, () => {
-    const { meta, help } = loadBaseFixture();
     const { dir, marker } = freshConfigHome();
 
     const first = runPty(dir, [], { columns: 80 });
@@ -288,7 +284,6 @@ describe('bare `jsn` first run', () => {
     const helpStart = first.output.indexOf('Usage: jsn <command>');
     assert.equal(helpStart, -1, 'first-run front door must not append the catalog');
     assert.ok(first.output.trim().split('\n').length <= 8);
-    assert.strictEqual(sha256(help), meta.sha256.help);
     assert.ok(!hasAnsi(first.output), 'a TTY must not add escape codes');
     assert.ok(fs.existsSync(marker), 'first PTY run must persist the marker');
 

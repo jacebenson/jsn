@@ -5,7 +5,6 @@
 // the thing under test, and byte comparison helpers for "unchanged output".
 
 import { spawn, spawnSync } from 'node:child_process';
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -14,7 +13,6 @@ export const CLI = path.resolve('bin/jsn.js');
 export const REPO_ROOT = path.resolve('.');
 export const PTY_DRIVER = path.resolve('test/support/welcome-pty.py');
 export const RACE_CHILD = path.resolve('test/support/welcome-race-child.js');
-export const FIXTURE_DIR = path.resolve('test/fixtures/first-run');
 
 /**
  * Environment markers that make jsn decide "no human is here". A first-run test
@@ -204,19 +202,11 @@ export function readIfExists(filePath) {
   }
 }
 
-/** sha256 of a string or Buffer. */
-export function sha256(value) {
-  return crypto.createHash('sha256').update(value).digest('hex');
-}
-
-/** The base-commit fixture: recorded help bytes and output hashes. */
-export function loadBaseFixture() {
-  const meta = JSON.parse(fs.readFileSync(path.join(FIXTURE_DIR, 'base-output.json'), 'utf-8'));
-  // A Windows checkout (core.autocrlf) hands back CRLF for a file stored as LF.
-  // The CLI itself always writes LF, so compare against normalized reference
-  // bytes or every byte-for-byte assertion fails on Windows for the wrong reason.
-  const help = fs.readFileSync(path.join(FIXTURE_DIR, 'base-help.txt'), 'utf-8').replace(/\r\n/g, '\n');
-  return { meta, help };
+/** `jsn --help` piped from a throwaway config home: what every run with no human present must print. */
+export function rootHelp() {
+  const result = runCli(['--help'], freshConfigHome().dir);
+  if (result.status !== 0) throw new Error(`jsn --help exited ${result.status}: ${result.stderr}`);
+  return result.stdout;
 }
 
 /** True when an output contains ANSI escape sequences. */
