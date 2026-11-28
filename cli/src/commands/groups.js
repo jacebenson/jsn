@@ -147,7 +147,7 @@ export function groupsCmd(wrap) {
           builder: (y) => y.option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' }),
           handler: wrap(async (argv, app) => {
             const id = argv.name;
-            // Two groups can share a name; resolveRecord refuses that instead of deleting the first.
+            // Names are unique on current instances, but older data can hold two; resolveRecord refuses that instead of deleting the first.
             const group = await resolveRecord(app.sdk, { table: 'sys_user_group', identifier: id, matchField: 'name', resource: 'Group', fields: ['name'], partial: false });
             const sysID = unwrapSysId(group);
             if (!sysID) throw new Error('The matched group has no readable sys_id; nothing deleted.');
