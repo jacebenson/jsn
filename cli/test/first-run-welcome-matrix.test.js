@@ -241,7 +241,7 @@ describe('first-run welcome matrix (issue #387)', () => {
     }
   });
 
-  it('row 9: machine formats carry no welcome and keep the base bytes', () => {
+  it('row 9: machine formats carry no welcome and print `jsn --help` unchanged', () => {
     const help = rootHelp();
     const { dir, marker } = freshConfigHome('jsn-formats-');
     const helpPrinting = [['--quiet'], ['--csv'], ['--markdown'], ['--get', 'data.version']];
