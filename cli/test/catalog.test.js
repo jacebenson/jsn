@@ -93,6 +93,89 @@ describe('catalog create --variable type resolution', () => {
   });
 });
 
+describe('catalog create writes only what was asked', () => {
+  async function runCreate(argv, sdkOverrides = {}) {
+    const { catalogCmd } = await import('../src/commands/catalog.js');
+    const create = findCommand(captureSubcommands(catalogCmd(wrapHandler)), 'create');
+    const creates = [];
+    const sdk = {
+      create: async (table, data) => { creates.push({ table, data }); return { sys_id: `${table}-${creates.length}` }; },
+      ...sdkOverrides,
+    };
+    const app = makeApp({ sdk });
+    const run = create.handler({ app, ...argv }, app);
+    return { app, creates, run };
+  }
+
+  it('submits --variables to the documented submit_producer endpoint', async () => {
+    const requests = [];
+    const { run, creates } = await runCreate({ name: 'New Laptop', variables: '{"model":"X1"}' }, {
+      baseURL: 'https://dev.example.service-now.com',
+      list: async () => [{ sys_id: 'a'.repeat(32) }],
+      request: async (endpoint, opts) => { requests.push({ endpoint, opts }); return { result: { sys_id: 'r1', number: 'INC0010006' } }; },
+    });
+    await run;
+    assert.strictEqual(requests.length, 1);
+    assert.strictEqual(requests[0].endpoint, `https://dev.example.service-now.com/api/sn_sc/servicecatalog/items/${'a'.repeat(32)}/submit_producer`);
+    assert.deepStrictEqual(JSON.parse(requests[0].opts.body), { variables: { model: 'X1' } });
+    assert.strictEqual(creates.length, 0);
+  });
+
+  it('refuses a --category that does not exist and writes nothing', async () => {
+    const { run, creates } = await runCreate({ name: 'New Laptop', category: 'No Such Category', variable: ['model:string:Model'] });
+    await assert.rejects(run, (error) => error.code === 'not_found' && /No Such Category/.test(error.message));
+    assert.strictEqual(creates.length, 0);
+  });
+
+  it('files the item under an existing category without creating one', async () => {
+    const { run, creates } = await runCreate({ name: 'New Laptop', category: 'Hardware' }, {
+      list: async (table, params) => (table === 'sc_category' && params.get('sysparm_query') === 'title=Hardware' ? [{ sys_id: 'cat1' }] : []),
+    });
+    await run;
+    assert.deepStrictEqual(creates.map((c) => c.table), ['sc_cat_item']);
+    assert.strictEqual(creates[0].data.category, 'cat1');
+  });
+
+  it('leaves each variable\'s mandatory flag to the platform default', async () => {
+    const { run, creates } = await runCreate({ name: 'New Laptop', variable: ['model:string:Model', 'notes:textarea:Notes'] });
+    await run;
+    const variables = creates.filter((c) => c.table === 'item_option_new');
+    assert.strictEqual(variables.length, 2);
+    for (const v of variables) assert.ok(!('mandatory' in v.data), `${v.data.name} sends no mandatory flag`);
+  });
+
+  it('refuses a malformed --variable before creating the item', async () => {
+    for (const bad of ['justaname', ':string:No name']) {
+      const { run, creates } = await runCreate({ name: 'New Laptop', variable: ['model:string:Model', bad] });
+      await assert.rejects(run, (error) => error.code === 'usage_error' && error.message.includes(bad));
+      assert.strictEqual(creates.length, 0, `${bad} wrote nothing`);
+    }
+  });
+
+  it('reports each variable that failed to create and exits nonzero', async () => {
+    let n = 0;
+    const { app, run } = await runCreate({ name: 'New Laptop', variable: ['model:string:Model', 'ram:select:RAM', 'notes:textarea:Notes'] }, {
+      create: async (table, data) => {
+        n++;
+        if (table === 'item_option_new' && data.name === 'ram') throw new Error('HTTP 403: ACL denied');
+        return { sys_id: `${table}-${n}` };
+      },
+    });
+    const before = process.exitCode;
+    try {
+      await run;
+      assert.strictEqual(process.exitCode, 1);
+    } finally {
+      process.exitCode = before;
+    }
+    const { data, opts } = app.lastOk;
+    assert.strictEqual(data.variables_created, 2);
+    assert.deepStrictEqual(data.variables_failed, [{ variable: 'ram:select:RAM', error: 'HTTP 403: ACL denied' }]);
+    assert.match(opts.summary, /1 of 3 variable\(s\) failed: ram:select:RAM: HTTP 403: ACL denied$/);
+    assert.doesNotMatch(opts.summary, /^Created/);
+  });
+});
+
 // ─── fake sdk data for enrichment tests ───
 function buildEnrichSdk(overrides = {}) {
   const item = {
