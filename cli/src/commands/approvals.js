@@ -282,7 +282,7 @@ export function approvalsCmd(wrap) {
             await confirmDelete(app, argv, `Approve approval request ${argv['sys-id']} for ${getStringField(row, 'document_id') || 'its record'}?${otherApprover ? ` Its approver is ${otherApprover}.` : ''}`);
             const updated = await setApprovalState(app, argv['sys-id'], 'approved', argv.comments || '');
             app.ok(updated, {
-              summary: `Approved ${getStringField(updated, 'document_id') || argv['sys-id']}${otherApprover ? ` (approver: ${otherApprover})` : ''}`,
+              summary: `Approved ${getStringField(row, 'document_id') || argv['sys-id']}${otherApprover ? ` (approver: ${otherApprover})` : ''}`,
               breadcrumbs: [
                 { action: 'history', cmd: `jsn approvals history ${getStringField(updated, 'document_id') || argv['sys-id']}`, description: 'Show approval progression' },
               ],
@@ -303,7 +303,7 @@ export function approvalsCmd(wrap) {
             await confirmDelete(app, argv, `Reject approval request ${argv['sys-id']} for ${getStringField(row, 'document_id') || 'its record'}?${otherApprover ? ` Its approver is ${otherApprover}.` : ''}`);
             const updated = await setApprovalState(app, argv['sys-id'], 'rejected', argv.comments || '');
             app.ok(updated, {
-              summary: `Rejected ${getStringField(updated, 'document_id') || argv['sys-id']}${otherApprover ? ` (approver: ${otherApprover})` : ''}`,
+              summary: `Rejected ${getStringField(row, 'document_id') || argv['sys-id']}${otherApprover ? ` (approver: ${otherApprover})` : ''}`,
               breadcrumbs: [
                 { action: 'history', cmd: `jsn approvals history ${getStringField(updated, 'document_id') || argv['sys-id']}`, description: 'Show approval progression' },
               ],

@@ -258,7 +258,7 @@ describe('approvals approve and reject', () => {
             document_id: ref('d'.repeat(32), 'Change Request: CHG0000082'),
           }];
         },
-        update: async (table, sysID, data) => { writes.push({ table, sysID, data }); return { sys_id: sysID, document_id: 'CHG0000082', ...data }; },
+        update: async (table, sysID, data) => { writes.push({ table, sysID, data }); return { sys_id: sysID, document_id: 'd'.repeat(32), ...data }; },
       },
       ok(value, options = {}) { meta = options; },
     };
@@ -275,7 +275,7 @@ describe('approvals approve and reject', () => {
         sysparm_display_value: 'all', sysparm_fields: 'sys_id,state,approver,document_id',
       }]);
       assert.deepStrictEqual(f.writes, [{ table: 'sysapproval_approver', sysID: ID, data: { state, comments: 'ok' } }]);
-      assert.strictEqual(f.summary, `${word} CHG0000082`);
+      assert.strictEqual(f.summary, `${word} Change Request: CHG0000082`);
     }
   });
 
@@ -312,10 +312,10 @@ describe('approvals approve and reject', () => {
   it('names the approver when it is not the caller', async () => {
     const f = fixture({ approver: 'u777' });
     await f.run('approve');
-    assert.strictEqual(f.summary, 'Approved CHG0000082 (approver: Beth Anglin)');
+    assert.strictEqual(f.summary, 'Approved Change Request: CHG0000082 (approver: Beth Anglin)');
     const unknown = fixture({ approver: 'u777', caller: '' });
     await unknown.run('reject');
-    assert.strictEqual(unknown.summary, 'Rejected CHG0000082 (approver: Beth Anglin)');
+    assert.strictEqual(unknown.summary, 'Rejected Change Request: CHG0000082 (approver: Beth Anglin)');
   });
 
   it('names the approver in the confirmation and writes nothing when it is refused', async () => {
