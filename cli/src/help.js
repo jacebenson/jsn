@@ -266,7 +266,7 @@ function renderConciseHelp(config, registry, width) {
       desc: command.summary || command.description || '',
     }));
 
-  // One line per command under each group heading: agents pick commands by their descriptions.
+  // One row per command under each group heading: agents pick commands by their descriptions.
   const used = new Set();
   const groups = Object.entries(COMMAND_GROUPS)
     .map(([label, hint]) => [label, rowsFor(hint, byName, used, config).filter((row) => !row.divider).map((row) => byName.get(row.name))]);

@@ -41,10 +41,10 @@ test('fresh terminal welcome is a short local-only front door; explicit help sta
   const conciseHelp = runPty(directory, ['--help'], { env });
   assert.equal(conciseHelp.status, 0, conciseHelp.output);
   assert.match(conciseHelp.output, /COMMON COMMANDS/); assert.match(conciseHelp.output, /FLAGS/);
-  assert.doesNotMatch(conciseHelp.output, /^CORE$/m);
+  assert.doesNotMatch(conciseHelp.output, /^TIPS$/m);
   const fullHelp = runPty(directory, ['--all-commands', '--help'], { env });
   assert.equal(fullHelp.status, 0, fullHelp.output);
-  assert.match(fullHelp.output, /CORE/); assert.match(fullHelp.output, /FLAGS/);
+  assert.match(fullHelp.output, /CORE/); assert.match(fullHelp.output, /^TIPS$/m); assert.match(fullHelp.output, /FLAGS/);
   const machine = runPty(directory, ['--json'], { env });
   assert.equal(machine.status, 0, machine.output);
   assert.ok(JSON.parse(machine.output).data.commands.length > 0);
