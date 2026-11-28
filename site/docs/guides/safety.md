@@ -229,7 +229,7 @@ jsn skipped-updates review <finding-sys-id> --json
 jsn skipped-updates preview --ids <finding-1>,<finding-2> --action retain --json
 ```
 
-Discovery includes raw dispositions 4, 104, 9, 10 and 11 with blank or `not_reviewed` resolution. A page reports its fetched count, offset and `has_more`; the instance-wide total is unknown. Use the next offset to continue. A normal prompt-capable terminal uses the shared select-to-review picker. `process` offers a bounded 100-finding multi-select page and an explicit action picker when IDs or the action are omitted. Other pages can be selected with explicit IDs.
+Discovery includes raw dispositions 4, 104, 9, 10 and 11 with blank or `not_reviewed` resolution and `changed=true`, the filter ServiceNow's Revert a customization steps add to return only the objects that changed since the last upgrade. `--include-unchanged` on `list`, and on the guided `preview` and `process` page, adds the skips whose Changed flag is false; the JSON page says which with `changed_only`. `upgrade prep` reads changed skips only. A page reports its fetched count, offset and `has_more`; the instance-wide total is unknown. Use the next offset to continue. A normal prompt-capable terminal uses the shared select-to-review picker. `process` offers a bounded 100-finding multi-select page and an explicit action picker when IDs or the action are omitted. Other pages can be selected with explicit IDs.
 
 ### Evidence and impact
 
@@ -276,6 +276,7 @@ Read/check/write is not an atomic transaction across the entire batch. Concurren
 Official ServiceNow Australia documentation, available through `jsn docs search "skipped updates"`:
 
 - [Resolve a skipped update and set a resolution status](https://www.servicenow.com/docs/r/platform-administration/upgrade-management/um-resolve-skipped-update.html), local doc 37734. It distinguishes Reviewed and Retained from Revert to Base System and describes reverted disposition, resolution and customer-update creation.
+- [Revert a customization](https://www.servicenow.com/docs/r/platform-administration/upgrade-center/uc-revert-customization.html). It filters skipped upgrade details by Changed is True to return only the objects that changed since the last upgrade.
 - [Skipped records that occur during application installation](https://www.servicenow.com/docs/r/platform-administration/generation-skip-records-app-installs.html), local doc 36385. It confirms application skips use `sys_upgrade_history_log`.
 
 Read-only inspection on the configured Australia PDI verified the dictionary, raw choice values, the Revert to Base System UI action condition and script, and the `RevertUpdateVersionAjax` implementation. The exact base-version getter path was exercised through a read-only background script.
@@ -295,7 +296,7 @@ Live retained and reverted read-backs (log state, disposition, artifact script) 
 These note what this command does **not** do. `skipped-updates` reviews and processes findings on the instance you are connected to. It is not an update-set transport for skips, and no transport feature is planned here.
 
 - [KB0955553](https://support.servicenow.com/kb?id=kb_article_view&sysparm_article=KB0955553) documents the `glide.save.skiplist.decision` property and the conditions an update-set transfer checks: same `file_name`, `sys_upgrade_state` matching the incoming version payload hash, `changed=true`, resolution other than not reviewed, an eligible disposition, and the latest upgrade WAR matching. Plugin-history skips cannot be moved or processed through update sets at all.
-- Those conditions limit **transfer**. They are not review eligibility, so discovery stays instance-wide with no latest-upgrade or event filter.
+- Those conditions limit **transfer**. Apart from `changed=true`, which the Revert a customization steps also use, they are not review eligibility, so discovery stays instance-wide with no latest-upgrade or event filter.
 - [KB0678054](https://support.servicenow.com/kb?id=kb_article_view&sysparm_article=KB0678054) shows the `sys_upgrade_history_log` disposition grouping is consolidated evidence, with the related sections covering the individual groups.
 - [KB0726987](https://support.servicenow.com/kb?id=kb_article_view&sysparm_article=KB0726987) explains that skip counts differ between instances because of incomplete clones and modifications between clone and upgrade. Matching or differing counts are not parity or completeness evidence.
 - A [ServiceNow Community article on processing skipped records](https://www.servicenow.com/community/upgrades-and-patching-articles/processing-skipped-records-and-capturing-upgrade-details-in/ta-p/3403302) notes that captured upgrade-detail payloads match across instances by `incoming_version_payload_hash` rather than by log `sys_id`, and confirms the resolution-change capture described above.

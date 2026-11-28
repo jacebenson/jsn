@@ -8,6 +8,8 @@ export const raw = value => String(value?.value ?? value ?? '');
 export const unresolved = record => Boolean(record && Object.hasOwn(record, 'disposition')
   && Object.hasOwn(record, 'resolution_status') && SKIPPED.includes(raw(record.disposition))
   && ['', 'not_reviewed'].includes(raw(record.resolution_status)));
+// Docs filter skips by Changed is True to keep only objects whose base changed in that upgrade.
+export const skipQuery = includeUnchanged => `dispositionIN4,104,9,10,11^resolution_statusIN,not_reviewed${includeUnchanged ? '' : '^changed=true'}`;
 const FIELDS = 'sys_id,file_name,target_name,disposition,resolution_status,upgrade_history,reason,changed,sys_mod_count,sys_updated_on';
 const digest = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const validId = id => /^[0-9a-fA-F]{32}$/.test(id || '');
@@ -160,18 +162,19 @@ export async function processSkippedBatch({ sdk, ids, action, instance = '', rea
     writes_performed: results.some(result => result.write_attempted) };
 }
 
-export async function discoverSkippedUpdates(sdk, { limit = 100, offset = 0 } = {}) {
+export async function discoverSkippedUpdates(sdk, { limit = 100, offset = 0, includeUnchanged = false } = {}) {
   if (!Number.isInteger(limit) || limit < 1 || limit > 500 || !Number.isInteger(offset) || offset < 0) {
     throw errUsage('Use a limit between 1 and 500 and a nonnegative integer offset.');
   }
   const params = new URLSearchParams({
-    sysparm_query: 'dispositionIN4,104,9,10,11^resolution_statusIN,not_reviewed^ORDERBYsys_id',
+    sysparm_query: `${skipQuery(includeUnchanged)}^ORDERBYsys_id`,
     sysparm_fields: FIELDS, sysparm_display_value: 'all',
     sysparm_limit: String(limit + 1), sysparm_offset: String(offset),
   });
   const rows = await sdk.list(SKIP_TABLE, params);
   // Recheck locally: an instance can ignore a query field the caller cannot read.
   if (rows.some(row => !unresolved(row))) throw errUsage('Provider returned a finding outside the unresolved skipped state.');
+  if (!includeUnchanged && rows.some(row => raw(row.changed) !== 'true')) throw errUsage('Provider returned a finding whose Changed flag is not true; use --include-unchanged to list every skip.');
   return { findings: rows.slice(0, limit), count: Math.min(rows.length, limit),
-    limit, offset, has_more: rows.length > limit, total: null };
+    limit, offset, has_more: rows.length > limit, total: null, changed_only: !includeUnchanged };
 }
