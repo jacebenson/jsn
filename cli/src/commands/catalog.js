@@ -32,6 +32,7 @@ export function catalogCmd(wrap) {
               const endpoint = `${app.sdk.baseURL}/api/sn_sc/servicecatalog/items/${itemSysID}/submit_producer`;
               const result = await app.sdk.request(endpoint, { method: 'POST', body: JSON.stringify({ variables: varsObj }) });
               const reqID = result?.result?.sys_id || result?.result?.number || '';
+              if (!reqID) throw new Error(`submit_producer returned no created record for ${argv.name}; check it is a record producer.`);
               app.ok({ requested_item: reqID, item_id: itemSysID, variables: varsObj },
                 { summary: `Request: ${result?.result?.number || reqID}` });
               return;

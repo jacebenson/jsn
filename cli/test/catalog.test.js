@@ -121,6 +121,17 @@ describe('catalog create writes only what was asked', () => {
     assert.strictEqual(creates.length, 0);
   });
 
+  it('never reports a submit_producer answer with no created record as success', async () => {
+    for (const answer of [null, { result: {} }]) {
+      const { app, run } = await runCreate({ name: 'New Laptop', variables: '{"model":"X1"}' }, {
+        list: async () => [{ sys_id: 'a'.repeat(32) }],
+        request: async () => answer,
+      });
+      await assert.rejects(run, /submit_producer returned no created record/);
+      assert.strictEqual(app.lastOk, undefined);
+    }
+  });
+
   it('refuses a --category that does not exist and writes nothing', async () => {
     const { run, creates } = await runCreate({ name: 'New Laptop', category: 'No Such Category', variable: ['model:string:Model'] });
     await assert.rejects(run, (error) => error.code === 'not_found' && /No Such Category/.test(error.message));
