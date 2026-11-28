@@ -57,7 +57,7 @@ const fullRegistry = () => new Map(buildCLI([]).commandRegistry().commands.map((
 describe('ordinary root help is a concise task directory', () => {
   it('stays short and lists common commands without repeating jsn on every row', () => {
     const stdout = output(run(['--help']));
-    // The group rows grow by one name per visible command and base-help.txt pins them byte for byte; cap the rest of the page.
+    // The group rows grow with each visible command, and the index test checks their names and width; cap the rest of the page.
     const page = stdout.replace(stdout.split(/\nALL COMMANDS BY GROUP\n.*\n/)[1].split('\nEXAMPLES\n')[0], '');
     const lines = page.split('\n').filter(Boolean);
     assert.ok(lines.length <= 37, `root help without its group rows is ${lines.length} lines`);
