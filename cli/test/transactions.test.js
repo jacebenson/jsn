@@ -121,12 +121,16 @@ describe('transactions command', () => {
 
     assert.equal(call.table, 'syslog_transaction');
     assert.deepEqual(call.options.groupBy, ['type', 'table', 'view']);
+    assert.equal(call.options.orderBy, 'COUNT^DESC');
     assert.match(call.options.query, /active=true/);
     assert.match(call.options.query, /sys_created_on>=javascript:gs.daysAgoStart\(2\)/);
     assert.equal(app.lastOk.data.groups.length, 1);
     assert.equal(app.lastOk.data.groups[0].count, 12);
     assert.equal(app.lastOk.data.groups[0].min_response_time_ms, null);
     assert.match(app.lastOk.data._formatted, /TYPE\s+TABLE\s+VIEW/);
+    const lines = app.lastOk.data._formatted.split('\n');
+    assert.equal(lines.length, 4);
+    assert.match(lines[2], /^form\s+incident\s+ess\s+12\s/);
   });
 });
 

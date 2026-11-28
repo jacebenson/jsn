@@ -245,7 +245,7 @@ Documentation: ${docLink('flows')}`),
             .option('until', { type: 'string', describe: 'Only contexts created on or before this timestamp' })
             .option('limit', { alias: 'l', type: 'number', default: 50, describe: 'Max executions' })
             .option('summary', { type: 'boolean', default: false, describe: 'Return local counts and duration metrics by flow' })
-            .option('active', { type: 'boolean', default: false, describe: 'Only waiting, running, and queued executions' })
+            .option('active', { type: 'boolean', default: false, describe: 'Only unfinished executions: queued, in progress, continue sync, waiting, paused or debugging' })
             .option('all', { type: 'boolean', default: false, describe: 'Compatibility flag; all states are now shown by default' }),
           handler: wrap(async (argv, app) => {
             app.requireInstance();
@@ -254,7 +254,7 @@ Documentation: ${docLink('flows')}`),
               record: argv.record,
               since: argv.since,
               until: argv.until,
-              query: argv.query || (argv.active ? 'stateINWAITING,RUNNING,QUEUED' : ''),
+              query: argv.query || (argv.active ? 'stateINQUEUED,IN_PROGRESS,CONTINUE_SYNC,WAITING,PAUSED,PAUSED_IN_DEBUG' : ''),
             });
             const params = new URLSearchParams();
             params.set('sysparm_query', query);
@@ -355,10 +355,11 @@ Documentation: ${docLink('flows')}`),
             const { summary, results, via } = result;
             const lines = results.map(r => `  ${r.status === 'success' ? '✅' : '❌'} ${r.flow_name ?? r.sys_id}: ${r.message ?? r.status}${r.errorMessage ? ` — ${r.errorMessage}` : ''}`);
 
-            return app.ok({ summary, results, via }, {
+            app.ok({ summary, results, via }, {
               summary: `Published ${summary.succeeded}/${summary.total} (via ${via})\n${lines.join('\n')}`,
               breadcrumbs: [{ action: 'status', cmd: `jsn flows status ${sysID}`, description: 'Verify the flow will run' }],
             });
+            if (summary.failed > 0) process.exitCode = 1;
           }),
         })
         .command({
@@ -429,11 +430,12 @@ Documentation: ${docLink('flows')}`),
             if (record === undefined) return;
             await confirmDesignerMutation(argv, app, `Execute flow test for ${identifier} against record ${record}; actions may cause side effects`);
             const result = await testFlow(app.sdk, app.getEffectiveInstance(), identifier, record);
-            return app.ok(result, {
+            app.ok(result, {
               summary: result.status === 'completed'
                 ? `Flow test completed (${result.success ? 'success' : 'failed'})`
                 : 'Flow test accepted for execution',
             });
+            if (result.success === false) process.exitCode = 1;
           }),
         })
         .command({

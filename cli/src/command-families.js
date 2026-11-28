@@ -694,11 +694,14 @@ const deferredFamilies = {
   "plugins": {
     definition: {
       command: "plugins",
-      describe: "Inspect platform plugin differences across instances",
+      describe: "Show a plugin with its nested dependencies, compare plugins across instances, activate one, and read batch install plans",
     },
     capabilities: {
       skipContextHeader: true,
       noImpersonateSubcommands: ["compare"],
+      // Activation writes plugin state, not metadata an update set captures, as store install does.
+      mutationSubcommands: ["install"],
+      mutationContextExemptSubcommands: ["install"],
     },
     module: "./commands/plugins.js", exportName: "pluginsCmd",
   },
@@ -764,7 +767,7 @@ const deferredFamilies = {
   "atf": {
     definition: {
       command: "atf [subcommand]",
-      describe: "Automated Test Framework (list, suites, run, results)",
+      describe: "Automated Test Framework (list, suites, run, results, steps)",
     },
     capabilities: {
       queryTable: argv => argv._?.[1] === 'suites' ? 'sys_atf_test_suite' : 'sys_atf_test',

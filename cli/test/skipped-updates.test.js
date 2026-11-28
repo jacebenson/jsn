@@ -158,14 +158,22 @@ test('revert verifies unchanged baseline fields too, not only the previewed diff
   assert.equal(result.success_count, 0); assert.equal(result.failure_count, 1);
 });
 
-test('discovers unresolved skips instance-wide without an upgrade event filter', async () => {
+test('discovers unresolved skips whose base changed, instance-wide without an upgrade event filter', async () => {
   let params;
   const sdk = { list: async (table, p) => {
     assert.equal(table, 'sys_upgrade_history_log'); params = p;
-    return [{ sys_id: 'a'.repeat(32), disposition: '4', resolution_status: '' }];
+    return [{ sys_id: 'a'.repeat(32), disposition: '4', resolution_status: '', changed: { value: 'true', display_value: 'true' } }];
   } };
   const result = await discoverSkippedUpdates(sdk, { limit: 10, offset: 0 });
   assert.equal(result.findings.length, 1);
-  assert.equal(params.get('sysparm_query'), 'dispositionIN4,104,9,10,11^resolution_statusIN,not_reviewed^ORDERBYsys_id');
+  assert.equal(params.get('sysparm_query'), 'dispositionIN4,104,9,10,11^resolution_statusIN,not_reviewed^changed=true^ORDERBYsys_id');
   assert.equal(result.has_more, false);
+});
+
+test('--include-unchanged drops the changed filter; an unchanged row returned without it is refused', async () => {
+  let params;
+  const sdk = { list: async (_table, p) => { params = p; return [{ sys_id: 'a'.repeat(32), disposition: '4', resolution_status: '', changed: 'false' }]; } };
+  assert.equal((await discoverSkippedUpdates(sdk, { includeUnchanged: true })).count, 1);
+  assert.equal(params.get('sysparm_query'), 'dispositionIN4,104,9,10,11^resolution_statusIN,not_reviewed^ORDERBYsys_id');
+  await assert.rejects(discoverSkippedUpdates(sdk), /--include-unchanged/);
 });

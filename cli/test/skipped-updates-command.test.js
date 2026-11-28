@@ -21,19 +21,30 @@ test('CLI registers review, preview and guarded process; list JSON stays one ext
   assert.deepEqual(commands.map(c => c.command), ['list', 'review <sys-id>', 'preview', 'process']);
   assert.equal(isMutationCommand({ _: ['skipped-updates', 'process'] }), true);
   assert.equal(isMutationCommand({ _: ['skipped-updates', 'preview'] }), false);
-  const app = appFor({ list: async () => [{ sys_id: id, disposition: '4', resolution_status: '' }] });
+  const app = appFor({ list: async () => [{ sys_id: id, disposition: '4', resolution_status: '', changed: 'true' }] });
   await commands[0].handler({ limit: 10, offset: 0 }, app);
   assert.equal(JSON.parse(app.stdout()).data.findings[0].sys_id, id);
+  assert.equal(JSON.parse(app.stdout()).data.changed_only, true);
+  let query;
+  const all = appFor({ list: async (_table, params) => { query = params.get('sysparm_query'); return [{ sys_id: id, disposition: '4', resolution_status: '', changed: 'false' }]; } });
+  await commands[0].handler({ limit: 10, offset: 0, includeUnchanged: true }, all);
+  assert.equal(query, 'dispositionIN4,104,9,10,11^resolution_statusIN,not_reviewed^ORDERBYsys_id');
+  assert.equal(JSON.parse(all.stdout()).data.changed_only, false);
+  const guided = children(skippedUpdatesCmd(fn => fn, { canUsePicker: () => true }))[2];
+  await assert.rejects(guided.handler({}, appFor({ list: async () => [] })), /No unresolved changed skipped findings.*--include-unchanged/);
+  await assert.rejects(guided.handler({ includeUnchanged: true }, appFor({ list: async () => [] })), /No unresolved skipped findings were returned\.$/);
 });
 test('shared interactive list selection renders readable impact instead of hiding nested data', async () => {
-  const artifact = 'c'.repeat(32);
+  const artifact = 'c'.repeat(32), queries = [];
   const commands = children(skippedUpdatesCmd(fn => fn, { canUsePicker: () => true,
-    interactiveList: async () => ({ sys_id: id }) }));
+    interactiveList: async ({ query }) => { queries.push(query); return { sys_id: id }; } }));
   const app = appFor({ list: async () => [], get: async (table, sysID) => table === 'sys_upgrade_history_log'
     ? { sys_id: sysID, disposition: '4', resolution_status: '', file_name: `sys_script_include_${artifact}` }
     : { sys_id: artifact }, getSkippedUpdateBaseline: async () => null });
   await commands[0].handler({}, app);
   assert.match(JSON.parse(app.stdout()).data._formatted, /Read-only review/);
+  await commands[0].handler({ includeUnchanged: true }, app);
+  assert.deepEqual(queries, ['dispositionIN4,104,9,10,11^resolution_statusIN,not_reviewed^changed=true', 'dispositionIN4,104,9,10,11^resolution_statusIN,not_reviewed']);
 });
 
 test('guided multi-selection renders exact preview before one refused confirmation and never writes', async () => {
@@ -48,7 +59,7 @@ test('guided multi-selection renders exact preview before one refused confirmati
       return false;
     } }));
   const sdk = { list: async table => table === 'sys_upgrade_history_log'
-    ? [id, second].map(sys_id => ({ sys_id, disposition: '4', resolution_status: '' })) : [],
+    ? [id, second].map(sys_id => ({ sys_id, disposition: '4', resolution_status: '', changed: 'true' })) : [],
   get: async (table, sysID) => table === 'sys_upgrade_history_log'
     ? { sys_id: sysID, disposition: '4', resolution_status: '', file_name: `sys_script_include_${artifact}` }
     : { sys_id: artifact, script: 'custom()' },
@@ -64,7 +75,7 @@ test('guided multi-selection renders exact preview before one refused confirmati
 
 test('--get extraction uses the same list output envelope', async () => {
   const commands = children(skippedUpdatesCmd(fn => fn));
-  const app = appFor({ list: async () => [{ sys_id: id, disposition: '4', resolution_status: '' }] });
+  const app = appFor({ list: async () => [{ sys_id: id, disposition: '4', resolution_status: '', changed: 'true' }] });
   app.output.setJqFilter('data.findings.0.sys_id');
   await commands[0].handler({ limit: 10, offset: 0, get: 'data.findings.0.sys_id' }, app);
   assert.equal(JSON.parse(app.stdout()), id);

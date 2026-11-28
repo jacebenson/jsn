@@ -180,6 +180,8 @@ describe('SDKClient', () => {
     const html = '<pre>&lt;test&gt; &amp; &quot;quoted&quot;</pre>';
     const output = client._extractScriptOutput(html);
     assert.strictEqual(output, '<test> & "quoted"');
+    // A script that prints the text "&lt;" arrives as "&amp;lt;" and must come back as "&lt;", not "<".
+    assert.strictEqual(client._extractScriptOutput('<PRE>*** Script: &amp;lt;b&amp;gt; &amp;amp;</PRE>'), '*** Script: &lt;b&gt; &amp;');
   });
 
   it('uploads binary attachments without embedding file bytes in a background script', async () => {
@@ -265,12 +267,32 @@ describe('SDKClient', () => {
     });
     client._warmSession = async () => '';
     client._getScriptsPageCSRF = async () => 'csrf-token';
-    client.rawRequest = async () => '<PRE>*** Script: undefined is not a function.</PRE>';
-
+    // The platform's own lines, as a PDI prints a runtime error and a syntax error.
+    client.rawRequest = async () => '<PRE>Script execution error: Script Identifier: null.null.script, Error Description: undefined is not a function., Script ES Level: 0<BR/>'
+      + 'Evaluator: com.glide.script.RhinoEcmaError: undefined is not a function.<BR/>   script : Line(1) column(0)<BR/></PRE>';
     await assert.rejects(
       () => client.executeScript('gs.print("test")', ''),
-      /Background script failed: \*\*\* Script: undefined is not a function\./,
+      /^Error: Background script failed: Script execution error: Script Identifier: null\.null\.script, Error Description: undefined is not a function\., Script ES Level: 0\n/,
     );
+    client.rawRequest = async () => '<PRE>Evaluator: com.glide.script.RhinoEcmaError: "foo" is not defined.<BR/></PRE>';
+    await assert.rejects(() => client.executeScript('foo.bar()', ''), /^Error: Background script failed: Evaluator: com\.glide\.script\.RhinoEcmaError: "foo" is not defined\.\n/);
+    client.rawRequest = async () => '<PRE>Script compilation error: Script Identifier: null.null.script, Error Description: invalid flag after regular expression (null.null.script; line 1), Script ES Level: 0, Interpreted Mode: true<BR/>'
+      + 'Javascript compiler exception: invalid flag after regular expression (null.null.script; line 1) in:<BR/></PRE>';
+    await assert.rejects(() => client.executeScript('/a/q', ''), /^Error: Background script failed: Script compilation error: Script Identifier: null\.null\.script, Error Description: invalid flag/);
+  });
+
+  it('returns a finished script whose printed text mentions an error', async () => {
+    const { SDKClient } = await import('../src/sdk.js');
+    const client = new SDKClient('https://test.service-now.com', {
+      getCredentials: async () => ({ auth_method: 'oauth', access_token: 'test-token' }),
+    });
+    client._warmSession = async () => '';
+    client._getScriptsPageCSRF = async () => 'csrf-token';
+    // gs.print(gr.message) over syslog rows: the platform prefixes every printed line with its source.
+    const printed = ['*** Script: TypeError: Cannot read property "x" from undefined', '*** Script: ReferenceError: g_form is not defined',
+      '*** Script: undefined is not a function.', '*** Script: Evaluator: com.glide.script.RhinoEcmaError: "foo" is not defined.', '*** Script: Script execution error: logged by a rule'];
+    client.rawRequest = async () => `<PRE>${printed.join('<BR/>')}<BR/></PRE>`;
+    assert.strictEqual(await client.executeScript('gs.print(gr.message)', ''), printed.join('\n'));
   });
 
   it('rejects a KittyScript-rejected sandbox expression with the instance reason', async () => {
@@ -288,7 +310,7 @@ describe('SDKClient', () => {
 
     await assert.rejects(
       () => client.executeScript("new GlideRecord('sys_properties').insert()", '', { sandbox: true }),
-      /Background script failed: KittyScript: Access to GlideRecord\.insert is not allowed$/,
+      /Background script failed: KittyScript: Access to GlideRecord\.insert is not allowed\n/,
     );
   });
 
@@ -304,7 +326,7 @@ describe('SDKClient', () => {
 
     await assert.rejects(
       () => client.executeScript('var a=1;', '', { sandbox: true }),
-      /Background script failed: KittyScript: Syntax error: Expected end of expression but found 'a' at position 4$/,
+      /Background script failed: KittyScript: Syntax error: Expected end of expression but found 'a' at position 4\n/,
     );
   });
 

@@ -168,7 +168,7 @@ export async function collectUpgradePrep(argv, app) {
     }
     try {
       const skipped = await discoverSkippedUpdates(sdk, { limit: argv.limit });
-      addFinding('historical_skips', last().status, last(), 'Unresolved historical skipped updates, not predicted future skips.', { evidence: skipped });
+      addFinding('historical_skips', last().status, last(), 'Unresolved historical skipped updates whose base changed (Changed true), not predicted future skips.', { evidence: skipped });
     } catch { addFinding('historical_skips', last()?.status || 'error', last(), 'Historical skip reader could not establish valid unresolved evidence.'); }
     const cloneTables = await read('sys_db_object', 'sys_id,name,label,sys_updated_on', 'nameLIKEclone^ORDERBYname', 5);
     for (const row of cloneTables.slice(0, 4)) {

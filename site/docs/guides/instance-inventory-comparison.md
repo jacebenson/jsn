@@ -17,6 +17,13 @@ Both options take configured profile aliases. Reversing them reverses the
 recommendations. Focused `jsn plugins compare` and `jsn store compare` commands
 accept the same options. `--destination` is an alias for `--target`.
 
+`jsn plugins compare <id> --source pdi --target vendor` compares only that
+plugin and every plugin it requires, read from the source with the same tree
+walk as `jsn plugins show`. The full inventories are still read and checked as
+below, and then narrowed, so coverage and recommendations are unchanged. Ids the
+source's `v_plugin` does not list are named and not compared. The target's own
+requirements are not read; a target plugin that needs more is not shown.
+
 The human report names the target to change and shows observed source/target
 versions and states alongside recommendations. It recommends activating inactive
 plugins when the source is active, reviewing target-only items rather than
@@ -33,7 +40,7 @@ installed. Missing installation evidence requires investigation, not an install
 or uninstall recommendation. Recommendations are guidance, not executable
 remediation or a guarantee of entitlement, compatibility or upgrade availability.
 
-These commands only read instance data. They never install, activate, upgrade,
+The compare commands only read instance data. They never install, activate, upgrade,
 execute scripts or modify instance records. Normal authentication may refresh
 local OAuth credentials or bootstrap a session.
 
@@ -41,6 +48,23 @@ Plugins use `v_plugin.id`, not instance-local `sys_id`. Store applications use
 `sys_store_app.scope`. They remain separate inventories. A Store application
 can supply plugins, so counts are unique within each inventory, not a
 deduplicated product count. Custom `sys_app` applications are excluded.
+
+`jsn plugins show <id>` reads one plugin and every plugin it requires, nested,
+from `v_plugin` by `id`, one level per query, up to 50 levels and 2000 plugins;
+a tree cut short is marked incomplete. A required id `v_plugin` does not list is
+named with its state unknown, never reported as missing, and a cycle is named
+and not followed. `inactive` lists the required plugins that are not active.
+
+`jsn plugins install <id>` previews activating a plugin: the inactive plugins it
+would pull in, required plugins first, and any refusal (already active, install
+blocked or unreadable, an incomplete tree). With `--yes` and one id it activates that plugin
+through the CI/CD API, waits on the tracker, and reads every plugin it listed
+back from `v_plugin`. Activation cannot be undone from jsn.
+
+`jsn plugins plans` lists the batch install plans recorded in
+`sys_batch_install_plan`, newest first. `jsn plugins plans <name or sys_id>`
+shows one plan's items with their state and failure reason; `--get data.failed`
+names the failed and invalid items. Both only read.
 
 Human output lists up to 50 differing/unknown rows per inventory by default,
 with omitted counts. `--verbose` expands all differences. Matching entries need

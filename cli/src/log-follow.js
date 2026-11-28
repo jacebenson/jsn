@@ -133,21 +133,34 @@ export function createLogFollower({
     return { skipped: false, pages, emitted };
   };
 
-  /** Show the newest `count` rows oldest-first, then continue from there. */
+  /**
+   * Show the newest `count` rows oldest-first, then continue from there. A zero
+   * count still reads the newest row, unprinted, so following starts at now
+   * instead of at the oldest retained row.
+   */
   const backfill = async (count) => {
-    if (!count || count <= 0) return { emitted: 0 };
+    const tail = count > 0;
     const params = new URLSearchParams();
     params.set('sysparm_display_value', 'all');
     params.set('sysparm_fields', 'sys_created_on,level,source,message,sys_id');
-    params.set('sysparm_limit', String(count));
+    params.set('sysparm_limit', String(tail ? count : 1));
     const order = 'ORDERBYDESCsys_created_on';
-    params.set('sysparm_query', baseQuery ? `${baseQuery}^${order}` : order);
+    // The start row needs no filter: an undated filtered read spans every rotation shard and can time out.
+    params.set('sysparm_query', baseQuery && tail ? `${baseQuery}^${order}` : order);
     let records;
     try {
       records = await list(params);
     } catch (error) {
       warn(error);
-      return { emitted: 0, failed: true };
+      return { emitted: 0, failed: true, error };
+    }
+    if (!tail) {
+      const [newest] = records;
+      if (newest) {
+        watermark = recordTimestamp(newest);
+        seen = new Set([dedupeKey(newest, watermark)]);
+      }
+      return { emitted: 0 };
     }
     let emitted = 0;
     for (const record of [...records].reverse()) {

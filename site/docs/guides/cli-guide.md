@@ -306,7 +306,7 @@ jsn incidents create --description "Server down" --priority 1
 jsn flows list                                # Interactive picker with pagination
 jsn flows show "Assign Task"                  # Full flow detail
 jsn flows executions                          # All states, newest first
-jsn flows executions --active                  # Only waiting/running/queued
+jsn flows executions --active                  # Only unfinished: queued, in progress, waiting, paused
 jsn flows executions --since "2026-08-25 00:00:00" --until "2026-08-26 00:00:00"
 jsn flows executions --summary                 # Server totals + sampled duration metrics by flow
 jsn flows executions --limit 100               # Inspect more rows from the matching population
@@ -355,6 +355,7 @@ jsn attachments upload ./report.pdf --table incident --sys-id <record-id>
 jsn diff record --table incident --sys-id <sys_id> --profile-a dev --profile-b prod
 jsn diff record --table incident --sys-id <sys_id> --profile-a dev --profile-b prod --ignore state
 jsn diff record --table incident --sys-id <sys_id> --profile-a dev --profile-b prod --no-ignore
+# Exits 1 when either side errors, is denied or fails auth. A side with no readable record (absent, or hidden by an ACL) is reported as missing and exits 0.
 
 # Script execution
 jsn eval "gs.info('Hello World')"
@@ -385,7 +386,8 @@ jsn eval rollback <execution>
 jsn eval rollback <execution> --yes
 
 # Run a stored fix script now, in its own scope, through the same path: preview
-# first, then --yes. --timeout and Ctrl-C cancel it as they do for jsn eval.
+# first, then --yes. --timeout (default 240 s, stated on the preview) and Ctrl-C
+# cancel it as they do for jsn eval.
 jsn fixscripts run "Lower incident impact" --expect-scope global --expect-update-set "Data fixes"
 
 # Now GraphQL (documents may contain mutations; read-only profiles are blocked)
@@ -427,6 +429,12 @@ policy explicitly allows the append. Scripts and JSON output must supply
 nonempty `--notes`; they never open prompts. Separate multiple notes with real
 newlines. Success requires readback of both Description and state. If verification
 fails, inspect the set before retrying because the write may have partially succeeded.
+
+`complete` and `ignore` refuse a Default update set (`is_default`), and a set whose
+`is_default` cannot be read, before any write: ServiceNow creates a new Default set
+when one is completed or ignored, and the old set's captured changes sit in a closed
+set. `ignore` acts on the current set and reports success only after reading back
+`ignore` as its state.
 
 ### Update set transfer
 
@@ -622,13 +630,14 @@ Creation leaves the flow in Draft and inactive, then creates and reads back an
 Autosave version. `flows publish` remains a separate lifecycle operation: it
 reads the saved ProcessFlow definition, POSTs `/snapshot`, creates an
 `Activate/Publish` version, reads version history, and verifies `active=true`.
+`flows publish --action` exits 1 when any action fails to publish.
 Do not use it in a dry-run: publishing activates the flow.
 
 `jsn flows test <identifier> --record <sys_id>` is also a mutating operation.
 It requires confirmation (or `--force`), reads the saved definition, verifies
 that the supplied record exists in the record-trigger table, and POSTs the full
 definition to the ProcessFlow test endpoint. A response with only a context ID
-is reported as accepted, not completed. Test runs execute actions and can have
+is reported as accepted, not completed; a completed test that failed exits 1. Test runs execute actions and can have
 side effects; this slice does not execute test flows during development.
 
 Flow Logic, subflows, flow-variable lifecycle, and error handling are deferred
@@ -662,7 +671,7 @@ and ambiguous selectors are rejected before mutation.
 - `ended`: `ended`, `end_time`, `ended_at`, then `completed_on`
 - `duration_seconds`: stored `duration`, `run_time`, or `execution_duration`, otherwise `ended - started`
 - `waiting_age_seconds`: current time minus `started` while the status is waiting, queued, paused, or pending
-- `execution_age_seconds`: current time minus `started` while the status is running, executing, or processing
+- `execution_age_seconds`: current time minus `started` while the status is in progress or continue sync (`IN_PROGRESS`, `CONTINUE_SYNC`)
 - `status`: `state`, then `status`, then `execution_state`
 - `error`: `error`, `error_message`, `exception`, then `message`
 
@@ -982,7 +991,7 @@ jsn incidents list
 
 For the credential identity, auth-method, diagnostics, migration, and concurrency contract, see [`AUTH_LIFECYCLE.md`](setup.md#authentication-lifecycle-review).
 
-GraphQL uses ServiceNow's `/api/now/graphql` endpoint and sends `{query, variables}` through the authenticated SDK transport. The command preserves GraphQL `data` and `errors`; introspection and available namespaces depend on the target instance.
+GraphQL uses ServiceNow's `/api/now/graphql` endpoint and sends `{query, variables}` through the authenticated SDK transport. The command preserves GraphQL `data` and `errors`, and exits 1 when `errors` is not empty; introspection and available namespaces depend on the target instance.
 
 `jsn platform stats` uses a fixed `GET /xmlstats.do` request. It never accepts a processor path, query parameters, or request body, and it does not emit raw XML, cookies, credentials, or full node identifiers. Oversized, HTML/login, permission, unsupported, timeout, and malformed responses are reported with bounded collector statuses; missing metrics remain unavailable rather than being reported as zero.
 
@@ -1113,6 +1122,12 @@ Search text is literal; encoded-query operators and query scripts are rejected.
 Existing `cmdb list --query` remains available for deliberate encoded queries.
 Results include show/relationship hints and preserve the selected connection.
 
+`jsn cmdb show <name-or-sys_id>` reads the CI from its class table, so class
+fields such as `os` and `os_version` appear, and reports `sys_class_name` as the
+class table name (`cmdb_ci_linux_server`, not "Linux Server"). A name that
+matches more than one CI is refused with the candidates' sys_ids and classes;
+`cmdb relationships --ci` resolves names the same way.
+
 ### Commands for the connected account
 
 Login and OAuth refresh check for the current account's `admin` role. Profiles
@@ -1166,9 +1181,10 @@ RITM directly. `order_now` returns the request (REQ); JSN then reads the request
 items and reports `request_id`, `request_number` and `requested_items`
 (`sys_id`/`number`). If that follow-up read is denied, the order is still
 reported as placed with `requested_items_readable: false` — inspect requests
-rather than resubmitting. The command handles standard catalog items; record
-producers and order guides require separate workflows. Server rules validate
-dynamic variables at submission; a preview does not validate those rules.
+rather than resubmitting. The command handles standard, hardware and software
+catalog items; record producers and order guides require separate workflows.
+Server rules validate dynamic variables at submission; a preview does not
+validate those rules.
 Preview output lists variable names and required names, not entered values.
 Previews only read, so they work on a read-only profile; submitting requires a
 write-enabled profile and no development update set. Confirmation follows the

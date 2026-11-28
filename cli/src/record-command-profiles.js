@@ -72,7 +72,7 @@ export default {
   incidents: { table: 'incident', aliases: ['incident', 'inc'], columns: ['number', 'short_description', 'priority', 'state', 'assigned_to'], kind: 'ticket',
     summary: 'List, show, create, or update incidents' },
   changes: { table: 'change_request', aliases: ['change_request', 'chg'], columns: ['number', 'short_description', 'risk', 'state', 'assigned_to'], kind: 'ticket',
-    summary: 'Work with change requests' },
+    options: { stateHint: -1 }, summary: 'Work with change requests' },
   requests: { table: 'sc_req_item', aliases: ['sc_req_item', 'req'], columns: ['number', 'cat_item', 'short_description', 'stage', 'assigned_to'], kind: 'ticket',
     summary: 'Work with requested items' },
   tasks: { table: 'sc_task', aliases: ['sc_task', 'task'], columns: ['number', 'short_description', 'state', 'assigned_to'], kind: 'ticket',

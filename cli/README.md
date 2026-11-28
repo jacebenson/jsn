@@ -177,6 +177,16 @@ the group; `remove` deletes every row for the users, and `--yes` needs the
 `--expect-count` its preview printed. Both match the group and users exactly,
 preview without `--yes`, take up to 100 users, read the rows back, and exit
 nonzero unless every change is there.
+
+```sh
+jsn grouproles add --group "Service Desk" --role itil    # preview
+jsn grouproles add --group "Service Desk" --role itil --yes
+```
+
+Child groups inherit a group's roles, so `grouproles add` previews the groups
+under the group and how many visible members of that tree would get the role;
+`--yes` writes the one `sys_group_has_role` row and reads it back, exiting 1 when
+the row is not there. A name two groups share is refused.
 ```sh
 jsn customizations revert --scope sn_hr_core
 jsn customizations revert --scope sn_hr_core --confirm <token>
@@ -359,6 +369,8 @@ jsn slas list --table incident --active
 jsn slas show "Priority 1 resolution (4 hour)" --format styled
 jsn slas task INC0010001
 jsn slas task INC0010001 --get data.breached
+jsn slas why INC0010001
+jsn slas why INC0010001 "Priority 1 resolution (4 hour)" --format styled
 ```
 
 `list` reads SLA definitions (`contract_sla`) with their table, type and target,
@@ -376,6 +388,20 @@ share is refused with each one's table and sys_id. Task SLAs are joined by the
 record's sys_id; it returns the first 100 by start time and says when more
 exist. An unreadable breach flag is reported as unknown, and an empty result
 says ACLs can hide rows. All three are reads and work on read-only profiles.
+
+`why <number|sys_id> [definition]` tests each active definition on the record's
+own table (the SLA engine matches the table exactly), or the one named, and says
+whether it is attached or why it would not attach: inactive, another table, no
+start condition, the start condition not matching, or the stop or cancel
+condition matching too. One background script loads the record and each
+definition and tests the start, pause and stop conditions (and resume or cancel
+when they are set to a condition) with the call the engine's `SLAConditionBase`
+makes, honouring `com.snc.sla.condition.case_sensitive`; it writes nothing and
+records no rollback context. Conditions are tested against the record as saved,
+so a changes operator reads as no match. A definition with its own condition
+class is decided by that class, so only its condition strings are tested, and
+contract and service offering rules are not tested. It needs a profile that can
+run background scripts and tests at most 100 definitions.
 
 ## Find a REST API
 
@@ -414,8 +440,10 @@ application that holds it is installed or upgraded.
 `run` previews unless `--yes`, then runs the stored script unchanged as a
 background script in the fix script's own scope, which must be the intended
 scope, with a rollback context when Record for rollback is ticked. It is the
-`jsn eval` path: `--timeout` and Ctrl-C cancel it on the instance, and after a
-run with a rollback context `jsn eval rollback <execution>` undoes it. It does
+`jsn eval` path: `--timeout` (default 240 seconds, inside the five minutes
+after which ServiceNow's load balancer drops the request) and Ctrl-C cancel it
+on the instance, and the preview states the timeout. After a run with a
+rollback context `jsn eval rollback <execution>` undoes it. It does
 not start the platform's Run Fix Script worker, so no progress worker or fix
 script log is written, and it ignores the record's Unloadable setting:
 customizations the script writes are captured in the intended update set.
@@ -434,6 +462,43 @@ of the message and its methods, and contains the directory of one of them, the p
 found, and an endpoint whose host is a variable is listed as not matched. Basic logging, the
 default, records no headers. Credential headers and query values are redacted and bodies are never
 read. It is a read and works on read-only profiles.
+
+## Plugins and their dependencies
+
+```sh
+jsn plugins show com.glide.ui.ng.amb
+jsn plugins show com.snc.pa.premium --get data.inactive
+jsn plugins show com.snc.pa.premium --json
+jsn plugins compare com.snc.pa.premium --source pdi --target vendor
+jsn plugins install com.snc.pa.premium
+jsn plugins install com.glide.web_service_aggregate --yes
+jsn plugins plans
+jsn plugins plans auto-upgrade-1795233217607 --get data.failed
+```
+
+`show` reads `v_plugin` by plugin id (never its `sys_id`, which differs on some rows) and walks
+`requires` one level per query until every dependency is read, up to 50 levels and 2000 plugins;
+a tree cut short says so and is marked incomplete. A plugin required more than once is read once,
+and a cycle (including a plugin that requires itself) is named, not followed. `inactive` lists
+the dependencies that are not active. A required id `v_plugin` does not list is reported as not
+listed, with its state unknown, never as missing or not installed; the plugin id you name must be
+listed, or `show` fails with not found. `compare <id>` narrows `jsn plugins compare` to the plugin
+and the tree read on `--source`. Both are reads and work on read-only profiles.
+
+`install` is a mutation. Without `--yes` it reads each tree and lists the inactive plugins
+activation would pull in, required plugins first, and sends nothing. Several ids preview one
+merged plan. `--yes` activates one plugin through `POST /api/sn_cicd/plugin/<id>/activate`
+(admin or `sn_cicd.sys_ci_automation`), waits on its tracker (`--timeout`, `--poll-interval`),
+and reads every plugin it listed back from `v_plugin`; only all of them active is success. An
+active plugin, a blocked or unreadable install block, an incomplete tree, or more than one id is refused before
+anything is sent. A wait that ends first keeps the tracker and exits 1; nothing is resent. A
+request that times out, drops or gets a 5xx is reported as possibly started, never as rejected.
+
+`plans` lists the batch install plans the platform records in `sys_batch_install_plan`, newest
+first (`--limit`, default 20). `plans <name or sys_id>` shows one plan with its items from
+`sys_batch_install_item`, joined on the plan's raw `sys_id`: each item's type, version, state and
+the reason it failed. `failed` lists the failed and invalid items. Up to 1000 items are read; a
+longer plan is marked incomplete. It is a read and works on read-only profiles.
 
 ## Choose output
 
@@ -481,7 +546,13 @@ against a live instance yet.
 jsn atf results <result_sys_id>
 jsn atf results <suite_result_sys_id> --json
 jsn atf results <result_sys_id> --logs
+jsn atf steps "<test name>" --full
 ```
+
+`atf run` and `run-suite` wait for the result by default and exit 1 when the
+run failed, errored or was canceled. A 403 from the CICD API stops before
+anything runs and names the role it needs: admin or
+`sn_cicd.sys_ci_automation`.
 
 `atf results` takes the id `atf run` or `run-suite` printed, or a
 `sys_atf_test_result` or `sys_atf_test_suite_result` sys_id. A test result
@@ -494,6 +565,11 @@ step's output is kept whole in JSON; other text is cut at 16 KB with
 `output_length` and `truncated`. Reads stop at 200 steps, 50 failed tests, 50 failed child suites
 and 200 log lines, and say when more exist. All reads are read-only and joined on
 raw sys_ids.
+
+`atf steps` lists what a test does: its `sys_atf_step` rows in order, each with
+the inputs set on it from `sys_variable_value`, named by the input's element.
+A script input shows its first 20 lines; `--full` shows it whole. A name must
+match one test exactly; a shared name is refused with each sys_id.
 
 ## Work safely
 

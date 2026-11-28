@@ -5,7 +5,8 @@
 //
 // Run endpoints are tried in order (see scheduleTestRun):
 //   1. POST /api/sn_cicd/tests/run_test       (modern CICD API — real path per
-//      now-sdk cicd/operations.ts: tests.run_test, NOT /test/run)
+//      now-sdk cicd/operations.ts: tests.run_test, NOT /test/run); a 403 here
+//      is a missing role and stops the ladder
 //   2. POST /api/sn_atf/rest/test             (ATF plugin REST)
 //   3. POST /api/now/atf/test/{id}/run        (legacy)
 //   4. POST /api/now/table/sys_atf_test_result (last resort, mutation-gated)
@@ -24,8 +25,9 @@ import {
   getStringField, interactiveList,
   resolveFieldsParam, assertSafeExactMatch, confirmDelete,
 } from '../helpers.js';
-import { errUsage, errNotFound } from '../errors.js';
+import { AppError, CodeForbidden, errUsage, errNotFound } from '../errors.js';
 import { assertResultId, readAtfResultDetail, formatAtfResult } from '../atf-results.js';
+import { readAtfSteps, formatAtfSteps } from '../atf-steps.js';
 
 // run/run-suite schedule tests that act on records (top-level only).
 
@@ -39,6 +41,8 @@ const PROGRESS_TERMINAL = new Set([PROGRESS_SUCCESSFUL, PROGRESS_ERROR, PROGRESS
 
 // Terminal statuses for sys_atf_test_result (older instances that expose a status field)
 const TERMINAL_TABLE_STATUSES = new Set(['passed', 'failed', 'error', 'canceled', 'cancelled', 'skipped']);
+// A run that ended in any of these exits 1 (sn_cicd results normalize failure to failed).
+const FAILED_RUN_STATUSES = new Set(['failed', 'error', 'canceled', 'cancelled']);
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -52,6 +56,12 @@ export function isEndpointMissing(err) {
   if (err?.status === 404 || err?.status === 403) return true;
   if (err?.status === 400 && /Requested URI does not represent any resource/.test(err.message || '')) return true;
   return false;
+}
+
+/** A CICD 403 means the account lacks the role (CICD API docs), not that the API is absent. */
+function cicdRoleError(err, entity) {
+  return new AppError(CodeForbidden, `This account cannot run ATF ${entity}s through the CICD API (HTTP 403); nothing was started.`,
+    'The account needs the admin role or sn_cicd.sys_ci_automation.', 403, err);
 }
 
 /** Extract an execution/result id from a run response (legacy/plugin shapes). */
@@ -148,6 +158,7 @@ export async function scheduleTestRun(app, testSysID) {
     if (!progressId && !resultId) throw errUsage('sn_cicd tests/run_test returned no progress/result link');
     return { executionId: resultId || progressId, progressId, resultId, kind: 'sn_cicd_test', via: 'sn_cicd' };
   } catch (err) {
+    if (err?.status === 403) throw cicdRoleError(err, 'test');
     if (!isEndpointMissing(err)) throw err;
   }
   // 2) sn_atf REST (ATF plugin)
@@ -195,6 +206,7 @@ export async function scheduleSuiteRun(app, suiteSysID) {
     if (!progressId && !resultId) throw errUsage('sn_cicd testsuite/run returned no progress/result link');
     return { executionId: resultId || progressId, progressId, resultId, kind: 'sn_cicd_suite', via: 'sn_cicd' };
   } catch (err) {
+    if (err?.status === 403) throw cicdRoleError(err, 'suite');
     if (!isEndpointMissing(err)) throw err;
   }
   // 2) sn_atf REST (ATF plugin)
@@ -482,6 +494,7 @@ async function handleRun(app, argv, { entity, label, scheduled }) {
     via: scheduled.via,
     ...result,
   }, { summary: `ATF ${entity} ${label}: ${result.status}` });
+  if (FAILED_RUN_STATUSES.has(result.status) || [PROGRESS_ERROR, PROGRESS_CANCELED].includes(result.tracker?.status)) process.exitCode = 1;
 }
 
 export function atfCmd(wrap) {
@@ -632,6 +645,20 @@ export function atfCmd(wrap) {
             const failed = detail.steps.records.filter(step => ['failure', 'error'].includes(step.status)).length;
             app.ok(data, { summary: `ATF result ${argv.id}: ${result.status}; ${detail.failed_tests ? `${detail.failed_tests.count} failed test(s), ${detail.failed_suites.count} failed child suite(s), ` : ''}${detail.steps.count} step(s) read, ${failed} failed` });
           }),
+        })
+        .command({
+          command: 'steps <test>',
+          describe: 'List a test\'s steps in order with the inputs set on each, scripts included',
+          builder: (y) => y.strict()
+            .positional('test', { describe: 'Test sys_id or exact name', type: 'string' })
+            .option('full', { type: 'boolean', default: false, describe: 'Show script inputs whole instead of their first 20 lines' }),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const data = await readAtfSteps(app.sdk, argv.test, { full: argv.full });
+            if (!data) throw errNotFound('ATF test', argv.test);
+            Object.defineProperty(data, '_formatted', { value: formatAtfSteps(data), enumerable: false });
+            app.ok(data, { summary: `${data.test.name}: ${data.steps.count} step(s)` });
+          }),
         });
     },
     handler: (argv) => {
@@ -643,6 +670,7 @@ export function atfCmd(wrap) {
       console.log('  run <test>         Run a test by sys_id or name (polls by default)');
       console.log('  run-suite <suite>  Run a suite by sys_id or name');
       console.log('  results <id>       Show a result and its steps (--logs adds log lines)');
+      console.log('  steps <test>       List a test\'s steps and their inputs');
       console.log('\nRun "jsn atf <command> --help" for details.');
       console.log('\nRun is a mutation: it schedules tests that act on records.');
       console.log('  Confirm when prompted, or pass --force / profile skip_confirmations.');

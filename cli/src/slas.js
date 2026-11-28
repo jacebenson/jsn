@@ -2,8 +2,8 @@
 // Display labels are presentation only; every lookup and parent check uses raw sys_ids.
 import { errNotFound, errUsage } from './errors.js';
 
-const SYS_ID = /^[0-9a-f]{32}$/;
-const TABLE = /^[a-z][a-z0-9_]{0,79}$/;
+export const SYS_ID = /^[0-9a-f]{32}$/;
+export const TABLE = /^[a-z][a-z0-9_]{0,79}$/;
 const TASK_LIMIT = 100;
 const EMPTY_LIST = 'No readable SLA definitions on this page. ACLs can hide rows, so an empty page does not prove there are none.';
 const EMPTY_TASK = 'No readable task SLAs. ACLs can hide rows, so an empty list does not prove there are none.';
@@ -19,6 +19,9 @@ const shown = value => value && typeof value === 'object' ? String(value.display
 const ref = value => raw(value) ? { sys_id: raw(value), name: shown(value) || null } : null;
 const malformed = detail => Object.assign(new Error(`Malformed SLA response: ${detail}`), { code: 'malformed_response' });
 const identifierError = what => errUsage(`Provide ${what}, with no ^ or line breaks.`);
+const bad = identifier => typeof identifier !== 'string' || !identifier.trim() || /[\^\r\n]/.test(identifier);
+export const checkDefinition = identifier => { if (bad(identifier)) throw identifierError('an SLA definition name or 32-character sys_id'); };
+export const checkTask = identifier => { if (bad(identifier)) throw identifierError('a task number such as INC0010001, or a 32-character task sys_id'); };
 
 async function read(sdk, table, query, fields, limit, offset = 0) {
   const rows = await sdk.listStrict(table, new URLSearchParams({ sysparm_query: query, sysparm_fields: fields, sysparm_display_value: 'all', sysparm_limit: String(limit), sysparm_offset: String(offset) }));
@@ -58,7 +61,7 @@ export async function listSlas(sdk, { table, active, limit = 50, offset = 0 } = 
 }
 
 export async function showSla(sdk, identifier) {
-  if (typeof identifier !== 'string' || !identifier.trim() || /[\^\r\n]/.test(identifier)) throw identifierError('an SLA definition name or 32-character sys_id');
+  checkDefinition(identifier);
   const bySysId = SYS_ID.test(identifier);
   const rows = await read(sdk, 'contract_sla', bySysId ? `sys_id=${identifier}` : `name=${identifier}^ORDERBYsys_id`, SLA_FIELDS.show, 2);
   if (!rows.length) throw errNotFound('SLA definition', identifier);
@@ -69,7 +72,7 @@ export async function showSla(sdk, identifier) {
 
 // task_sla.task references task, so task resolves a record of any task class by number or sys_id.
 export async function findTask(sdk, identifier) {
-  if (typeof identifier !== 'string' || !identifier.trim() || /[\^\r\n]/.test(identifier)) throw identifierError('a task number such as INC0010001, or a 32-character task sys_id');
+  checkTask(identifier);
   const bySysId = SYS_ID.test(identifier);
   const rows = await read(sdk, 'task', `${bySysId ? 'sys_id' : 'number'}=${identifier}^ORDERBYsys_id`, SLA_FIELDS.task, 2);
   if (!rows.length) throw errNotFound('task', identifier);

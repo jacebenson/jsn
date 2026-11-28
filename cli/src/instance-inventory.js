@@ -1,6 +1,7 @@
 import { resolveSession } from './session.js';
 import { errUsage } from './errors.js';
 import { listApplications } from './store.js';
+import { readDependencyTree } from './plugins.js';
 
 export async function readObservedStoreApps(sdk, maxPages, tableFailure) {
   const items = new Map(), localIds = new Set();
@@ -40,10 +41,15 @@ const text = value => {
   return typeof raw === 'string' ? raw : typeof raw === 'boolean' ? String(raw) : null;
 };
 
+const checkMaxPages = maxPages => {
+  if (!Number.isInteger(maxPages) || maxPages < 1 || maxPages > 100) throw errUsage('--max-pages must be an integer from 1 to 100');
+  return maxPages;
+};
+
 export async function readInventory(sdk, kind, maxPages = 30) {
   const source = inventorySources[kind];
   if (!source) throw errUsage('Unknown inventory kind');
-  if (!Number.isInteger(maxPages) || maxPages < 1 || maxPages > 100) throw errUsage('--max-pages must be an integer from 1 to 100');
+  checkMaxPages(maxPages);
   const coverage = { table: source.table, status: 'unknown', fetched: 0, total: null, reason: null };
   const items = new Map();
   const seen = new Set();
@@ -138,7 +144,8 @@ export function compareInventories(source, destination, kind = 'plugins') {
 }
 
 export function formatInventoryComparison(data, verbose = false) {
-  const lines = [`${data.kind}: ${data.source} -> ${data.target} (align TARGET ${data.target} to SOURCE ${data.source})`, data.complete ? 'Complete visible inventories' : 'INCOMPLETE inventory: absences unknown; verified observed pairs can still be compared',
+  const lines = [`${data.kind}: ${data.source} -> ${data.target} (align TARGET ${data.target} to SOURCE ${data.source})`,
+    ...(data.tree ? [`Narrowed to ${data.tree.plugin} and the ${data.tree.count} plugins it requires on ${data.source}${data.tree.complete ? '' : ' (INCOMPLETE tree)'}; ${data.tree.unlisted.length} not listed in v_plugin there are not compared`] : []), Object.values(data.coverage).every(c => c.status === 'complete') ? 'Complete visible inventories' : 'INCOMPLETE inventory: absences unknown; verified observed pairs can still be compared',
     ...Object.entries(data.coverage).map(([side, c]) => `${side}: ${c.status}, ${c.fetched}/${c.total ?? '?'} rows${c.reason ? ` (${c.reason})` : ''}`),
     `${data.records.length} identities; ${Object.entries(data.counts).map(([key, value]) => `${value} ${key}`).join(', ')}`,
     'ID | STATUS | SOURCE -> TARGET | WHAT TO DO ON TARGET'];
@@ -161,11 +168,16 @@ export async function compareInstanceInventory(argv, app, kind, emit = true) {
   };
   // Resolve both profiles before making any request. Sequential bounded reads.
   const sourceSDK = sdk(argv.source), destinationSDK = sdk(targetName);
-  const source = await readInventory(sourceSDK, kind, argv.maxPages);
-  const destination = await readInventory(destinationSDK, kind, argv.maxPages);
-  const records = compareInventories(source, destination, kind);
+  // One plugin's tree, read from the source, narrows the full comparison; coverage rules are unchanged.
+  const maxPages = checkMaxPages(argv.maxPages ?? 30);
+  const tree = kind === 'plugins' && argv.id !== undefined ? await readDependencyTree(sourceSDK, argv.id) : null;
+  const source = await readInventory(sourceSDK, kind, maxPages);
+  const destination = await readInventory(destinationSDK, kind, maxPages);
+  // Ids the source does not list are named, never compared: a target row for one would read as an absence on the source.
+  const ids = tree && new Set([tree.plugin.id, ...tree.dependencies.filter(dep => dep.listed).map(dep => dep.id)]);
+  const records = compareInventories(source, destination, kind).filter(row => !ids || ids.has(row.id));
   const counts = Object.fromEntries(['matching', 'different', 'source_only', 'target_only', 'unknown'].map(status => [status, records.filter(row => row.status === status).length]));
-  const data = { kind, source: argv.source, target: targetName, complete: source.coverage.status === 'complete' && destination.coverage.status === 'complete', coverage: { source: source.coverage, target: destination.coverage }, counts, records };
+  const data = { kind, source: argv.source, target: targetName, ...(tree ? { tree: { plugin: tree.plugin.id, count: tree.count, complete: tree.complete, unlisted: tree.unlisted } } : {}), complete: source.coverage.status === 'complete' && destination.coverage.status === 'complete' && (!tree || tree.complete), coverage: { source: source.coverage, target: destination.coverage }, counts, records };
   Object.defineProperty(data, '_formatted', { value: formatInventoryComparison(data, argv.verbose), enumerable: false });
   if (emit) {
     app.ok(data, { summary: `${kind} comparison${data.complete ? '' : ' (incomplete)'}` });
@@ -175,10 +187,10 @@ export async function compareInstanceInventory(argv, app, kind, emit = true) {
 }
 
 export const inventoryCompareCommand = (wrap, kind) => ({
-  command: 'compare', describe: `Compare ${kind === 'store' ? 'Store application' : 'plugin'} inventories across explicit profiles (read-only)`,
-  builder: p => p.option('source', { type: 'string', demandOption: true, describe: 'Source profile alias, desired baseline for --target' })
+  command: kind === 'plugins' ? 'compare [id]' : 'compare', describe: `Compare ${kind === 'store' ? 'Store application' : 'plugin'} inventories across explicit profiles (read-only)`,
+  builder: p => (kind === 'plugins' ? p.positional('id', { type: 'string', describe: 'Compare only this plugin and every plugin it requires on --source' }) : p).strict().option('source', { type: 'string', demandOption: true, describe: 'Source profile alias, desired baseline for --target' })
     .option('target', { alias: 'destination', type: 'string', demandOption: true, describe: 'Target profile to align to the desired --source baseline' })
     .option('max-pages', { type: 'number', default: 30, describe: 'Per-side page budget, 200 rows/page (1–100); limits remain incomplete' })
-    .epilogue('Align target to source without changing either instance:\njsn compare --source pdi --target vendor\njsn compare --source pdi --target vendor --json\njsn compare --source pdi --target vendor --get data.inventories.store.coverage\nIncomplete coverage exits 1 and recommends investigating access, not installing or removing. Numeric versions are ordered conservatively; newer target versions require review, never automatic downgrade.'),
+    .epilogue(`Align target to source without changing either instance:\njsn compare --source pdi --target vendor\n${kind === 'plugins' ? 'jsn plugins compare com.snc.pa.premium --source pdi --target vendor\n' : ''}jsn compare --source pdi --target vendor --json\njsn compare --source pdi --target vendor --get data.inventories.store.coverage\nIncomplete coverage exits 1 and recommends investigating access, not installing or removing. Numeric versions are ordered conservatively; newer target versions require review, never automatic downgrade.`),
   handler: wrap((argv, app) => compareInstanceInventory(argv, app, kind)),
 });

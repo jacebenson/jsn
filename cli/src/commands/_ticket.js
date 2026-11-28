@@ -83,7 +83,7 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
               app.ok(record, {
                 summary: `${displayName.charAt(0).toUpperCase() + displayName.slice(1)} ${number}`,
                 breadcrumbs: [
-                  { action: 'update', cmd: `jsn ${alias} update ${number} -f state=2`, description: `Update this ${displayName}` },
+                  { action: 'update', cmd: `jsn ${alias} update ${number} -f state=${opts.stateHint ?? 2}`, description: `Update this ${displayName}` },
                   { action: 'list', cmd: `jsn ${alias} list`, description: `Back to all ${table}` },
                 ],
               });
@@ -159,7 +159,7 @@ export function buildTicketCommands(table, displayName, alias, defaultColumns, s
             app.ok(record, {
               summary: `${displayName.charAt(0).toUpperCase() + displayName.slice(1)} ${number}`,
               breadcrumbs: [
-                { action: 'update', cmd: `jsn ${alias} update ${number} -f state=2`, description: `Update this ${displayName}` },
+                { action: 'update', cmd: `jsn ${alias} update ${number} -f state=${opts.stateHint ?? 2}`, description: `Update this ${displayName}` },
                 { action: 'list', cmd: `jsn ${alias} list`, description: `Back to all ${table}` },
               ],
             });

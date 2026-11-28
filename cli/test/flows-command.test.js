@@ -240,6 +240,15 @@ test('flows show renders a draft whose label cache is JSON null', async () => {
   assert.match(styled, /nice!/);
 });
 
+test('flows executions --active asks only for the unfinished states sys_flow_context stores', async () => {
+  const queries = [];
+  const sdk = { list: async (table, params) => { if (table === 'sys_flow_context') queries.push(params.get('sysparm_query')); return []; } };
+  const { app, envelope } = jsonApp(sdk);
+  await handler('executions').handler({ active: true, limit: 50 }, app);
+  assert.deepEqual(queries, ['stateINQUEUED,IN_PROGRESS,CONTINUE_SYNC,WAITING,PAUSED,PAUSED_IN_DEBUG^ORDERBYDESCsys_created_on']);
+  assert.equal(envelope().data.query, queries[0]);
+});
+
 test('flows list handler emits the normal JSON envelope for an interactive selection', async () => {
   const list = commandTree().find(command => command.command === 'list');
   assert.ok(list);
@@ -465,4 +474,36 @@ test('doctor handler uses the SDK health-check tables and emits JSON', async () 
   assert.equal(out.ok, true);
   assert.equal(out.data.ok, true);
   assert.match(out.summary, /Flow publishing/);
+});
+
+test('flows test and publish --action exit 1 when the run fails, and leave a pass alone', async () => {
+  const RECORD = '0123456789abcdef0123456789abcdef';
+  const flowSdk = (state) => ({
+    async list(table) {
+      if (table === 'sys_hub_flow') return [{ sys_id: 'f'.repeat(32), name: 'Flow', scope: 'scope-1' }];
+      if (table === 'ticket') return [{ sys_id: RECORD }];
+      return [];
+    },
+    async request(_url, options = {}) {
+      if (options.method === 'GET') return { result: { data: { triggerInstances: [{ type: 'record_create_or_update', inputs: [{ name: 'table', value: 'ticket' }] }] } } };
+      return { result: { context_id: 'context-1', state } };
+    },
+  });
+  const publishSdk = (summary) => ({
+    baseURL: 'https://example.service-now.com',
+    async list(table) { return table === 'sys_hub_action_type_definition' ? [{ sys_id: 'action-1', name: 'Named action' }] : []; },
+    async fetchResponse() {
+      return { status: summary.failed ? 422 : 200, async text() { return JSON.stringify({ result: { summary, results: [{ sys_id: 'action-1', status: summary.failed ? 'error' : 'success' }] } }); } };
+    },
+  });
+  const exitCodeOf = async (name, argv, sdk) => {
+    const { app } = jsonApp(sdk);
+    const previous = process.exitCode;
+    try { await handler(name).handler({ force: true, ...argv }, app); return process.exitCode; } finally { process.exitCode = previous; }
+  };
+  assert.equal(await exitCodeOf('test [identifier]', { identifier: 'Flow', record: RECORD }, flowSdk('failed')), 1);
+  assert.equal(await exitCodeOf('test [identifier]', { identifier: 'Flow', record: RECORD }, flowSdk('success')), undefined);
+  assert.equal(await exitCodeOf('test [identifier]', { identifier: 'Flow', record: RECORD }, flowSdk('')), undefined);
+  assert.equal(await exitCodeOf('publish [identifier]', { identifier: 'action-name', action: true }, publishSdk({ total: 1, succeeded: 0, failed: 1 })), 1);
+  assert.equal(await exitCodeOf('publish [identifier]', { identifier: 'action-name', action: true }, publishSdk({ total: 1, succeeded: 1, failed: 0 })), undefined);
 });
