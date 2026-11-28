@@ -428,6 +428,12 @@ nonempty `--notes`; they never open prompts. Separate multiple notes with real
 newlines. Success requires readback of both Description and state. If verification
 fails, inspect the set before retrying because the write may have partially succeeded.
 
+`complete` and `ignore` refuse a Default update set (`is_default`), and a set whose
+`is_default` cannot be read, before any write: ServiceNow creates a new Default set
+when one is completed or ignored, and the old set's captured changes sit in a closed
+set. `ignore` acts on the current set and reports success only after reading back
+`ignore` as its state.
+
 ### Update set transfer
 
 ```bash
