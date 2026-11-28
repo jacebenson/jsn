@@ -14,7 +14,7 @@ const rec = (id, value, message = id) => ({
 });
 
 /** A follower wired to a scripted list and an array sink. */
-function harness({ pages = [], pageSize = 100, defer } = {}) {
+function harness({ pages = [], pageSize = 100, defer, baseQuery } = {}) {
   const written = [];
   const warnings = [];
   const queries = [];
@@ -31,6 +31,7 @@ function harness({ pages = [], pageSize = 100, defer } = {}) {
     write: (record) => written.push(record.sys_id.value),
     warn: (error) => warnings.push(error.message),
     pageSize,
+    baseQuery,
   });
   return { follower, written, warnings, queries };
 }
@@ -180,14 +181,51 @@ describe('log follow backfill', () => {
     assert.match(queries[1], /sys_created_on>=2026-11-26 05:00:03/);
   });
 
-  it('does nothing for a zero tail count and warns on a failed backfill', async () => {
-    const empty = harness({ pages: [[]] });
-    assert.deepStrictEqual(await empty.follower.backfill(0), { emitted: 0 });
-    assert.strictEqual(empty.queries.length, 0);
+  it('starts a zero tail count at the newest row without printing it', async () => {
+    const limits = [];
+    const { follower, written, queries } = harness({
+      pages: [
+        (params) => { limits.push(params.get('sysparm_limit')); return [rec('newest', '2026-11-26T05:00:03Z')]; },
+        [rec('newest', '2026-11-26T05:00:03Z'), rec('same-second', '2026-11-26T05:00:03Z'), rec('later', '2026-11-26T05:00:04Z')],
+      ],
+    });
 
+    assert.deepStrictEqual(await follower.backfill(0), { emitted: 0 });
+    assert.deepStrictEqual(written, []);
+    assert.deepStrictEqual(limits, ['1']);
+    assert.strictEqual(queries[0], 'ORDERBYDESCsys_created_on');
+    assert.strictEqual(follower.watermark, '2026-11-26 05:00:03');
+
+    await follower.pollOnce();
+    assert.match(queries[1], /^sys_created_on>=2026-11-26 05:00:03\^ORDERBYsys_created_on$/);
+    assert.deepStrictEqual(written, ['same-second', 'later']);
+  });
+
+  it('reads the start row without the filter, which only the dated poll can use cheaply', async () => {
+    const { follower, queries } = harness({ baseQuery: 'level=2', pages: [[rec('newest', '2026-11-26T05:00:03Z')], []] });
+
+    await follower.backfill(0);
+    await follower.pollOnce();
+
+    assert.deepStrictEqual(queries, ['ORDERBYDESCsys_created_on', 'level=2^sys_created_on>=2026-11-26 05:00:03^ORDERBYsys_created_on']);
+  });
+
+  it('follows from the first row when the table starts empty', async () => {
+    const { follower, written, queries } = harness({ pages: [[], [rec('first', '2026-11-26T05:00:01Z')]] });
+
+    await follower.backfill(0);
+    assert.strictEqual(follower.watermark, '');
+    await follower.pollOnce();
+
+    assert.strictEqual(queries[1], 'ORDERBYsys_created_on');
+    assert.deepStrictEqual(written, ['first']);
+  });
+
+  it('warns on a failed backfill', async () => {
     const failed = harness({ pages: [() => { throw new Error('backfill down'); }] });
     const result = await failed.follower.backfill(5);
     assert.strictEqual(result.failed, true);
+    assert.strictEqual(result.error.message, 'backfill down');
     assert.deepStrictEqual(failed.warnings, ['backfill down']);
   });
 });

@@ -76,4 +76,20 @@ describe('logs follow', () => {
     const follow = findCommand(captureSubcommands(cmd), 'follow');
     assert.ok(follow, 'logs follow subcommand exists');
   });
+
+  it('refuses to follow when it cannot read where to start', async () => {
+    const { logsCmd } = await import('../src/commands/logs.js');
+    const follow = findCommand(captureSubcommands(logsCmd(wrapHandler)), 'follow');
+    let reads = 0;
+    const denied = Object.assign(new Error('Authentication rejected (HTTP 401)'), { code: 'auth_error' });
+    const app = makeApp({ sdk: { listStrict: async () => { reads += 1; throw denied; } } });
+    const stderr = process.stderr.write;
+    process.stderr.write = () => true;
+    try {
+      await assert.rejects(follow.handler({ app, tail: 0, interval: 2000 }), (error) => error === denied);
+    } finally {
+      process.stderr.write = stderr;
+    }
+    assert.strictEqual(reads, 1);
+  });
 });
