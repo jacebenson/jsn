@@ -143,9 +143,9 @@ function scriptStoppedError(stop, timeout, cancel) {
 }
 
 // A background script is not one transaction: what it wrote before the error stays, so the failure keeps the
-// output and the execution id, and names the rollback when a rollback context was recorded (the form's default).
-function scriptFailedError(message, output, execution_id, rollback) {
-  const undo = execution_id && rollback !== false ? `\nWrites it made before it stopped are kept; preview undoing them with jsn eval rollback ${execution_id}` : '';
+// output and the execution id, and names the rollback when the script ran with a rollback context recorded.
+function scriptFailedError(message, output, execution_id, recorded) {
+  const undo = execution_id && recorded ? `\nAnything it wrote is kept; preview undoing it with jsn eval rollback ${execution_id}` : '';
   return Object.assign(new Error(message + undo), { output, execution_id });
 }
 
@@ -1290,10 +1290,13 @@ export class SDKClient {
     const output = this._extractScriptOutput(html);
     const execution_id = html.match(/sys_script_execution_history\.do\?sys_id=([0-9a-f]{32})/)?.[1] || null;
     // The platform ended it (transaction quota, or an admin's kill) before it finished.
-    if (cancelledByPlatform(output)) throw scriptFailedError(`Background script was cancelled on the instance before it finished: ${output}`, output, execution_id, opts.rollback);
+    // A rollback context is recorded unless turned off (the form's default); a sandbox run writes nothing.
+    const recorded = opts.rollback !== false && !opts.sandbox;
+    if (cancelledByPlatform(output)) throw scriptFailedError(`Background script was cancelled on the instance before it finished: ${output}`, output, execution_id, recorded);
     const scriptError = detectScriptError(output);
     // opts.finished: the script printed this when it completed, so a logged error it ran past (a user criteria script that threw) is the caller's to report.
-    if (scriptError && !opts.finished?.test(output)) throw scriptFailedError(`Background script failed: ${scriptError}\nScript output:\n${output}`, output, execution_id, opts.rollback);
+    // A script that did not compile never ran, so it has nothing to roll back.
+    if (scriptError && !opts.finished?.test(output)) throw scriptFailedError(`Background script failed: ${scriptError}\nScript output:\n${output}`, output, execution_id, recorded && !/^(?:Script compilation error|Javascript compiler exception):/.test(scriptError));
     return { output, execution_id };
   }
 
