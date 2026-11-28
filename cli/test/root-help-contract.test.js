@@ -57,10 +57,11 @@ const fullRegistry = () => new Map(buildCLI([]).commandRegistry().commands.map((
 describe('ordinary root help is a concise task directory', () => {
   it('stays short and lists common commands without repeating jsn on every row', () => {
     const stdout = output(run(['--help']));
-    const lines = stdout.split('\n').filter(Boolean);
-    assert.ok(lines.length <= 65, `root help is ${lines.length} lines`);
-    // The merged help carries the app, connections, usercriteria and slas families: 2996 bytes.
-    assert.ok(Buffer.byteLength(stdout) <= 1976 + 1020, `root help is ${Buffer.byteLength(stdout)} bytes`);
+    // The group rows grow by one name per visible command and base-help.txt pins them byte for byte; cap the rest of the page.
+    const page = stdout.replace(stdout.split(/\nALL COMMANDS BY GROUP\n.*\n/)[1].split('\nEXAMPLES\n')[0], '');
+    const lines = page.split('\n').filter(Boolean);
+    assert.ok(lines.length <= 37, `root help without its group rows is ${lines.length} lines`);
+    assert.ok(Buffer.byteLength(page) <= 1729, `root help without its group rows is ${Buffer.byteLength(page)} bytes`);
     assert.match(stdout, /^Usage: jsn <command> \[options\]$/m);
     assert.match(stdout, /^COMMON COMMANDS$/m);
     assert.match(stdout, /^EXAMPLES$/m);
@@ -94,10 +95,9 @@ describe('ordinary root help is a concise task directory', () => {
     }
   });
 
-  it('indexes every visible registered name within the byte and column budgets', () => {
+  it('indexes every visible registered name within the column budget', () => {
     const registry = buildCLI([]).commandRegistry({ summaries: true });
     const stdout = output(run(['--help']));
-    assert.ok(Buffer.byteLength(stdout) <= 1976 + 1020);
     for (const line of stdout.split('\n')) assert.ok(line.length <= 80, line);
     for (const enabled of [false, true]) {
       const help = renderHelp({ activeProfile: 'p', profiles: { p: { domain_separation: enabled } } }, registry);
