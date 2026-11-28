@@ -69,7 +69,7 @@ test('minimal declarations inherit defaults and only override the preferences th
 });
 
 test('ticket show suggests a state the family has: changes use Implement (-1), incidents keep In Progress (2)', async () => {
-  for (const [name, number, hint] of [['changes', 'CHG0030001', `jsn chg update CHG0030001 -f state=-1`], ['incidents', 'INC0010001', `jsn inc update INC0010001 -f state=2`]]) {
+  for (const [name, number, hint] of [['changes', 'CHG0030001', 'jsn chg update CHG0030001 -f state=-1'], ['incidents', 'INC0010001', 'jsn inc update INC0010001 -f state=2']]) {
     let opts;
     await findHandler(buildProfileCommand(name, fn => fn), 'show')({ number }, {
       sdk: { list: async () => [{ sys_id: 'fixture', number }] },
