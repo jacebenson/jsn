@@ -1,5 +1,6 @@
 import { getStringField, interactiveList } from '../helpers.js';
 import { deferredFamilyDefinition } from '../command-families.js';
+import { errAmbiguous, errNotFoundHint } from '../errors.js';
 
 export function listsCmd(wrap) {
   return {
@@ -69,24 +70,27 @@ export function listsCmd(wrap) {
           aliases: ['get'],
           describe: 'Show list layout',
           builder: (y) => y
-            .option('view', { type: 'string', default: 'Default view' }),
+            .option('view', { type: 'string', default: 'Default view', describe: 'View name, title or sys_id' }),
           handler: wrap(async (argv, app) => {
             app.requireInstance();
             const table = argv.table;
+            const view = argv.view;
 
-            // Resolve view sys_id
-            let viewSysID;
+            // Resolve view sys_id by sys_id, then name, then title; the default view's sys_id is "Default view" and its name is empty
             const vp = new URLSearchParams();
-            vp.set('sysparm_limit', '1'); vp.set('sysparm_fields', 'sys_id');
-            vp.set('sysparm_query', `name=${argv.view}^name=${table}`);
+            vp.set('sysparm_limit', '10'); vp.set('sysparm_fields', 'sys_id,name,title');
+            vp.set('sysparm_query', `sys_id=${view}^ORname=${view}^ORtitle=${view}`);
             const vr = await app.sdk.list('sys_ui_view', vp);
-            viewSysID = vr.length > 0 ? getStringField(vr[0], 'sys_id') : '';
+            const matches = ['sys_id', 'name', 'title'].map(f => vr.filter(r => getStringField(r, f) === view)).find(m => m.length) || [];
+            if (matches.length > 1) throw errAmbiguous('view', matches.map(r => getStringField(r, 'name')));
+            const viewSysID = matches.length ? getStringField(matches[0], 'sys_id') : '';
+            if (!viewSysID) throw errNotFoundHint('view', view, 'See view names and titles with: jsn views list');
 
-            // Find list layout
+            // Find the shared list layout: no personal layout, no related list
             const lp = new URLSearchParams();
             lp.set('sysparm_limit', '1'); lp.set('sysparm_display_value', 'all');
             lp.set('sysparm_fields', 'sys_id,name,view');
-            lp.set('sysparm_query', `name=${table}^view=${viewSysID || argv.view}`);
+            lp.set('sysparm_query', `name=${table}^view=${viewSysID}^sys_userISEMPTY^parentISEMPTY`);
             const layouts = await app.sdk.list('sys_ui_list', lp);
             if (layouts.length === 0) throw new Error(`No list layout for ${table} view "${argv.view}"`);
             await showList(app, table, getStringField(layouts[0], 'view') || argv.view, getStringField(layouts[0], 'sys_id'));
