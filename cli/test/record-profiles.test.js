@@ -67,3 +67,14 @@ test('minimal declarations inherit defaults and only override the preferences th
   const [ticket] = validateRecordProfiles([{ name: 'minimal_ticket', kind: 'ticket', table: 'x_ticket', aliases: [], columns: ['number'] }]);
   assert.equal(ticket.identifierField, 'number');
 });
+
+test('ticket show suggests a state the family has: changes use Implement (-1), incidents keep In Progress (2)', async () => {
+  for (const [name, number, hint] of [['changes', 'CHG0030001', `jsn chg update CHG0030001 -f state=-1`], ['incidents', 'INC0010001', `jsn inc update INC0010001 -f state=2`]]) {
+    let opts;
+    await findHandler(buildProfileCommand(name, fn => fn), 'show')({ number }, {
+      sdk: { list: async () => [{ sys_id: 'fixture', number }] },
+      getEffectiveInstance: () => 'https://fixture.invalid', ok: (_data, o) => { opts = o; },
+    });
+    assert.equal(opts.breadcrumbs[0].cmd, hint);
+  }
+});
