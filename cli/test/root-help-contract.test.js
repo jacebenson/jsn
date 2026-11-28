@@ -95,14 +95,14 @@ describe('ordinary root help is a concise task directory', () => {
     }
   });
 
-  it('indexes every visible registered name within the column budget', () => {
+  it('indexes every visible registered name with its description within the column budget', () => {
     const registry = buildCLI([]).commandRegistry({ summaries: true });
     const stdout = output(run(['--help']));
     for (const line of stdout.split('\n')) assert.ok(line.length <= 80, line);
     for (const enabled of [false, true]) {
       const help = renderHelp({ activeProfile: 'p', profiles: { p: { domain_separation: enabled } } }, registry);
       const index = help.split('\nALL COMMANDS BY GROUP\n')[1].split('\nEXAMPLES\n')[0];
-      const names = new Set(index.split(/\s+/));
+      const names = new Set(index.match(/^ {2}\S+(?= {2,}\S)/gm).map((name) => name.trim()));
       for (const command of registry.commands) {
         assert.equal(names.has(command.name), command.name !== 'domains' || enabled, command.name);
       }
@@ -113,9 +113,9 @@ describe('ordinary root help is a concise task directory', () => {
     const cli = buildCLI([]);
     cli.command({ command: 'dynamicfixture', aliases: ['fixturealias'], describe: 'Fixture description', handler: () => {} });
     const help = renderHelp({}, cli.commandRegistry());
-    const other = help.split(/\n {2}OTHER +/)[1].split('\nEXAMPLES')[0];
-    assert.match(other, /\bdynamicfixture\b/);
-    assert.doesNotMatch(other, /fixturealias|Fixture description/);
+    const other = help.split('\nOTHER\n')[1].split('\nEXAMPLES')[0];
+    assert.match(other, /^ {2}dynamicfixture {2,}Fixture description$/m);
+    assert.doesNotMatch(other, /fixturealias/);
     assert.doesNotThrow(() => renderHelp({}, null));
   });
 
