@@ -138,10 +138,25 @@ test('run without --yes previews the stored script and runs nothing', () => {
   assert.ok(!result.calls.some(call => call[0] === 'runBackgroundScript'));
 });
 
+for (const [label, args, seconds, cutoff] of [
+  ['the default', [], 240, /jsn cancels it on the instance if it is still running after 240s$/],
+  ['--timeout 299', ['--timeout', '299'], 299, /jsn cancels it on the instance if it is still running after 299s$/],
+  ['--timeout 300, where the load balancer drops the request first', ['--timeout', '300'], 300, /jsn would wait 300s, but ServiceNow's load balancer drops the request at five minutes, after which jsn can neither report on nor cancel it$/],
+]) {
+  test(`the preview states the cut-off with ${label}, and its run command keeps it`, () => {
+    const result = run(['fixscripts', 'run', 'Lower impact', ...intent, ...args, '--json', '--verbose']);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    const output = JSON.parse(result.stdout);
+    assert.match(output.summary, cutoff);
+    assert.equal(output.data.timeout, seconds);
+    assert.match(output.breadcrumbs.find(item => item.action === 'run').cmd, new RegExp(`--yes --timeout ${seconds}( |$)`));
+  });
+}
+
 test('the terminal view shows the script on a preview and what it printed on a run', () => {
   const preview = run(['fixscripts', 'run', 'Lower impact', ...intent, '--format', 'styled']);
   assert.equal(preview.status, 0, preview.stdout + preview.stderr);
-  assert.match(preview.stdout, /Dry run: would run fix script Lower impact/);
+  assert.match(preview.stdout, /Dry run: would run fix script Lower impact .* jsn cancels it on the instance if it is still running after 240s\n/);
   assert.ok(preview.stdout.includes(stored));
   const ran = run(['fixscripts', 'run', 'Lower impact', ...intent, '--yes', '--format', 'styled']);
   assert.equal(ran.status, 0, ran.stdout + ran.stderr);
@@ -152,7 +167,7 @@ test('run --yes runs the stored script unchanged, once, in the fix script\'s sco
   const result = run(['fixscripts', 'run', 'Lower impact', ...intent, '--yes', '--json', '--verbose']);
   assert.equal(result.status, 0, result.stdout + result.stderr);
   assert.deepEqual(result.calls.filter(call => call[0] === 'runBackgroundScript'),
-    [['runBackgroundScript', stored, scope, { rollback: true, quotaManagedTransaction: true, sandbox: false, scriptlet: false, timeout: 30000, signal: true }]]);
+    [['runBackgroundScript', stored, scope, { rollback: true, quotaManagedTransaction: true, sandbox: false, scriptlet: false, timeout: 240000, signal: true }]]);
   const output = JSON.parse(result.stdout);
   assert.equal(output.data.output, 'lowered 3');
   assert.equal(output.data.execution, execution);
