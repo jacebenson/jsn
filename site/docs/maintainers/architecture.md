@@ -181,6 +181,15 @@ long descriptions, including mutation safety text. Machine discovery JSON does
 not gain a summary field, and profile/capability visibility is unchanged.
 Bare `jsn` home behavior remains owned by `src/welcome.js`.
 
+Under ALL COMMANDS BY GROUP each visible command has its own row with that
+concise description (2026-11-28), since agents choose commands by their
+descriptions. The rows come from the same shallow registry, so root help still
+loads no handler; subcommand names stay in `jsn <command> --help`, because
+listing them here would load every family. A row drops a trailing
+`(e.g. "...")` example, which many table commands share and the full page
+keeps. The root help size test leaves these rows out and caps the rest of the
+page.
+
 ### Table behavior discovery extends `tables` (2026-11-04)
 
 Phase 1 of issue #398 adds `jsn tables behavior <table>` as a subcommand of the

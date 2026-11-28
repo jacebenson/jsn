@@ -57,10 +57,11 @@ const fullRegistry = () => new Map(buildCLI([]).commandRegistry().commands.map((
 describe('ordinary root help is a concise task directory', () => {
   it('stays short and lists common commands without repeating jsn on every row', () => {
     const stdout = output(run(['--help']));
-    const lines = stdout.split('\n').filter(Boolean);
-    assert.ok(lines.length <= 65, `root help is ${lines.length} lines`);
-    // The merged help carries the app, connections, usercriteria and slas families: 2996 bytes.
-    assert.ok(Buffer.byteLength(stdout) <= 1976 + 1020, `root help is ${Buffer.byteLength(stdout)} bytes`);
+    // The group rows grow with each visible command, and the index test checks their names and width; cap the rest of the page.
+    const page = stdout.replace(stdout.split(/\nALL COMMANDS BY GROUP\n.*\n/)[1].split('\nEXAMPLES\n')[0], '');
+    const lines = page.split('\n').filter(Boolean);
+    assert.ok(lines.length <= 37, `root help without its group rows is ${lines.length} lines`);
+    assert.ok(Buffer.byteLength(page) <= 1729, `root help without its group rows is ${Buffer.byteLength(page)} bytes`);
     assert.match(stdout, /^Usage: jsn <command> \[options\]$/m);
     assert.match(stdout, /^COMMON COMMANDS$/m);
     assert.match(stdout, /^EXAMPLES$/m);
@@ -94,15 +95,16 @@ describe('ordinary root help is a concise task directory', () => {
     }
   });
 
-  it('indexes every visible registered name within the byte and column budgets', () => {
+  it('indexes every visible registered name with its description within the column budget', () => {
     const registry = buildCLI([]).commandRegistry({ summaries: true });
     const stdout = output(run(['--help']));
-    assert.ok(Buffer.byteLength(stdout) <= 1976 + 1020);
     for (const line of stdout.split('\n')) assert.ok(line.length <= 80, line);
     for (const enabled of [false, true]) {
       const help = renderHelp({ activeProfile: 'p', profiles: { p: { domain_separation: enabled } } }, registry);
       const index = help.split('\nALL COMMANDS BY GROUP\n')[1].split('\nEXAMPLES\n')[0];
-      const names = new Set(index.split(/\s+/));
+      assert.doesNotMatch(index, /\(e\.g\. /);
+      assert.match(index, /^ {2}acls {2,}Manage acls$/m);
+      const names = new Set(index.match(/^ {2}\S+(?= {2,}\S)/gm).map((name) => name.trim()));
       for (const command of registry.commands) {
         assert.equal(names.has(command.name), command.name !== 'domains' || enabled, command.name);
       }
@@ -113,9 +115,9 @@ describe('ordinary root help is a concise task directory', () => {
     const cli = buildCLI([]);
     cli.command({ command: 'dynamicfixture', aliases: ['fixturealias'], describe: 'Fixture description', handler: () => {} });
     const help = renderHelp({}, cli.commandRegistry());
-    const other = help.split(/\n {2}OTHER +/)[1].split('\nEXAMPLES')[0];
-    assert.match(other, /\bdynamicfixture\b/);
-    assert.doesNotMatch(other, /fixturealias|Fixture description/);
+    const other = help.split('\nOTHER\n')[1].split('\nEXAMPLES')[0];
+    assert.match(other, /^ {2}dynamicfixture {2,}Fixture description$/m);
+    assert.doesNotMatch(other, /fixturealias/);
     assert.doesNotThrow(() => renderHelp({}, null));
   });
 

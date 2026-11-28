@@ -266,18 +266,16 @@ function renderConciseHelp(config, registry, width) {
       desc: command.summary || command.description || '',
     }));
 
+  // One row per command under each group heading: agents pick commands by their descriptions. The trailing
+  // "(e.g. ...)" example that table commands share stays on the full page; here it only wrapped the row.
   const used = new Set();
   const groups = Object.entries(COMMAND_GROUPS)
-    .map(([label, hint]) => ({
-      label,
-      description: rowsFor(hint, byName, used, config)
-        .filter((row) => !row.divider).map((row) => row.name).join(' '),
-    }))
-    .filter((row) => row.description);
-  const other = commands
-    .filter((command) => !used.has(command.name) && !isCapabilityHidden(command.name, config))
-    .map((command) => command.name);
-  if (other.length) groups.push({ label: 'OTHER', description: other.join(' ') });
+    .map(([label, hint]) => [label, rowsFor(hint, byName, used, config).filter((row) => !row.divider).map((row) => byName.get(row.name))]);
+  groups.push(['OTHER', commands.filter((command) => !used.has(command.name) && !isCapabilityHidden(command.name, config))]);
+  const index = groups.filter(([, list]) => list.length).map(([label, list]) => `${label}\n${renderRows(list.map((command) => ({
+    label: command.name,
+    description: (command.summary || command.description || '').replace(/ \(e\.g\. .*\)$/, ''),
+  })), { width, indent: 2 })}`).join('\n\n');
 
   return [
     'Usage: jsn <command> [options]',
@@ -287,7 +285,7 @@ function renderConciseHelp(config, registry, width) {
     '',
     'ALL COMMANDS BY GROUP',
     ...wrapText('jsn --all-commands --help for details', { width }),
-    renderRows(groups, { width, indent: 2 }),
+    index,
     '',
     'EXAMPLES',
     ...CONCISE_EXAMPLES.map((example) => wrapText(example, { width: width - 2, firstIndent: 2 }).join(' \\\n')),

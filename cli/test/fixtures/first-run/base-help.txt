@@ -15,25 +15,146 @@ COMMON COMMANDS
 
 ALL COMMANDS BY GROUP
 jsn --all-commands --help for details
-  CORE             knowledge incidents changes requests tasks tickets slas
-                   approvals
-  AUTOMATION       flows actions scriptactions scheduledjobs triggers events
-                   asyncrules rules decisiontables assignments scrapi email
-                   notifications restmessage soapmessages
-  ACCESS           access-analyzer acls b4rules roles privileges usercriteria
-                   aliases connections groups groupmembers grouproles userroles
-                   users
-  USER EXPERIENCE  forms lists clientscripts uipolicies uiactions views
-                   catalogitems catalogscripts cataloguipolicies uipages
-                   uimacros listcontrols sppages spwidgets uxscripts uxlists
-                   uxapplicability appmenu appmodules
-  DATA             tables columns relationships cmdb includes import logs
-                   properties records transactions snippets
-  CONFIGURATION    setup preferences auth updatesets scopes midservers platform
-  DEVELOPER        scan atf eval fixscripts rest graphql codesearch docs
-                   document diff perf skill version
-  OTHER            app cases workflows attachments store plugins compare
-                   subscriptions skipped-updates customizations upgrade discover
+CORE
+  knowledge  Search and read knowledge articles
+  incidents  List, show, create, or update incidents
+  changes    Work with change requests
+  requests   Work with requested items
+  tasks      Work with catalog tasks
+  tickets    Query generic tickets
+  slas       Inspect SLA definitions and the task SLAs on a record (read-only)
+  approvals  List, approve, or reject approval requests
+
+AUTOMATION
+  flows           Manage Flow Designer flows
+  actions         Flow Designer actions: create, edit full definitions, and test
+                  with outputs
+  scriptactions   Manage scriptactions
+  scheduledjobs   Manage scheduledjobs
+  triggers        Manage triggers
+  events          Inspect the event log, its backlog and reprocess a recorded
+                  event
+  asyncrules      Manage asyncrules
+  rules           Manage rules
+  decisiontables  Manage decision tables
+  assignments     Manage assignments
+  scrapi          Manage Scripted REST APIs (list, show, create) and search
+                  every REST API and its OpenAPI spec
+  email           Manage email
+  notifications   Explain outbound notification delivery
+  restmessage     Manage restmessage
+  soapmessages    Manage soapmessages
+
+ACCESS
+  access-analyzer  Inspect saved Access Analyzer requests, outcomes and checks,
+                   check a user's access live, or run a live evaluation (--save
+                   keeps it)
+  acls             Manage acls
+  b4rules          Inspect before-query business rules that can filter record
+                   reads
+  roles            Manage roles
+  privileges       Manage privileges
+  usercriteria     Manage usercriteria
+  aliases          Manage aliases
+  connections      Inspect HTTP connections and the credentials they use;
+                   secrets are never read (read-only)
+  groups           Manage ServiceNow groups
+  groupmembers     Manage group memberships
+  grouproles       Manage group roles
+  userroles        List, grant or remove direct user roles
+  users            Manage ServiceNow users
+
+USER EXPERIENCE
+  forms              Manage UI Forms
+  lists              List views for a table
+  clientscripts      Manage clientscripts
+  uipolicies         Manage uipolicies
+  uiactions          Manage uiactions
+  views              Manage views
+  catalogitems       Manage Service Catalog items
+  catalogscripts     Manage catalogscripts
+  cataloguipolicies  Manage cataloguipolicies
+  uipages            Manage uipages
+  uimacros           Manage uimacros
+  listcontrols       Manage listcontrols
+  sppages            Manage sppages
+  spwidgets          Manage spwidgets
+  uxscripts          Manage uxscripts
+  uxlists            Manage uxlists
+  uxapplicability    Manage uxapplicability
+  appmenu            Manage appmenu
+  appmodules         Manage appmodules
+
+DATA
+  tables         Manage tables
+  columns        Manage columns
+  relationships  Manage relationships
+  cmdb           Query the Configuration Management Database (CMDB) — CIs and
+                 relationship traversal (read-only)
+  includes       Manage includes
+  import         Manage import
+  logs           Query system logs
+  properties     Manage properties
+  records        Query any table when no specialized command fits
+  transactions   Summarize syslog_transaction response times by transaction type
+  snippets       Save and re-run named query snippets (stored locally, no
+                 instance contact except run)
+
+CONFIGURATION
+  setup        Connect to ServiceNow and manage profiles
+  preferences  Configure JSN workflow opinions installation-wide or per profile
+  auth         Manage authentication (OAuth, Basic, or browser session)
+  updatesets   Manage update sets. Global + Default mutations require approval
+               (--force only after user approval); create/set remain available
+               to select a dedicated capture set. Scope mismatches warn;
+               completed capture sets block writes.
+  scopes       Manage application scopes
+  midservers   Manage ServiceNow MID Servers and run commands through them
+  platform     Inspect read-only platform health and node statistics
+
+DEVELOPER
+  scan        Instance Scan checks, suites, explicit targets, progress and
+              findings
+  atf         Automated Test Framework (list, suites, run, results, steps)
+  eval        Execute background scripts on the instance (--repl for interactive
+              mode)
+  fixscripts  Manage fixscripts
+  rest        Make raw REST API calls
+  graphql     Execute a GraphQL document against ServiceNow Now GraphQL
+  codesearch  Search code across ServiceNow artifacts with read-only GraphQL
+              queries
+  docs        Search ServiceNow documentation (hosted by default; configure your
+              service in setup)
+  document    Create bounded read-only instance configuration documentation
+  diff        Compare records across configured profiles (read-only)
+  perf        Capture and compare performance summaries, rank slow pattern logs,
+              and explain a slow query
+  skill       Manage the jsn AI agent skill file (for Hermes, Claude Code,
+              Cursor, etc.)
+  version     Show version information
+
+OTHER
+  app              Build a local app project into a deployable artifact, or
+                   deploy the package backend to an instance
+  cases            List, show or search service and HR cases visible to the
+                   connected account
+  workflows        Inspect legacy Workflow Editor workflows (read-only)
+  attachments      List, download and upload files attached to any record
+  store            Discover ServiceNow Store applications, inspect versions and
+                   entitlement, and request explicit installs/updates
+  plugins          Show a plugin with its nested dependencies, compare plugins
+                   across instances, activate one, and read batch install plans
+  compare          Compare plugins AND Store apps; report how to align --target
+                   to desired --source (read-only)
+  subscriptions    Inspect subscription evidence, local schedules and
+                   illustrative ITOM populations
+  skipped-updates  Review and process existing unresolved skipped updates across
+                   all upgrade history
+  customizations   Capture and compare customization evidence locally, or revert
+                   an application's customised files
+  upgrade          Upgrade jsn through npm (preserves the installed release
+                   channel)
+  discover         Find commands by task word or table
 
 EXAMPLES
   jsn incidents list --query "active=true" --limit 5
