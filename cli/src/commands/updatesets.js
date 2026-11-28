@@ -389,7 +389,7 @@ async function fetchUpdateSetById(app, sysID) {
   params.set('sysparm_query', `sys_id=${sysID}`);
   params.set('sysparm_limit', '1');
   params.set('sysparm_display_value', 'all');
-  params.set('sysparm_fields', 'sys_id,name,state,application,application.scope,parent,description,sys_created_on,sys_updated_on');
+  params.set('sysparm_fields', 'sys_id,name,state,application,application.scope,parent,description,is_default,sys_created_on,sys_updated_on');
   const records = await app.sdk.list('sys_update_set', params);
   return Array.isArray(records) && records.length > 0 ? records[0] : null;
 }
@@ -417,6 +417,13 @@ async function resolveCompletionTarget(app, name) {
 }
 
 const rawState = record => String(record?.state?.value ?? record?.state ?? '').toLowerCase();
+
+/** ServiceNow replaces a Default set that is completed or ignored, leaving its captured changes in a closed set; an unknown flag refuses too. */
+function assertNotDefaultSet(record, name, action) {
+  const flag = record?.is_default?.value ?? record?.is_default;
+  if (flag === undefined) throw errUsage(`is_default is unreadable for update set "${name}"; refusing to ${action} a set that may be a Default update set.`);
+  if (String(flag) === 'true') throw errUsage(`Refusing to ${action} "${name}": it is a Default update set, and ServiceNow creates a new Default set when one is completed or ignored. Capture the work in a named set instead:\n  jsn updatesets create --name "<name>"`);
+}
 
 async function moveCandidates(app, identifier) {
   const field = /^[0-9a-f]{32}$/i.test(identifier) ? 'sys_id' : 'name';
@@ -1418,6 +1425,7 @@ export function updateSetsCmd(wrap) {
             const current = await resolveCompletionTarget(app, argv.name);
             const record = await fetchUpdateSetById(app, current.sys_id);
             if (!record) throw errUsage(`Update set not found or unreadable: ${current.sys_id}`);
+            assertNotDefaultSet(record, current.name, 'complete');
             if (!Object.hasOwn(record, 'description')
               || (record.description && typeof record.description === 'object' && !Object.hasOwn(record.description, 'value'))) {
               throw errUsage(`Description is unreadable for update set "${current.name}" (${current.sys_id}); refusing to replace unknown text.`);
@@ -1471,8 +1479,20 @@ export function updateSetsCmd(wrap) {
             if (!current?.sys_id) {
               throw errUsage('No current update set. Set one first:\n  jsn updatesets set');
             }
-            await app.sdk.update('sys_update_set', current.sys_id, { state: 'ignore' });
-            app.ok({ update_set: current.name, state: 'ignore' }, { summary: `Update set ignored: ${current.name}` });
+            const record = await fetchUpdateSetById(app, current.sys_id);
+            if (!record) throw errUsage(`Update set not found or unreadable: ${current.sys_id}`);
+            assertNotDefaultSet(record, current.name, 'ignore');
+            const data = { state: 'ignore' };
+            try {
+              await app.sdk.update('sys_update_set', current.sys_id, data);
+            } catch (error) {
+              throw errAPI(error.status || 0, `Could not ignore update set "${current.name}" (${current.sys_id}): ${error.message}. Check the record before retrying.`);
+            }
+            const mismatches = await verifyWriteBack(app, 'sys_update_set', current.sys_id, data);
+            if (mismatches.length) {
+              throw errAPI(200, `Could not verify that update set "${current.name}" (${current.sys_id}) is ignored: ${mismatches.map(item => item.field).join(', ')} did not persist or could not be read. Inspect the set before retrying.`);
+            }
+            app.ok({ update_set: current.name, sys_id: current.sys_id, state: 'ignore' }, { summary: `Update set ignored: ${current.name}` });
           }),
         })
 

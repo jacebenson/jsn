@@ -21,9 +21,9 @@ const { updateSetsCmd } = await import('../src/commands/updatesets.js');
 beforeEach(() => { interactive = false; answer = 'Fixed validation'; confirmed = true; promptCalls = []; currentID = 'current'; });
 function fixture(description = '') {
   const records = [
-    { sys_id: 'current', name: 'Current', base_update_set: '', state: 'in progress', description: '' },
-    { sys_id: 'selected', name: 'Feature', base_update_set: '', state: 'in progress', description },
-    { sys_id: 'child', name: 'Child', parent: '', base_update_set: '', state: 'in progress', description: 'Child notes' },
+    { sys_id: 'current', name: 'Current', base_update_set: '', state: 'in progress', description: '', is_default: 'false' },
+    { sys_id: 'selected', name: 'Feature', base_update_set: '', state: 'in progress', description, is_default: 'false' },
+    { sys_id: 'child', name: 'Child', parent: '', base_update_set: '', state: 'in progress', description: 'Child notes', is_default: 'false' },
   ];
   const writes = [], reads = [], results = [];
   const app = { config: {}, output: { getFormat: () => 'auto' }, ok: data => results.push(data), sdk: {
@@ -38,7 +38,10 @@ function fixture(description = '') {
         return helpers.getStringField(r, key) === expected;
       }));
       const offset = Number(params.get('sysparm_offset') || 0);
-      return structuredClone(found.slice(offset, offset + Number(params.get('sysparm_limit') || found.length)));
+      const fields = params.get('sysparm_fields')?.split(',');
+      const rows = found.slice(offset, offset + Number(params.get('sysparm_limit') || found.length));
+      // Like the Table API, return only the requested fields, so a dropped field reads as missing.
+      return structuredClone(fields ? rows.map(r => Object.fromEntries(fields.filter(f => Object.hasOwn(r, f)).map(f => [f, r[f]]))) : rows);
     },
     update: async (table, id, data) => {
       writes.push({ table, id, data });
@@ -56,8 +59,8 @@ function fixture(description = '') {
   } };
   return { app, records, writes, reads, results };
 }
-async function run(args, app) {
-  await yargs(['updatesets', 'complete', ...args]).strictCommands().strictOptions()
+async function run(args, app, verb = 'complete') {
+  await yargs(['updatesets', verb, ...args]).strictCommands().strictOptions()
     .option('force', { type: 'boolean' }).option('json', { type: 'boolean' }).option('get', { type: 'string' })
     .command(updateSetsCmd(handler => argv => handler(argv, app)))
     .fail((message, error) => { throw error || new Error(message); }).parse();
@@ -240,4 +243,60 @@ test('confirmation prompt cancellation makes no write', async () => {
   await run(['--notes', 'New'], f.app);
   assert.equal(f.writes.length, 0);
   assert.equal(f.results.length, 0);
+});
+
+test('complete and ignore refuse a Default set before the notes prompt or any write', async () => {
+  interactive = true;
+  for (const [verb, args] of [['complete', []], ['complete', ['Feature', '--notes', 'New', '--force']], ['ignore', []]]) {
+    const f = fixture();
+    f.records[0].is_default = { value: 'true', display_value: 'true' };
+    f.records[1].is_default = 'true';
+    await assert.rejects(run(args, f.app, verb), error => {
+      assert.equal(error.code, 'usage_error');
+      assert.match(error.message, new RegExp(`Refusing to ${verb} "(Current|Feature)".*Default update set`));
+      return true;
+    });
+    assert.equal(f.writes.length, 0);
+    assert.equal(promptCalls.length, 0);
+  }
+});
+
+test('an unreadable is_default refuses before any write', async () => {
+  for (const verb of ['complete', 'ignore']) {
+    const f = fixture();
+    delete f.records[0].is_default;
+    await assert.rejects(run(['--notes', 'New'].slice(0, verb === 'complete' ? 2 : 0), f.app, verb), /is_default.*unreadable|unreadable.*is_default/i);
+    assert.equal(f.writes.length, 0);
+  }
+});
+
+test('ignore writes the current set and reports it only after readback', async () => {
+  const f = fixture();
+  await run([], f.app, 'ignore');
+  assert.deepEqual(f.writes, [{ table: 'sys_update_set', id: 'current', data: { state: 'ignore' } }]);
+  assert.deepEqual(f.results, [{ update_set: 'Current', sys_id: 'current', state: 'ignore' }]);
+  assert.equal(f.reads.filter(read => read.query === 'sys_id=current').length, 2);
+});
+
+test('ignore never reports success when state is dropped, readback fails, or the write fails', async () => {
+  const dropped = fixture();
+  dropped.app.sdk.update = async (table, id, data) => { dropped.writes.push({ table, id, data }); return { ...data }; };
+  await assert.rejects(run([], dropped.app, 'ignore'), error => error.code === 'api_error' && /verif.*Current.*state/i.test(error.message));
+  const unread = fixture();
+  const read = unread.app.sdk.list;
+  unread.app.sdk.list = async (...args) => { if (unread.writes.length) throw new Error('Read ACL denied'); return read(...args); };
+  await assert.rejects(run([], unread.app, 'ignore'), /verif.*Current/i);
+  const denied = fixture();
+  denied.app.sdk.update = async () => { throw new Error('Write ACL denied'); };
+  await assert.rejects(run([], denied.app, 'ignore'), /ignore.*Current.*current.*Write ACL denied/);
+  for (const f of [dropped, unread, denied]) assert.equal(f.results.length, 0);
+});
+
+test('ignore with no current set or an unreadable current set never writes', async () => {
+  currentID = null;
+  const f = fixture();
+  await assert.rejects(run([], f.app, 'ignore'), /No current update set/);
+  currentID = 'unreadable';
+  await assert.rejects(run([], f.app, 'ignore'), /not found or unreadable/);
+  assert.equal(f.writes.length, 0);
 });
