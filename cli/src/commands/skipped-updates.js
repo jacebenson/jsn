@@ -2,7 +2,7 @@ import { skippedUpdatesCmdDefinition } from '../command-families.js';
 import { checkbox, select, confirm } from '../prompts.js';
 import { canUsePicker, interactiveList, getStringField } from '../helpers.js';
 import { errUsage } from '../errors.js';
-import { discoverSkippedUpdates, reviewSkippedUpdate, prepareSkippedBatch, processSkippedBatch, raw, SKIP_TABLE } from '../skipped-updates.js';
+import { discoverSkippedUpdates, reviewSkippedUpdate, prepareSkippedBatch, processSkippedBatch, raw, skipQuery, SKIP_TABLE } from '../skipped-updates.js';
 
 const label = row => `${raw(row.sys_id)}  ${getStringField(row, 'target_name') || getStringField(row, 'file_name')}`;
 const selectionOptions = y => y
@@ -52,18 +52,19 @@ export function skippedUpdatesCmd(wrap, ui = {}) {
     builder: y => y
       .command({ command: 'list', describe: 'Discover unresolved skips instance-wide, independent of new upgrades',
         builder: y => y.option('limit', { type: 'number', default: 100, describe: 'Page size, maximum 500' })
-          .option('offset', { type: 'number', default: 0, describe: 'Page offset' }),
+          .option('offset', { type: 'number', default: 0, describe: 'Page offset' })
+          .option('include-unchanged', { type: 'boolean', default: false, describe: 'Also list skips whose base did not change in that upgrade (Changed false)' }),
         handler: wrap(async (argv, app) => {
           app.requireInstance();
           if (prompts.canUsePicker(app, argv)) {
             const selected = await prompts.interactiveList({ app, table: SKIP_TABLE, singular: 'skipped update',
               columns: ['target_name', 'file_name', 'disposition', 'resolution_status'], labelField: 'target_name',
-              query: 'dispositionIN4,104,9,10,11^resolution_statusIN,not_reviewed', formatLabel: label });
+              query: skipQuery(argv.includeUnchanged), formatLabel: label });
             if (selected === undefined) return;
             if (selected) { await showReview(app, raw(selected.sys_id)); return; }
           }
           const page = await discoverSkippedUpdates(app.sdk, argv);
-          app.ok(page, { summary: `${page.count} unresolved finding(s) fetched${page.has_more ? '; more available' : ''}. Instance-wide total is not measured.` });
+          app.ok(page, { summary: `${page.count} unresolved ${argv.includeUnchanged ? '' : 'changed '}finding(s) fetched${page.has_more ? '; more available' : ''}. Instance-wide total is not measured.` });
         }) })
       .command({ command: 'review <sys-id>', describe: 'Review artifact evidence, field changes and bounded known dependencies',
         handler: wrap(async (argv, app) => { app.requireInstance();
