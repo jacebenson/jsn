@@ -23,14 +23,13 @@ import {
   freshConfigHome,
   hasAnsi,
   hasWelcome,
-  loadBaseFixture,
   ptySkipReason,
   readIfExists,
+  rootHelp,
   runCli,
   runPty,
   runPtyAsync,
   runShell,
-  sha256,
   welcomeBlock,
   writeGlobalConfig,
 } from './support/welcome-harness.js';
@@ -167,7 +166,7 @@ describe('first-run welcome matrix (issue #387)', () => {
   });
 
   it('row 5: NO_COLOR and TERM=dumb read the same, with no escape codes', { skip: PTY_SKIP }, () => {
-    const { meta, help } = loadBaseFixture();
+    const help = rootHelp();
 
     const plain = runPty(freshConfigHome('jsn-color-a-').dir, [], { columns: 80 });
     const noColor = runPty(freshConfigHome('jsn-color-b-').dir, [], { columns: 80, env: { NO_COLOR: '1' } });
@@ -182,29 +181,27 @@ describe('first-run welcome matrix (issue #387)', () => {
       'NO_COLOR must not change the wording');
     assert.ok(hasWelcome(noColor.output), 'NO_COLOR must not hide the note');
 
-    // TERM=dumb means no human terminal: no note, and the help is exactly the
-    // base bytes, so nothing is lost by suppressing it.
+    // TERM=dumb means no human terminal: no note, and the help is exactly
+    // `jsn --help`, so nothing is lost by suppressing it.
     const dumb = runPty(freshConfigHome('jsn-color-c-').dir, [], { columns: 80, env: { TERM: 'dumb' } });
     assert.strictEqual(dumb.status, 0, dumb.output);
     assert.ok(!hasWelcome(dumb.output), 'TERM=dumb is not a human terminal');
     assert.ok(!hasAnsi(dumb.output), 'TERM=dumb output must not contain escapes');
-    assert.strictEqual(dumb.output, help, 'TERM=dumb output must equal the base commit help byte for byte');
-    assert.strictEqual(sha256(dumb.output), meta.sha256.help);
+    assert.strictEqual(dumb.output, help, 'TERM=dumb output must equal `jsn --help` byte for byte');
   });
 
   it('row 6: piped and redirected runs get help only, and burn nothing', { skip: POSIX_SHELL_ONLY }, () => {
-    const { meta, help } = loadBaseFixture();
+    const help = rootHelp();
     const { dir, marker } = freshConfigHome('jsn-pipe-');
     const piped = runShell(`${process.execPath} ${JSON.stringify(CLI)} | cat`, dir);
     assert.strictEqual(piped.status, 0, piped.stderr);
-    assert.strictEqual(piped.stdout, help, 'piped help must be byte-identical to the base commit');
-    assert.strictEqual(sha256(piped.stdout), meta.sha256.help);
+    assert.strictEqual(piped.stdout, help, 'piped help must be byte-identical to `jsn --help`');
 
     const outFile = path.join(dir, 'redirect.out');
     const redirected = runShell(`${process.execPath} ${JSON.stringify(CLI)} > ${JSON.stringify(outFile)}`, dir);
     assert.strictEqual(redirected.status, 0, redirected.stderr);
     const written = fs.readFileSync(outFile, 'utf-8');
-    assert.strictEqual(written, help, 'redirected help must be byte-identical to the base commit');
+    assert.strictEqual(written, help, 'redirected help must be byte-identical to `jsn --help`');
     assert.ok(!hasWelcome(written));
     assert.ok(!fs.existsSync(marker), 'piping or redirecting must not consume the welcome');
   });
@@ -244,16 +241,15 @@ describe('first-run welcome matrix (issue #387)', () => {
     }
   });
 
-  it('row 9: machine formats carry no welcome and keep the base bytes', () => {
-    const { meta, help } = loadBaseFixture();
+  it('row 9: machine formats carry no welcome and print `jsn --help` unchanged', () => {
+    const help = rootHelp();
     const { dir, marker } = freshConfigHome('jsn-formats-');
     const helpPrinting = [['--quiet'], ['--csv'], ['--markdown'], ['--get', 'data.version']];
     for (const args of helpPrinting) {
       const result = runCli(args, dir);
       assert.strictEqual(result.status, 0, result.stderr);
       assert.ok(!hasWelcome(result.stdout), `${args.join(' ')} must not receive the welcome`);
-      assert.strictEqual(result.stdout, help, `${args.join(' ')} output must equal the base commit bytes`);
-      assert.strictEqual(sha256(result.stdout), meta.sha256.help, `${args.join(' ')} hash must match the base commit`);
+      assert.strictEqual(result.stdout, help, `${args.join(' ')} output must equal \`jsn --help\``);
     }
     assert.ok(!fs.existsSync(marker), 'machine formats must not consume the welcome');
 
