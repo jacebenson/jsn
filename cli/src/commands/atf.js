@@ -26,6 +26,7 @@ import {
 } from '../helpers.js';
 import { errUsage, errNotFound } from '../errors.js';
 import { assertResultId, readAtfResultDetail, formatAtfResult } from '../atf-results.js';
+import { readAtfSteps, formatAtfSteps } from '../atf-steps.js';
 
 // run/run-suite schedule tests that act on records (top-level only).
 
@@ -632,6 +633,20 @@ export function atfCmd(wrap) {
             const failed = detail.steps.records.filter(step => ['failure', 'error'].includes(step.status)).length;
             app.ok(data, { summary: `ATF result ${argv.id}: ${result.status}; ${detail.failed_tests ? `${detail.failed_tests.count} failed test(s), ${detail.failed_suites.count} failed child suite(s), ` : ''}${detail.steps.count} step(s) read, ${failed} failed` });
           }),
+        })
+        .command({
+          command: 'steps <test>',
+          describe: 'List a test\'s steps in order with the inputs set on each, scripts included',
+          builder: (y) => y.strict()
+            .positional('test', { describe: 'Test sys_id or exact name', type: 'string' })
+            .option('full', { type: 'boolean', default: false, describe: 'Show script inputs whole instead of their first 20 lines' }),
+          handler: wrap(async (argv, app) => {
+            app.requireInstance();
+            const data = await readAtfSteps(app.sdk, argv.test, { full: argv.full });
+            if (!data) throw errNotFound('ATF test', argv.test);
+            Object.defineProperty(data, '_formatted', { value: formatAtfSteps(data), enumerable: false });
+            app.ok(data, { summary: `${data.test.name}: ${data.steps.count} step(s)` });
+          }),
         });
     },
     handler: (argv) => {
@@ -643,6 +658,7 @@ export function atfCmd(wrap) {
       console.log('  run <test>         Run a test by sys_id or name (polls by default)');
       console.log('  run-suite <suite>  Run a suite by sys_id or name');
       console.log('  results <id>       Show a result and its steps (--logs adds log lines)');
+      console.log('  steps <test>       List a test\'s steps and their inputs');
       console.log('\nRun "jsn atf <command> --help" for details.');
       console.log('\nRun is a mutation: it schedules tests that act on records.');
       console.log('  Confirm when prompted, or pass --force / profile skip_confirmations.');

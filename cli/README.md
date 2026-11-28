@@ -481,6 +481,7 @@ against a live instance yet.
 jsn atf results <result_sys_id>
 jsn atf results <suite_result_sys_id> --json
 jsn atf results <result_sys_id> --logs
+jsn atf steps "<test name>" --full
 ```
 
 `atf results` takes the id `atf run` or `run-suite` printed, or a
@@ -494,6 +495,11 @@ step's output is kept whole in JSON; other text is cut at 16 KB with
 `output_length` and `truncated`. Reads stop at 200 steps, 50 failed tests, 50 failed child suites
 and 200 log lines, and say when more exist. All reads are read-only and joined on
 raw sys_ids.
+
+`atf steps` lists what a test does: its `sys_atf_step` rows in order, each with
+the inputs set on it from `sys_variable_value`, named by the input's element.
+A script input shows its first 20 lines; `--full` shows it whole. A name must
+match one test exactly; a shared name is refused with each sys_id.
 
 ## Work safely
 

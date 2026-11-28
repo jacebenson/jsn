@@ -205,26 +205,29 @@
     "allow": {
       "why": "privileges allow sets one Restricted Caller Access request to Allowed, the status name the platform uses; approve would suggest an approval record, and update would hide which field changes."
     },
+    "app": {
+      "why": "The project noun for a shared on-disk record format that both ad hoc uploads and packaged apps use; records reads instance rows and updatesets manages instance sets, while neither names the local directory format, and appmenu/appmodules are navigation tables."
+    },
     "backlog": {
       "why": "events backlog answers which ready events are overdue versus scheduled and which sys_trigger job drains each queue; list returns rows without queue/state counts or processor next actions, and aggregate counts groups but cannot say which ready event has a passed process_on."
     },
     "basic-auth": {
       "why": "users basic-auth gives one enforcement verdict per account the platform recorded using Basic Auth. list returns generic user records, show reads one user, and users roles lists role names, but none of them reports the Basic Auth decision or whether enforcement blocks the account."
     },
+    "build": {
+      "why": "build compiles a validated local project into one artifact in a single step; export downloads an existing update set from an instance, create makes instance rows, and neither reads app.yaml or writes anything without an instance."
+    },
     "connections": {
       "why": "connections names the http_connection family the way aliases names sys_alias; list and show are its verbs, and aliases (a CRUD table command over sys_alias) cannot hold read-only connection verbs without mixing writes into a read-only view."
-    },
-    "slas": {
-      "why": "slas names the contract_sla and task_sla family the way connections names http_connection; tickets and tasks are CRUD profiles over task tables and cannot hold read-only SLA verbs without mixing writes into a read-only view."
-    },
-    "task": {
-      "why": "slas task lists the task_sla rows on one record; list and show read SLA definitions, so neither starts from a task, and show would suggest one definition rather than every SLA attached to a record."
     },
     "deleted": {
       "why": "records deleted reads Deleted Records and joins each entry to its own table and its delete recovery by raw sys_id; list reads one table's rows and cannot say whether a deleted record is back."
     },
     "deletes": {
       "why": "audit deletes toggles no_audit_delete; update would blur it with the table Audit tick that audit enable and audit disable already own."
+    },
+    "deploy": {
+      "why": "deploy is the instance-side counterpart of build: it installs the package that build produced and verifies each record. install names a Store or plugin install and would blur that this ships the local project; create and update write one record, not an application."
     },
     "disable": {
       "why": "audit disable mirrors audit enable; delete would suggest removing the table, and update would hide the switch from a read-only profile's blocked paths."
@@ -250,17 +253,20 @@
     "include": {
       "why": "audit include reverses audit exclude; create would imply a new dictionary row, which it never makes."
     },
+    "maps": {
+      "why": "import maps reads the transform maps (sys_transform_map) that turn a staging table's rows into target records, with their field maps and transform scripts; list and show read import sets, runs reads transform history, and transform runs the maps rather than describing them."
+    },
     "move": {
       "why": "updatesets move reassigns customer updates between sets; update would suggest editing the update payload, and parent links whole sets rather than moving their updates."
     },
     "pipeline": {
       "why": "records pipeline lays out every artifact for one save in execution order; inspect shows one record's history and list only returns rows, so neither orders the artifacts nor tests their conditions."
     },
+    "preferences": {
+      "why": "preferences changes JSN's own workflow opinions in the global config, not ServiceNow records; setup configures connections and update would imply a sys_properties write, while show and set remain the ordinary read and write verbs underneath it and the noun is what the command actually manages."
+    },
     "queue": {
       "why": "list reads one table's newest page and show reads one record; neither aggregates a backlog over a window, so queue names the read that answers how much is stuck and for how long."
-    },
-    "maps": {
-      "why": "import maps reads the transform maps (sys_transform_map) that turn a staging table's rows into target records, with their field maps and transform scripts; list and show read import sets, runs reads transform history, and transform runs the maps rather than describing them."
     },
     "references": {
       "why": "records references lists every record that holds one record's sys_id; related would suggest the form's configured related lists, which miss conditions, properties and document ID fields, and usage would suggest the platform's dependency views of application files."
@@ -277,51 +283,49 @@
     "runs": {
       "why": "import runs lists sys_import_set_run records (TH numbers) with their counts; list already lists import sets, and history reads one record's trail in approvals history rather than a table of transform runs."
     },
+    "slas": {
+      "why": "slas names the contract_sla and task_sla family the way connections names http_connection; tickets and tasks are CRUD profiles over task tables and cannot hold read-only SLA verbs without mixing writes into a read-only view."
+    },
     "sources": {
       "why": "sources lists configured Remote Instances (sys_update_set_source); list reads update sets on the target, and those rows cannot identify where a set should be retrieved from."
+    },
+    "steps": {
+      "why": "atf steps lists a test's sys_atf_step rows in order with their input values from sys_variable_value; list reads one table's rows without joining the inputs, and show and results describe a run's outcome rather than what the test does."
     },
     "suggest-index": {
       "why": "perf suggest-index asks the platform's IndexSuggestionAPI for a suggestion and reads that record back; create writes a record the caller describes, while here the table and columns are the instance's answer, not caller input."
     },
-    "userroles": {
-      "why": "userroles writes direct sys_user_has_role rows for chosen users; users roles only reads them, and grouproles grants through a group, which reaches every member rather than one user."
+    "task": {
+      "why": "slas task lists the task_sla rows on one record; list and show read SLA definitions, so neither starts from a task, and show would suggest one definition rather than every SLA attached to a record."
+    },
+    "unset": {
+      "why": "unset removes one preference override so the value falls back to the next layer; delete would imply deleting stored instance data, clear is already the log-trimming verb, and set cannot express removal because it always writes a value."
     },
     "usercriteria": {
       "why": "usercriteria names user_criteria the way roles names sys_user_role; acls and access-analyzer cover table, record and field access, never the criteria that decide who sees a catalog item."
     },
+    "userroles": {
+      "why": "userroles writes direct sys_user_has_role rows for chosen users; users roles only reads them, and grouproles grants through a group, which reaches every member rather than one user."
+    },
     "why": {
       "why": "why explains the per-record cause for one artifact - why a scheduled job did not run, why an email was ignored, why a flow, field or column did not apply, why a notification was not sent. show prints the configuration record, status reports across records without testing one, and inspect reads history rather than explaining cause."
-    },
-    "app": {
-      "why": "The project noun for a shared on-disk record format that both ad hoc uploads and packaged apps use; records reads instance rows and updatesets manages instance sets, while neither names the local directory format, and appmenu/appmodules are navigation tables."
-    },
-    "build": {
-      "why": "build compiles a validated local project into one artifact in a single step; export downloads an existing update set from an instance, create makes instance rows, and neither reads app.yaml or writes anything without an instance."
-    },
-    "deploy": {
-      "why": "deploy is the instance-side counterpart of build: it installs the package that build produced and verifies each record. install names a Store or plugin install and would blur that this ships the local project; create and update write one record, not an application."
-    },
-    "preferences": {
-      "why": "preferences changes JSN's own workflow opinions in the global config, not ServiceNow records; setup configures connections and update would imply a sys_properties write, while show and set remain the ordinary read and write verbs underneath it and the noun is what the command actually manages."
-    },
-    "unset": {
-      "why": "unset removes one preference override so the value falls back to the next layer; delete would imply deleting stored instance data, clear is already the log-trimming verb, and set cannot express removal because it always writes a value."
     }
   },
   "budgets": {
     "$comment": "Subcommand count per family. A budget is a ratchet, not a ban: when a new command earns its place, raise the number in the same diff and say why in the PR. Adding a family means adding its budget entry.",
-    "total": 488,
+    "total": 489,
     "families": {
       "access-analyzer": 4,
       "acls": 5,
       "actions": 10,
       "aliases": 5,
+      "app": 2,
       "appmenu": 5,
       "appmodules": 5,
       "approvals": 5,
       "assignments": 2,
       "asyncrules": 5,
-      "atf": 5,
+      "atf": 6,
       "attachments": 3,
       "auth": 7,
       "b4rules": 5,
@@ -410,8 +414,7 @@
       "uxscripts": 5,
       "version": 0,
       "views": 5,
-      "workflows": 2,
-      "app": 2
+      "workflows": 2
     }
   }
 }
