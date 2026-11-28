@@ -1,3 +1,5 @@
+import { errUsage } from './errors.js';
+import { assertSafeExactMatch } from './helpers.js';
 import { resolveRecord, unwrapSysId } from './resolve-record.js';
 
 // add writes one sys_group_has_role row. Child groups inherit their parent's roles, so the
@@ -45,12 +47,30 @@ async function countMembers(sdk, groupIds) {
   return { members: users.size, complete: rows.length <= MAX_ROWS };
 }
 
+// The grant row for this group and role, checked before the write and read back after it.
+async function readGrant(sdk, g, r) {
+  const rows = await sdk.listStrict('sys_group_has_role', new URLSearchParams({ sysparm_query: `group=${g.sys_id}^role=${r.sys_id}`,
+    sysparm_fields: 'sys_id,group,role', sysparm_limit: '2', sysparm_display_value: 'false' }));
+  for (const row of rows) {
+    if (!row || typeof row !== 'object' || !unwrapSysId(row) || raw(row.group) !== g.sys_id || raw(row.role) !== r.sys_id) throw malformed('sys_group_has_role', 'a row is not this group and role');
+  }
+  return rows;
+}
+
 export async function addGroupRole(sdk, { group, role, yes = false }) {
+  // Both identifiers are checked before the first request.
+  for (const value of [group, role]) {
+    assertSafeExactMatch(value);
+    if (typeof value !== 'string' || !value.trim()) throw errUsage('--group and --role each need a name or sys_id.');
+  }
   const g = await resolveTarget(sdk, 'sys_user_group', group, 'Group');
   const r = await resolveTarget(sdk, 'sys_user_role', role, 'Role');
-  const existing = await sdk.listStrict('sys_group_has_role', new URLSearchParams({ sysparm_query: `group=${g.sys_id}^role=${r.sys_id}`, sysparm_fields: 'sys_id', sysparm_limit: '1' }));
-  if (existing.length > 0) throw new Error(`Role ${role} is already assigned to group ${group}`);
-  if (yes) return { dry_run: false, record: await sdk.create('sys_group_has_role', { group: g.sys_id, role: r.sys_id }) };
+  if ((await readGrant(sdk, g, r)).length > 0) throw new Error(`Role ${role} is already assigned to group ${group}`);
+  if (yes) {
+    const record = await sdk.create('sys_group_has_role', { group: g.sys_id, role: r.sys_id });
+    // The read-back decides: a create that returned nothing counts only if its row is there.
+    return { dry_run: false, group: g, role: r, record, verified: (await readGrant(sdk, g, r)).length > 0 };
+  }
   const tree = await readChildGroups(sdk, g.sys_id);
   const count = await countMembers(sdk, [g.sys_id, ...tree.children.map(c => c.sys_id)]);
   return { group: g, role: r, child_groups: tree.children, members: count.members, complete: tree.complete && count.complete, dry_run: true,
@@ -58,14 +78,14 @@ export async function addGroupRole(sdk, { group, role, yes = false }) {
 }
 
 const label = target => target.name || target.sys_id;
-const reach = data => `${data.complete ? '' : 'at least '}${data.members} member(s)`;
+const reach = data => `${data.complete ? '' : 'at least '}${data.members} visible member(s)`;
 
 export function formatGroupRolePreview(data) {
   const [g, r] = [label(data.group), label(data.role)];
   const lead = reach(data);
   return [`Would grant ${r} to ${g}${data.child_groups.length ? ' and the groups under it:' : '.'}`,
     ...data.child_groups.map(c => `  ${label(c)}`),
-    `${lead[0].toUpperCase()}${lead.slice(1)} would get ${r} through ${g}.`,
+    `${lead[0].toUpperCase()}${lead.slice(1)} would get ${r} through ${g}; groups and memberships this profile cannot read are not counted.`,
     '', `Run: ${data.rerun}`].join('\n');
 }
 

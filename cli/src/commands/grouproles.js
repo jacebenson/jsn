@@ -52,6 +52,12 @@ export function groupRolesCmd(wrap) {
               Object.defineProperty(data, '_formatted', { value: formatGroupRolePreview(data), enumerable: false });
               return app.ok(data, { summary: groupRolePreviewSummary(data) });
             }
+            if (!data.verified) {
+              process.exitCode = 1;
+              return app.ok({ group: data.group, role: data.role, record: data.record, verified: false }, {
+                summary: `Grant of ${roleName} to ${groupName} unconfirmed: no sys_group_has_role row on read-back`,
+              });
+            }
             app.ok(data.record, {
               summary: `Added role ${roleName} to ${groupName}`,
               breadcrumbs: [

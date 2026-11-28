@@ -184,8 +184,9 @@ jsn grouproles add --group "Service Desk" --role itil --yes
 ```
 
 Child groups inherit a group's roles, so `grouproles add` previews the groups
-under the group and how many members of that tree would get the role; `--yes`
-writes the one `sys_group_has_role` row. A name two groups share is refused.
+under the group and how many visible members of that tree would get the role;
+`--yes` writes the one `sys_group_has_role` row and reads it back, exiting 1 when
+the row is not there. A name two groups share is refused.
 ```sh
 jsn customizations revert --scope sn_hr_core
 jsn customizations revert --scope sn_hr_core --confirm <token>
