@@ -2,10 +2,10 @@ import { deferredFamilyDefinition } from '../command-families.js';
 import { inventoryCompareCommand, compareInstanceInventory } from '../instance-inventory.js';
 
 export const compareCmd = wrap => ({
-  ...inventoryCompareCommand(wrap, 'plugins'),
+  ...inventoryCompareCommand(wrap, 'store'),
   ...deferredFamilyDefinition('compare'),
   handler: wrap(async (argv, app) => {
-    const plugins = await compareInstanceInventory(argv, app, 'plugins', false);
+    const plugins = await compareInstanceInventory({ ...argv, id: undefined }, app, 'plugins', false);
     const store = await compareInstanceInventory(argv, app, 'store', false);
     const data = {
       source: plugins.source, target: plugins.target, complete: plugins.complete && store.complete,

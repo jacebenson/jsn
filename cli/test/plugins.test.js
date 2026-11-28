@@ -9,6 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readDependencyTree, formatPluginTree, TREE_LIMITS } from '../src/plugins.js';
+import { compareInstanceInventory } from '../src/instance-inventory.js';
 import { loopbackCredentialArgs, loopbackFixtureEnv } from './support/loopback-credential-fixture.mjs';
 
 // Raw v_plugin values: active is active/inactive and requires is comma-separated plugin ids.
@@ -106,14 +107,61 @@ test('reads are bounded: ids chunk at 100, and a deep or wide tree stops and say
   assert.deepEqual([capped.complete, capped.limit_reached], [false, 'nodes']);
 });
 
+// Serves the inventory read (a count, then pages) and the tree read (exact ids) from one row set.
+function inventorySdk(rows) {
+  const calls = [];
+  return { calls, baseURL: 'http://fixture', request: async () => (calls.push('count'), { result: { stats: { count: String(rows.length) } } }), listStrict: async (_table, params) => {
+    const get = key => params instanceof URLSearchParams ? params.get(key) : params[key];
+    const query = get('sysparm_query');
+    calls.push(query);
+    if (query.startsWith('idIN')) return rows.filter(row => query.slice(4).split(',').includes(row.id));
+    return rows.slice(Number(get('sysparm_offset')), Number(get('sysparm_offset')) + 200);
+  } };
+}
+const local = row => ({ sys_id: `local-${row.id}`, ...row });
+const profiles = sdks => ({ config: { profiles: { pdi: { instance_url: 'https://pdi.example.test' }, vendor: { instance_url: 'https://vendor.example.test' } } }, getSDKForProfile: (_instance, { profileName }) => sdks[profileName] });
+
+test('plugins compare <id> narrows the comparison to the plugin and its tree read on the source', async () => {
+  const source = [...graph, plugin('com.example.unrelated')].map(local);
+  const target = [plugin('com.example.root', [], { version: '2.0.0' }), graph[1], plugin('com.example.c', [], { active: 'inactive' }), plugin('com.example.unrelated'), plugin('com.example.extra'), plugin('com.hidden.core')].map(local);
+  const sdks = { pdi: inventorySdk(source), vendor: inventorySdk(target) };
+  const data = await compareInstanceInventory({ source: 'pdi', target: 'vendor', id: 'com.example.root', maxPages: 30 }, profiles(sdks), 'plugins', false);
+  assert.deepEqual(data.records.map(row => [row.id, row.status]), [['com.example.a', 'matching'], ['com.example.b', 'source_only'], ['com.example.c', 'different'], ['com.example.root', 'different']]);
+  assert.deepEqual(data.tree, { plugin: 'com.example.root', count: 4, complete: true, unlisted: ['com.hidden.core'] });
+  assert.deepEqual(data.counts, { matching: 1, different: 2, source_only: 1, target_only: 0, unknown: 0 });
+  assert.equal(data.complete, true);
+  assert.equal(sdks.vendor.calls.some(query => typeof query === 'string' && query.startsWith('idIN')), false);
+  assert.match(data._formatted, /Narrowed to com\.example\.root and the 4 plugins it requires on pdi; 1 not listed in v_plugin there are not compared/);
+
+  const whole = await compareInstanceInventory({ source: 'pdi', target: 'vendor', maxPages: 30 }, profiles({ pdi: inventorySdk(source), vendor: inventorySdk(target) }), 'plugins', false);
+  assert.equal(whole.records.length, 7);
+  assert.equal(Object.hasOwn(whole, 'tree'), false);
+  assert.doesNotMatch(whole._formatted, /Narrowed/);
+
+  const chain = Array.from({ length: TREE_LIMITS.depth + 2 }, (_, i) => local(plugin(`com.example.p${i}`, [`com.example.p${i + 1}`])));
+  const cut = await compareInstanceInventory({ source: 'pdi', target: 'vendor', id: 'com.example.p0', maxPages: 30 }, profiles({ pdi: inventorySdk(chain), vendor: inventorySdk(chain) }), 'plugins', false);
+  assert.deepEqual([cut.complete, cut.tree.complete, cut.records.length], [false, false, TREE_LIMITS.depth + 1]);
+  assert.match(cut._formatted, /\(INCOMPLETE tree\)[\s\S]*Complete visible inventories/);
+
+  for (const [args, code] of [[{ id: 'bad^id' }, 'usage_error'], [{ id: 'com.example.root', maxPages: 0 }, 'usage_error'], [{ id: 'com.example.absent' }, 'not_found']]) {
+    const failing = { pdi: inventorySdk(source), vendor: inventorySdk(target) };
+    const label = JSON.stringify(args);
+    await assert.rejects(compareInstanceInventory({ source: 'pdi', target: 'vendor', maxPages: 30, ...args }, profiles(failing), 'plugins', false), error => error.code === code, label);
+    assert.equal(failing.vendor.calls.length, 0, label);
+    assert.equal(failing.pdi.calls.length, code === 'usage_error' ? 0 : 1, label);
+  }
+});
+
 test('real CLI shows the tree read-only with JSON, --get, human output and strict validation', async () => {
   const calls = [];
+  const instance = inventorySdk(graph.map(local));
   const server = createServer((req, res) => {
     const url = new URL(req.url, 'http://fixture.invalid');
     calls.push({ method: req.method, pathname: url.pathname });
     res.setHeader('Content-Type', 'application/json');
+    if (url.pathname === '/api/now/stats/v_plugin') return instance.request().then(body => res.end(JSON.stringify(body)));
     if (url.pathname !== '/api/now/table/v_plugin') return res.end(JSON.stringify({ result: [] }));
-    fixtureSdk().listStrict('v_plugin', url.searchParams).then(rows => res.end(JSON.stringify({ result: rows })));
+    instance.listStrict('v_plugin', url.searchParams).then(rows => res.end(JSON.stringify({ result: rows })));
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -130,8 +178,12 @@ test('real CLI shows the tree read-only with JSON, --get, human output and stric
     assert.deepEqual(JSON.parse((await run(['plugins', 'show', 'com.example.root', '--get', 'data.inactive'])).stdout), ['com.example.b']);
     const human = await run(['plugins', 'show', 'com.example.root', '--format', 'styled']);
     assert.match(human.stdout, /Name of com\.example\.root \[com\.example\.root\] 1\.0\.0, active[\s\S]*└─ com\.hidden\.core {2}not listed in v_plugin/);
+    const narrowed = JSON.parse((await run(['plugins', 'compare', 'com.example.root', '--source', 'fixture', '--target', 'fixture', '--json'])).stdout);
+    assert.deepEqual([narrowed.data.tree.plugin, narrowed.data.records.length, narrowed.data.counts.matching], ['com.example.root', 4, 4]);
     const before = calls.length;
-    for (const args of [['show', 'bad^id'], ['show'], ['show', 'com.example.root', '--typo']]) await assert.rejects(run(['plugins', ...args, '--json']), undefined, JSON.stringify(args));
+    for (const args of [['show', 'bad^id'], ['show'], ['show', 'com.example.root', '--typo'], ['compare', 'com.example.a', 'com.example.b', '--source', 'fixture', '--target', 'fixture']]) await assert.rejects(run(['plugins', ...args, '--json']), undefined, JSON.stringify(args));
+    // jsn compare and jsn store compare take no id, so a stray one is refused rather than ignored.
+    for (const args of [['compare'], ['store', 'compare']]) await assert.rejects(run([...args, 'com.example.a', '--source', 'fixture', '--target', 'fixture', '--json']), error => error.code === 2, JSON.stringify(args));
     assert.equal(calls.length, before);
     await assert.rejects(run(['plugins', 'show', 'com.example.absent', '--json']), error => error.code === 1 && /Error \(not_found\): Plugin not found: com\.example\.absent[\s\S]*does not show it is absent or inactive/.test(error.stderr));
     const reads = calls.filter(call => call.pathname.startsWith('/api/now/table/'));

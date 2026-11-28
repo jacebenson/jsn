@@ -17,6 +17,13 @@ Both options take configured profile aliases. Reversing them reverses the
 recommendations. Focused `jsn plugins compare` and `jsn store compare` commands
 accept the same options. `--destination` is an alias for `--target`.
 
+`jsn plugins compare <id> --source pdi --target vendor` compares only that
+plugin and every plugin it requires, read from the source with the same tree
+walk as `jsn plugins show`. The full inventories are still read and checked as
+below, and then narrowed, so coverage and recommendations are unchanged. Ids the
+source's `v_plugin` does not list are named and not compared. The target's own
+requirements are not read; a target plugin that needs more is not shown.
+
 The human report names the target to change and shows observed source/target
 versions and states alongside recommendations. It recommends activating inactive
 plugins when the source is active, reviewing target-only items rather than
