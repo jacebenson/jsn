@@ -120,7 +120,7 @@ export async function readRequestedApproval(app, approverSysID) {
   if (!row || raw(row.sys_id).toLowerCase() !== approverSysID.toLowerCase()) throw errNotFound('approval request', approverSysID);
   if (raw(row.state) !== 'requested') {
     throw errUsageHint(`Approval request ${approverSysID} is ${getStringField(row, 'state') || 'empty'}; only a Requested approval can be approved or rejected.`,
-      `See where it stands: jsn approvals history ${getStringField(row, 'document_id') || '<record>'}`);
+      `See where it stands: jsn approvals history ${raw(row.document_id) || '<record>'}`);
   }
   const approver = raw(row.approver);
   const caller = await resolveCurrentUserSysID(app).catch(() => '');

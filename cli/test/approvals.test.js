@@ -255,7 +255,7 @@ describe('approvals approve and reject', () => {
             sys_id: ref(ID, ID),
             state: ref(state, { requested: 'Requested', approved: 'Approved', rejected: 'Rejected', cancelled: 'Cancelled', 'not requested': 'Not Yet Requested' }[state]),
             approver: ref(approver, approver === 'me001' ? 'Jane Doe' : 'Beth Anglin'),
-            document_id: ref('d'.repeat(32), 'CHG0000082'),
+            document_id: ref('d'.repeat(32), 'Change Request: CHG0000082'),
           }];
         },
         update: async (table, sysID, data) => { writes.push({ table, sysID, data }); return { sys_id: sysID, document_id: 'CHG0000082', ...data }; },
@@ -286,7 +286,7 @@ describe('approvals approve and reject', () => {
         await assert.rejects(f.run(verb), (err) => {
           assert.strictEqual(err.code, 'usage_error');
           assert.match(err.message, new RegExp(`is ${label}; only a Requested approval`));
-          assert.match(err.hint, /jsn approvals history CHG0000082/);
+          assert.strictEqual(err.hint, `See where it stands: jsn approvals history ${'d'.repeat(32)}`);
           return true;
         });
         assert.deepStrictEqual(f.writes, [], `${verb} wrote a ${state} row`);
@@ -325,7 +325,7 @@ describe('approvals approve and reject', () => {
       const f = fixture({ approver: 'u777' });
       await assert.rejects(f.run('approve', { force: false }), (err) => {
         assert.strictEqual(err.code, 'confirmation_required');
-        assert.match(err.message, /Approve approval request a{32} for CHG0000082\? Its approver is Beth Anglin\./);
+        assert.match(err.message, /Approve approval request a{32} for Change Request: CHG0000082\? Its approver is Beth Anglin\./);
         return true;
       });
       assert.deepStrictEqual(f.writes, []);
