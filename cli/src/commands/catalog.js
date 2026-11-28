@@ -2,7 +2,7 @@ import { getStringField, interactiveList, resolveItemOptionType, formatCommandLi
 import { deferredFamilyDefinition } from '../command-families.js';
 import { catalogOrderCommands } from './catalog-order.js';
 import { resolveSysId, resolveRecord, unwrapSysId } from '../resolve-record.js';
-import { errUsage } from '../errors.js';
+import { errUsage, errNotFoundHint } from '../errors.js';
 import { enrichCatalogItem, buildCatalogFormatted } from './catalog/enrich.js';
 
 export function catalogCmd(wrap) {
@@ -18,24 +18,33 @@ export function catalogCmd(wrap) {
           builder: (y) => y
             .option('name', { alias: 'n', type: 'string', demandOption: true })
             .option('short-description', { alias: 'd', type: 'string' })
-            .option('category', { alias: 'c', type: 'string' })
-            .option('variable', { alias: 'v', type: 'array', describe: 'Variable: "name:type:label"' })
-            .option('variables', { type: 'string', describe: 'JSON for submit_produce: {"key":"value"}' }),
+            .option('category', { alias: 'c', type: 'string', describe: 'Title of an existing category' })
+            .option('variable', { alias: 'v', type: 'array', describe: 'Variable: "name:type:label" (created not mandatory)' })
+            .option('variables', { type: 'string', describe: 'JSON for submit_producer: {"key":"value"}' }),
           handler: wrap(async (argv, app) => {
             app.requireInstance();
 
-            // submit_produce path
+            // submit_producer path
             if (argv.variables) {
               let varsObj;
               try { varsObj = JSON.parse(argv.variables); } catch { throw new Error('--variables must be valid JSON'); }
               const itemSysID = await resolveSysId(app.sdk, { table: 'sc_cat_item', identifier: argv.name, matchField: 'name', resource: 'Catalog item' });
-              const endpoint = `${app.sdk.baseURL}/api/sn_sc/servicecatalog/items/${itemSysID}/submit_produce`;
+              const endpoint = `${app.sdk.baseURL}/api/sn_sc/servicecatalog/items/${itemSysID}/submit_producer`;
               const result = await app.sdk.request(endpoint, { method: 'POST', body: JSON.stringify({ variables: varsObj }) });
               const reqID = result?.result?.sys_id || result?.result?.number || '';
+              if (!reqID) throw new Error(`submit_producer returned no created record for ${argv.name}; check it is a record producer.`);
               app.ok({ requested_item: reqID, item_id: itemSysID, variables: varsObj },
                 { summary: `Request: ${result?.result?.number || reqID}` });
               return;
             }
+
+            // Parse every spec before the first write, so a bad one writes nothing.
+            const variables = (argv.variable || []).map((v) => {
+              const parts = String(v).split(':');
+              const sysName = parts[0].replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase();
+              if (parts.length < 2 || !sysName) throw errUsage(`Invalid --variable "${v}": expected "name:type:label".`);
+              return { spec: String(v), sysName, typeName: parts[1], label: parts.length >= 3 ? parts.slice(2).join(':') : parts[0] };
+            });
 
             let categoryID = '';
             if (argv.category) {
@@ -44,8 +53,8 @@ export function catalogCmd(wrap) {
               cp.set('sysparm_limit', '1');
               cp.set('sysparm_fields', 'sys_id');
               const cats = await app.sdk.list('sc_category', cp);
-              if (cats.length > 0) categoryID = cats[0].sys_id?.value || cats[0].sys_id;
-              else { const nc = await app.sdk.create('sc_category', { title: argv.category }); categoryID = nc.sys_id?.value || nc.sys_id; }
+              if (!cats.length) throw errNotFoundHint('Catalog category', argv.category, 'Use an existing category title, or create it first: jsn records create --table sc_category -f title=<title>');
+              categoryID = unwrapSysId(cats[0]);
             }
             const item = await app.sdk.create('sc_cat_item', {
               name: argv.name,
@@ -56,28 +65,24 @@ export function catalogCmd(wrap) {
             });
             const itemID = item.sys_id?.value || item.sys_id;
 
-            // Create variables if --variable flag(s) provided
             let varCount = 0;
-            if (argv.variable) {
-              for (const v of argv.variable) {
-                const parts = String(v).split(':');
-                if (parts.length >= 2) {
-                  const typeName = parts[1];
-                  const label = parts.length >= 3 ? parts.slice(2).join(':') : parts[0];
-                  const sysName = parts[0].replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase();
-                  try {
-                    await app.sdk.create('item_option_new', {
-                      name: sysName, question_text: label, type: resolveItemOptionType(typeName),
-                      order: (varCount + 1) * 100, cat_item: itemID, mandatory: true, active: true,
-                    });
-                    varCount++;
-                  } catch { /* non-fatal */ }
-                }
-              }
+            const failed = [];
+            for (const { spec, sysName, typeName, label } of variables) {
+              try {
+                await app.sdk.create('item_option_new', {
+                  name: sysName, question_text: label, type: resolveItemOptionType(typeName),
+                  order: (varCount + 1) * 100, cat_item: itemID, active: true,
+                });
+                varCount++;
+              } catch (error) { failed.push({ variable: spec, error: error.message || String(error) }); }
             }
 
-            app.ok({ sys_id: itemID, name: argv.name, variables_created: varCount },
-              { summary: `Created: ${argv.name}${varCount ? ` (${varCount} variable(s))` : ''}` });
+            app.ok({ sys_id: itemID, name: argv.name, variables_created: varCount, variables_failed: failed }, {
+              summary: failed.length
+                ? `Create incomplete: ${argv.name} (${itemID}) created, ${failed.length} of ${variables.length} variable(s) failed: ${failed.map(f => `${f.variable}: ${f.error}`).join('; ')}`
+                : `Created: ${argv.name}${varCount ? ` (${varCount} variable(s))` : ''}`,
+            });
+            if (failed.length) process.exitCode = 1;
           }),
         })
         .command({
