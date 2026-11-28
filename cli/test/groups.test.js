@@ -47,6 +47,65 @@ describe('Groups handlers', () => {
   });
 });
 
+describe('groups delete', () => {
+  const run = (sdk, argv) => {
+    const app = makeApp({ sdk });
+    return { app, done: findHandler(groupsCmd(wrapHandler), 'delete')({ app, _: ['groups', 'delete'], ...argv }) };
+  };
+
+  it('looks the name up exactly, asks for at most two rows and deletes the raw sys_id with --force', async () => {
+    const calls = [];
+    const { app, done } = run({
+      list: async (table, params) => { calls.push(['list', table, Object.fromEntries(params)]); return [{ sys_id: { value: 'g1', display_value: 'g1' }, name: 'Team A' }]; },
+      delete: async (...args) => { calls.push(['delete', ...args]); },
+    }, { name: 'Team A', force: true });
+    await done;
+    assert.deepStrictEqual(calls, [
+      ['list', 'sys_user_group', { sysparm_query: 'name=Team A', sysparm_limit: '2', sysparm_display_value: 'all', sysparm_fields: 'sys_id,name' }],
+      ['delete', 'sys_user_group', 'g1'],
+    ]);
+    assert.deepStrictEqual(app.outputCalls, [{ data: { identifier: 'Team A', message: 'Group deleted' }, opts: { summary: 'Deleted group Team A' } }]);
+  });
+
+  it('refuses a name that matches two groups, even with --force, and deletes nothing', async () => {
+    let deletes = 0;
+    const { app, done } = run({
+      list: async () => [{ sys_id: 'g1', name: 'Team A' }, { sys_id: 'g2', name: 'Team A' }],
+      delete: async () => { deletes++; },
+    }, { name: 'Team A', force: true });
+    await assert.rejects(done, (err) => {
+      assert.strictEqual(err.code, 'ambiguous');
+      assert.match(err.message, /Multiple Group found matching exact name: Team A/);
+      return true;
+    });
+    assert.strictEqual(deletes, 0);
+    assert.deepStrictEqual(app.outputCalls, []);
+  });
+
+  it('without --force refuses with a rerun line and deletes nothing', async () => {
+    let deletes = 0;
+    const { app, done } = run({
+      list: async () => [{ sys_id: 'g1', name: 'Team A' }],
+      delete: async () => { deletes++; },
+    }, { name: 'Team A' });
+    await assert.rejects(done, (err) => {
+      assert.strictEqual(err.code, 'confirmation_required');
+      assert.match(err.message, /^Delete group Team A — confirmation required/);
+      assert.match(err.hint, /jsn groups delete 'Team A' --force/);
+      return true;
+    });
+    assert.strictEqual(deletes, 0);
+    assert.deepStrictEqual(app.outputCalls, []);
+  });
+
+  it('reports a missing group as not found and deletes nothing', async () => {
+    let deletes = 0;
+    const { done } = run({ list: async () => [], delete: async () => { deletes++; } }, { name: 'Nobody', force: true });
+    await assert.rejects(done, { code: 'not_found', message: 'Group not found: Nobody' });
+    assert.strictEqual(deletes, 0);
+  });
+});
+
 describe('GroupRoles bare help', () => {
   it('names sys_group_has_role, the table every subcommand reads and writes', (t) => {
     const lines = [];

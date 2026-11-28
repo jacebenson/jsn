@@ -1,4 +1,5 @@
-import { formatRecordForDisplay, getStringField, interactiveList, resolveFieldsParam, assertSafeExactMatch, buildRecordPayload } from '../helpers.js';
+import { formatRecordForDisplay, getStringField, interactiveList, resolveFieldsParam, assertSafeExactMatch, buildRecordPayload, confirmDelete } from '../helpers.js';
+import { resolveRecord, unwrapSysId } from '../resolve-record.js';
 import { detailCount } from './_detail-count.js';
 import { deferredFamilyDefinition } from '../command-families.js';
 
@@ -143,19 +144,14 @@ export function groupsCmd(wrap) {
         .command({
           command: 'delete <name>',
           describe: 'Delete a group by name or sys_id',
+          builder: (y) => y.option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' }),
           handler: wrap(async (argv, app) => {
             const id = argv.name;
-            assertSafeExactMatch(id);
-            const isSysID = id.length === 32 && /^[0-9a-fA-F]+$/.test(id);
-            const params = new URLSearchParams();
-            params.set('sysparm_query', isSysID ? `sys_id=${id}` : `name=${id}`);
-            params.set('sysparm_limit', '1');
-            params.set('sysparm_fields', 'sys_id');
-            const records = await app.sdk.list('sys_user_group', params);
-            if (records.length === 0) {
-              throw new Error(`Group not found: ${id}`);
-            }
-            const sysID = getStringField(records[0], 'sys_id');
+            // Two groups can share a name; resolveRecord refuses that instead of deleting the first.
+            const group = await resolveRecord(app.sdk, { table: 'sys_user_group', identifier: id, matchField: 'name', resource: 'Group', fields: ['name'], partial: false });
+            const sysID = unwrapSysId(group);
+            if (!sysID) throw new Error('The matched group has no readable sys_id; nothing deleted.');
+            await confirmDelete(app, argv, `Delete group ${id}`, { rerun: ['groups', 'delete', id] });
             await app.sdk.delete('sys_user_group', sysID);
             app.ok({ identifier: id, message: 'Group deleted' }, {
               summary: `Deleted group ${id}`,

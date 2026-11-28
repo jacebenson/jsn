@@ -1,4 +1,4 @@
-import { formatRecordForDisplay, getStringField, interactiveList, resolveFieldsParam, buildRecordPayload, quoteShellArg, buildRerunCommand } from '../helpers.js';
+import { formatRecordForDisplay, getStringField, interactiveList, resolveFieldsParam, buildRecordPayload, quoteShellArg, buildRerunCommand, confirmDelete } from '../helpers.js';
 import { deferredFamilyDefinition } from '../command-families.js';
 import { resolveRecord, resolveSysId } from '../resolve-record.js';
 import { listUserRoles, explainUserRoles, formatUserRoleWhy } from '../user-roles.js';
@@ -189,9 +189,11 @@ export function usersCmd(wrap) {
         .command({
           command: 'delete <identifier>',
           describe: 'Delete a user by user_name or sys_id',
+          builder: (y) => y.option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' }),
           handler: wrap(async (argv, app) => {
             const id = argv.identifier;
             const sysID = await resolveSysId(app.sdk, { table: 'sys_user', identifier: id, matchField: 'user_name', resource: 'User' });
+            await confirmDelete(app, argv, `Delete user ${id}`, { rerun: ['users', 'delete', id] });
             await app.sdk.delete('sys_user', sysID);
             app.ok({ identifier: id, message: 'User deleted' }, {
               summary: `Deleted user ${id}`,
