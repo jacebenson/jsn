@@ -214,6 +214,12 @@
     "connections": {
       "why": "connections names the http_connection family the way aliases names sys_alias; list and show are its verbs, and aliases (a CRUD table command over sys_alias) cannot hold read-only connection verbs without mixing writes into a read-only view."
     },
+    "slas": {
+      "why": "slas names the contract_sla and task_sla family the way connections names http_connection; tickets and tasks are CRUD profiles over task tables and cannot hold read-only SLA verbs without mixing writes into a read-only view."
+    },
+    "task": {
+      "why": "slas task lists the task_sla rows on one record; list and show read SLA definitions, so neither starts from a task, and show would suggest one definition rather than every SLA attached to a record."
+    },
     "deleted": {
       "why": "records deleted reads Deleted Records and joins each entry to its own table and its delete recovery by raw sys_id; list reads one table's rows and cannot say whether a deleted record is back."
     },
@@ -301,7 +307,7 @@
   },
   "budgets": {
     "$comment": "Subcommand count per family. A budget is a ratchet, not a ban: when a new command earns its place, raise the number in the same diff and say why in the PR. Adding a family means adding its budget entry.",
-    "total": 485,
+    "total": 488,
     "families": {
       "access-analyzer": 4,
       "acls": 5,
@@ -374,6 +380,7 @@
       "setup": 0,
       "skill": 5,
       "skipped-updates": 4,
+      "slas": 3,
       "snippets": 5,
       "soapmessages": 5,
       "sppages": 2,

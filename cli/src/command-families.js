@@ -482,6 +482,14 @@ const deferredFamilies = {
     capabilities: { queryTable: "http_connection", mutationSubcommands: [] },
     module: "./commands/connections.js", exportName: "connectionsCmd",
   },
+  "slas": {
+    definition: {
+      command: "slas [subcommand]",
+      describe: "Inspect SLA definitions and the task SLAs on a record (read-only)",
+    },
+    capabilities: { queryTable: "contract_sla", mutationSubcommands: [] },
+    module: "./commands/slas.js", exportName: "slasCmd",
+  },
   "restmessage": {
     definition: {
       command: "restmessage [subcommand]",
