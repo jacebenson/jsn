@@ -3,6 +3,9 @@ import { deferredFamilyDefinition } from '../command-families.js';
 import { formatRecordForDisplay, interactiveList, getStringField } from '../helpers.js';
 import { createLogFollower } from '../log-follow.js';
 
+// syslog.level stores these numbers; the names are its choice labels.
+const LOG_LEVELS = { trace: -2, debug: -1, information: 0, warning: 1, error: 2, fatal: 3 };
+
 function logIcon(level) {
   level = (level || '').toLowerCase();
   if (level === 'error') return '❌';
@@ -21,7 +24,7 @@ export function logsCmd(wrap) {
           aliases: ['ls'],
           describe: 'List system logs',
           builder: (y) => y
-            .option('query', { type: 'string', describe: 'Encoded query (e.g. "level=error" or "sourceLIKEscript")' })
+            .option('query', { type: 'string', describe: 'Encoded query (e.g. "level=2" for errors, or "sourceLIKEscript")' })
             .option('columns', { alias: ['c', 'fields'], type: 'string', describe: 'Comma-separated columns' })
             .option('limit', { alias: 'l', type: 'number', default: 50, describe: 'Max records' }),
           handler: wrap(async (argv, app) => {
@@ -99,14 +102,14 @@ export function logsCmd(wrap) {
           describe: 'Tail system logs in real time (Ctrl+C to stop)',
           builder: (y) => y
             .option('query', { type: 'string', describe: 'Additional encoded query filter (e.g. "sourceLIKEscript")' })
-            .option('level', { type: 'string', describe: 'Filter by level (error, warning, information)' })
+            .option('level', { type: 'string', choices: Object.keys(LOG_LEVELS), describe: 'Filter by level' })
             .option('source', { type: 'string', describe: 'Filter by source' })
             .option('tail', { type: 'number', default: 0, describe: 'Show the last N existing entries first, then follow' })
             .option('interval', { type: 'number', default: 2000, describe: 'Poll interval in ms (min 500)' }),
           handler: wrap(async (argv, app) => {
             app.requireInstance();
             const filters = [argv.query || ''];
-            if (argv.level) filters.push(`level=${argv.level}`);
+            if (argv.level) filters.push(`level=${LOG_LEVELS[argv.level]}`);
             if (argv.source) filters.push(`sourceLIKE${argv.source}`);
             const base = filters.filter(Boolean).join('^');
             const intervalMs = Math.max(500, argv.interval || 2000);

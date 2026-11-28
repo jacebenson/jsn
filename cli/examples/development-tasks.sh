@@ -64,7 +64,7 @@ echo ""
 
 # 9. Query system logs
 echo "9. Recent Errors:"
-jsn logs list --level error --limit 10
+jsn logs list --query level=2 --limit 10
 echo ""
 
 # 10. List ACLs for incident table
