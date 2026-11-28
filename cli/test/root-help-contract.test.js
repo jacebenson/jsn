@@ -102,6 +102,8 @@ describe('ordinary root help is a concise task directory', () => {
     for (const enabled of [false, true]) {
       const help = renderHelp({ activeProfile: 'p', profiles: { p: { domain_separation: enabled } } }, registry);
       const index = help.split('\nALL COMMANDS BY GROUP\n')[1].split('\nEXAMPLES\n')[0];
+      assert.doesNotMatch(index, /\(e\.g\. /);
+      assert.match(index, /^ {2}acls {2,}Manage acls$/m);
       const names = new Set(index.match(/^ {2}\S+(?= {2,}\S)/gm).map((name) => name.trim()));
       for (const command of registry.commands) {
         assert.equal(names.has(command.name), command.name !== 'domains' || enabled, command.name);

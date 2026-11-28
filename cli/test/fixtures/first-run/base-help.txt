@@ -21,7 +21,7 @@ CORE
   changes    Work with change requests
   requests   Work with requested items
   tasks      Work with catalog tasks
-  tickets    Query generic tickets (e.g. "tickets list --query active=true")
+  tickets    Query generic tickets
   slas       Inspect SLA definitions and the task SLAs on a record (read-only)
   approvals  List, approve, or reject approval requests
 
@@ -29,42 +29,33 @@ AUTOMATION
   flows           Manage Flow Designer flows
   actions         Flow Designer actions: create, edit full definitions, and test
                   with outputs
-  scriptactions   Manage scriptactions (e.g. "scriptactions list --query
-                  nameLIKEincident")
-  scheduledjobs   Manage scheduledjobs (e.g. "scheduledjobs list --query
-                  nameLIKEincident")
-  triggers        Manage triggers (e.g. "triggers list --query
-                  nameLIKEincident")
+  scriptactions   Manage scriptactions
+  scheduledjobs   Manage scheduledjobs
+  triggers        Manage triggers
   events          Inspect the event log, its backlog and reprocess a recorded
                   event
-  asyncrules      Manage asyncrules (e.g. "asyncrules list --query
-                  nameLIKEincident")
-  rules           Manage rules (e.g. "rules list --query nameLIKEincident")
+  asyncrules      Manage asyncrules
+  rules           Manage rules
   decisiontables  Manage decision tables
-  assignments     Manage assignments (e.g. "assignments list --query
-                  nameLIKEincident")
+  assignments     Manage assignments
   scrapi          Manage Scripted REST APIs (list, show, create) and search
                   every REST API and its OpenAPI spec
-  email           Manage email (e.g. "email list --query nameLIKEincident")
+  email           Manage email
   notifications   Explain outbound notification delivery
-  restmessage     Manage restmessage (e.g. "restmessage list --query
-                  nameLIKEincident")
-  soapmessages    Manage soapmessages (e.g. "soapmessages list --query
-                  nameLIKEincident")
+  restmessage     Manage restmessage
+  soapmessages    Manage soapmessages
 
 ACCESS
   access-analyzer  Inspect saved Access Analyzer requests, outcomes and checks,
                    check a user's access live, or run a live evaluation (--save
                    keeps it)
-  acls             Manage acls (e.g. "acls list --query nameLIKEincident")
+  acls             Manage acls
   b4rules          Inspect before-query business rules that can filter record
                    reads
-  roles            Manage roles (e.g. "roles list --query nameLIKEincident")
-  privileges       Manage privileges (e.g. "privileges list --query
-                   nameLIKEincident")
-  usercriteria     Manage usercriteria (e.g. "usercriteria list --query
-                   nameLIKEincident")
-  aliases          Manage aliases (e.g. "aliases list --query nameLIKEincident")
+  roles            Manage roles
+  privileges       Manage privileges
+  usercriteria     Manage usercriteria
+  aliases          Manage aliases
   connections      Inspect HTTP connections and the credentials they use;
                    secrets are never read (read-only)
   groups           Manage ServiceNow groups
@@ -76,51 +67,34 @@ ACCESS
 USER EXPERIENCE
   forms              Manage UI Forms
   lists              List views for a table
-  clientscripts      Manage clientscripts (e.g. "clientscripts list --query
-                     nameLIKEincident")
-  uipolicies         Manage uipolicies (e.g. "uipolicies list --query
-                     nameLIKEincident")
-  uiactions          Manage uiactions (e.g. "uiactions list --query
-                     nameLIKEincident")
-  views              Manage views (e.g. "views list --query nameLIKEincident")
+  clientscripts      Manage clientscripts
+  uipolicies         Manage uipolicies
+  uiactions          Manage uiactions
+  views              Manage views
   catalogitems       Manage Service Catalog items
-  catalogscripts     Manage catalogscripts (e.g. "catalogscripts list --query
-                     nameLIKEincident")
-  cataloguipolicies  Manage cataloguipolicies (e.g. "cataloguipolicies list
-                     --query nameLIKEincident")
-  uipages            Manage uipages (e.g. "uipages list --query
-                     nameLIKEincident")
-  uimacros           Manage uimacros (e.g. "uimacros list --query
-                     nameLIKEincident")
-  listcontrols       Manage listcontrols (e.g. "listcontrols list --query
-                     nameLIKEincident")
-  sppages            Manage sppages (e.g. "sppages list --query
-                     nameLIKEincident")
-  spwidgets          Manage spwidgets (e.g. "spwidgets list --query
-                     nameLIKEincident")
-  uxscripts          Manage uxscripts (e.g. "uxscripts list --query
-                     nameLIKEincident")
-  uxlists            Manage uxlists (e.g. "uxlists list --query
-                     nameLIKEincident")
-  uxapplicability    Manage uxapplicability (e.g. "uxapplicability list --query
-                     nameLIKEincident")
-  appmenu            Manage appmenu (e.g. "appmenu list --query
-                     nameLIKEincident")
-  appmodules         Manage appmodules (e.g. "appmodules list --query
-                     nameLIKEincident")
+  catalogscripts     Manage catalogscripts
+  cataloguipolicies  Manage cataloguipolicies
+  uipages            Manage uipages
+  uimacros           Manage uimacros
+  listcontrols       Manage listcontrols
+  sppages            Manage sppages
+  spwidgets          Manage spwidgets
+  uxscripts          Manage uxscripts
+  uxlists            Manage uxlists
+  uxapplicability    Manage uxapplicability
+  appmenu            Manage appmenu
+  appmodules         Manage appmodules
 
 DATA
-  tables         Manage tables (e.g. "tables list --query nameLIKEincident")
-  columns        Manage columns (e.g. "columns list --query nameLIKEincident")
-  relationships  Manage relationships (e.g. "relationships list --query
-                 nameLIKEincident")
+  tables         Manage tables
+  columns        Manage columns
+  relationships  Manage relationships
   cmdb           Query the Configuration Management Database (CMDB) — CIs and
                  relationship traversal (read-only)
-  includes       Manage includes (e.g. "includes list --query nameLIKEincident")
-  import         Manage import (e.g. "import list --query nameLIKEincident")
+  includes       Manage includes
+  import         Manage import
   logs           Query system logs
-  properties     Manage properties (e.g. "properties list --query
-                 nameLIKEincident")
+  properties     Manage properties
   records        Query any table when no specialized command fits
   transactions   Summarize syslog_transaction response times by transaction type
   snippets       Save and re-run named query snippets (stored locally, no
@@ -144,8 +118,7 @@ DEVELOPER
   atf         Automated Test Framework (list, suites, run, results, steps)
   eval        Execute background scripts on the instance (--repl for interactive
               mode)
-  fixscripts  Manage fixscripts (e.g. "fixscripts list --query
-              nameLIKEincident")
+  fixscripts  Manage fixscripts
   rest        Make raw REST API calls
   graphql     Execute a GraphQL document against ServiceNow Now GraphQL
   codesearch  Search code across ServiceNow artifacts with read-only GraphQL

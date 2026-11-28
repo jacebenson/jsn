@@ -1,22 +1,22 @@
 {
   "commit": "re-recorded on the root help descriptions branch, on main at 75844a26",
-  "note": "Regenerated after the root help index gave every command its own row with its description. Help is asserted byte-for-byte; the json entry is informational and still from the app-family recording.",
+  "note": "Regenerated after the root help index gave every command its own row with its description, without the shared (e.g. ...) example. Help is asserted byte-for-byte; the json entry is informational and still from the app-family recording.",
   "command": "piped (non-TTY) invocation from cli/, JSN_NO_VERSION_CHECK=1 JSN_NO_SKILL_CHECK=1, throwaway XDG_CONFIG_HOME",
   "bytes": {
-    "help": 10688,
+    "help": 8294,
     "json": 87868,
-    "quiet": 10688,
-    "csv": 10688,
-    "markdown": 10688,
-    "get": 10688
+    "quiet": 8294,
+    "csv": 8294,
+    "markdown": 8294,
+    "get": 8294
   },
   "sha256": {
-    "help": "9038f30c49578e15a4119e0bd759a538da7c71d19dcd1cd59427e6d0e73a1185",
+    "help": "7c08d786110d0fca9663de19bf91b5fdb90eb4e78bad0e107a7ce18b84eceae5",
     "json": "0335af96b49bf88a9a46a79cc3f8c24d464dd0ed2ac7ec354f4db53c37c56a04",
-    "quiet": "9038f30c49578e15a4119e0bd759a538da7c71d19dcd1cd59427e6d0e73a1185",
-    "csv": "9038f30c49578e15a4119e0bd759a538da7c71d19dcd1cd59427e6d0e73a1185",
-    "markdown": "9038f30c49578e15a4119e0bd759a538da7c71d19dcd1cd59427e6d0e73a1185",
-    "get": "9038f30c49578e15a4119e0bd759a538da7c71d19dcd1cd59427e6d0e73a1185"
+    "quiet": "7c08d786110d0fca9663de19bf91b5fdb90eb4e78bad0e107a7ce18b84eceae5",
+    "csv": "7c08d786110d0fca9663de19bf91b5fdb90eb4e78bad0e107a7ce18b84eceae5",
+    "markdown": "7c08d786110d0fca9663de19bf91b5fdb90eb4e78bad0e107a7ce18b84eceae5",
+    "get": "7c08d786110d0fca9663de19bf91b5fdb90eb4e78bad0e107a7ce18b84eceae5"
   },
   "json_command_count": 96
 }
