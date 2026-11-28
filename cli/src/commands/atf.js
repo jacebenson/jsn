@@ -5,7 +5,8 @@
 //
 // Run endpoints are tried in order (see scheduleTestRun):
 //   1. POST /api/sn_cicd/tests/run_test       (modern CICD API — real path per
-//      now-sdk cicd/operations.ts: tests.run_test, NOT /test/run)
+//      now-sdk cicd/operations.ts: tests.run_test, NOT /test/run); a 403 here
+//      is a missing role and stops the ladder
 //   2. POST /api/sn_atf/rest/test             (ATF plugin REST)
 //   3. POST /api/now/atf/test/{id}/run        (legacy)
 //   4. POST /api/now/table/sys_atf_test_result (last resort, mutation-gated)
@@ -24,7 +25,7 @@ import {
   getStringField, interactiveList,
   resolveFieldsParam, assertSafeExactMatch, confirmDelete,
 } from '../helpers.js';
-import { errUsage, errNotFound } from '../errors.js';
+import { AppError, CodeForbidden, errUsage, errNotFound } from '../errors.js';
 import { assertResultId, readAtfResultDetail, formatAtfResult } from '../atf-results.js';
 import { readAtfSteps, formatAtfSteps } from '../atf-steps.js';
 
@@ -55,6 +56,12 @@ export function isEndpointMissing(err) {
   if (err?.status === 404 || err?.status === 403) return true;
   if (err?.status === 400 && /Requested URI does not represent any resource/.test(err.message || '')) return true;
   return false;
+}
+
+/** A CICD 403 means the account lacks the role (CICD API docs), not that the API is absent. */
+function cicdRoleError(err, entity) {
+  return new AppError(CodeForbidden, `This account cannot run ATF ${entity}s through the CICD API (HTTP 403); nothing was started.`,
+    'The account needs the admin role or sn_cicd.sys_ci_automation.', 403, err);
 }
 
 /** Extract an execution/result id from a run response (legacy/plugin shapes). */
@@ -151,6 +158,7 @@ export async function scheduleTestRun(app, testSysID) {
     if (!progressId && !resultId) throw errUsage('sn_cicd tests/run_test returned no progress/result link');
     return { executionId: resultId || progressId, progressId, resultId, kind: 'sn_cicd_test', via: 'sn_cicd' };
   } catch (err) {
+    if (err?.status === 403) throw cicdRoleError(err, 'test');
     if (!isEndpointMissing(err)) throw err;
   }
   // 2) sn_atf REST (ATF plugin)
@@ -198,6 +206,7 @@ export async function scheduleSuiteRun(app, suiteSysID) {
     if (!progressId && !resultId) throw errUsage('sn_cicd testsuite/run returned no progress/result link');
     return { executionId: resultId || progressId, progressId, resultId, kind: 'sn_cicd_suite', via: 'sn_cicd' };
   } catch (err) {
+    if (err?.status === 403) throw cicdRoleError(err, 'suite');
     if (!isEndpointMissing(err)) throw err;
   }
   // 2) sn_atf REST (ATF plugin)
