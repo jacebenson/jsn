@@ -14,7 +14,7 @@ const VARIABLES = [
   { name: 'agree', label: 'I agree', type: 7, friendly_type: 'check_box', mandatory: false },
   { name: 'notes', label: 'Notes', type: 2, friendly_type: 'multi_line_text', mandatory: true },
 ];
-function fixture({ variables = [], order, ritm, ritmThrows } = {}) {
+function fixture({ variables = [], order, ritm, ritmThrows, cls = 'sc_cat_item' } = {}) {
   const calls = [], output = [];
   const app = { config: {}, sdk: { baseURL: 'https://example.invalid', request: async (url, options) => {
     calls.push({url, ...options});
@@ -23,7 +23,7 @@ function fixture({ variables = [], order, ritm, ritmThrows } = {}) {
       if (ritm) return ritm;
       return { result: [{ sys_id: RITM, number: 'RITM001', cat_item: ID }] };
     }
-    if (options.method === 'GET') return { result: { sys_id: ID, name: 'Laptop', sys_class_name: 'sc_cat_item', variables } };
+    if (options.method === 'GET') return { result: { sys_id: ID, name: 'Laptop', sys_class_name: cls, variables } };
     return order || { result: { request_id: REQUEST, request_number: 'REQ001', sys_id: REQUEST, number: 'REQ001', table: 'sc_request' } };
   } }, ok: (data, options) => output.push({data, options}) };
   return { app, calls, output, run: (verb,args) => catalogOrderCommands(fn=>fn).find(c=>c.command.startsWith(verb+' ')).handler({id:ID,quantity:1,limit:20,force:true,...args},app) };
@@ -82,8 +82,19 @@ test('malformed input and unsupported item types cannot submit', async () => {
   for(const args of [{id:'../item'},{quantity:0},{quantity:1.5},{variables:'[]'},{variables:'{bad'},{requestedFor:'bad'},{variables:'{}',variablesFile:'both.json'}]) {
     const f=fixture(); await assert.rejects(f.run('order',args)); assert.equal(f.calls.length,0);
   }
-  const f=fixture(); f.app.sdk.request=async()=>({result:{sys_id:ID,sys_class_name:'sc_cat_item_producer'}});
-  await assert.rejects(f.run('order',{}),/record producers/);
+  for(const cls of ['sc_cat_item_producer','sc_cat_item_composite_producer','std_change_record_producer','sc_cat_item_guide','sc_cat_item_content']) {
+    const f=fixture({cls}); await assert.rejects(f.run('order',{}),e=>e.code==='usage_error'&&e.message.includes(cls)&&/record producers/.test(e.message));
+    assert.deepEqual(f.calls.map(c=>c.method),['GET']);
+  }
+});
+
+test('hardware and software items order through order_now like standard items', async () => {
+  for(const cls of ['pc_hardware_cat_item','pc_software_cat_item']) {
+    const f=fixture({cls}); await f.run('order',{});
+    assert.equal(posts(f).length,1);
+    assert.ok(posts(f)[0].url.endsWith(`/items/${ID}/order_now`));
+    assert.equal(f.output[0].data.submitted,true);
+  }
 });
 
 test('uncertain/rejected/malformed submission outcomes never trigger a second order', async () => {

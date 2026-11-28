@@ -6,6 +6,8 @@ const ID = /^[a-f0-9]{32}$/i;
 const API = CATALOG_API;
 const RITM = '/api/now/table/sc_req_item';
 const MAX_REQUESTED_ITEMS = 10;
+// Producers have child classes (std_change_record_producer, sc_cat_item_composite_producer), so list the classes order_now takes.
+const ORDERABLE = new Set(['sc_cat_item', 'pc_hardware_cat_item', 'pc_software_cat_item']);
 const object = v => v && typeof v === 'object' && !Array.isArray(v);
 
 function emit(app, argv, data, summary, breadcrumbs = []) {
@@ -108,7 +110,7 @@ export function catalogOrderCommands(wrap) {
         if (!object(variables)) throw errUsage('Catalog variables must be a JSON object.');
 
         const { item, variables: definitions, variablesReported } = await inspect(app, argv.id);
-        if (item.sys_class_name && item.sys_class_name !== 'sc_cat_item') throw errUsage('order supports standard catalog items; record producers and order guides need their own submission workflows.');
+        if (item.sys_class_name && !ORDERABLE.has(item.sys_class_name)) throw errUsage(`order supports standard, hardware and software catalog items, not ${item.sys_class_name}; record producers and order guides need their own submission workflows.`);
         if (item.active === false || item.active === 'false' || item.can_order === false) throw errUsage('This item is not currently orderable.');
 
         // Only refuse on local evidence: an unreadable variable list is not
