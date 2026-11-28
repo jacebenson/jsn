@@ -355,6 +355,7 @@ jsn attachments upload ./report.pdf --table incident --sys-id <record-id>
 jsn diff record --table incident --sys-id <sys_id> --profile-a dev --profile-b prod
 jsn diff record --table incident --sys-id <sys_id> --profile-a dev --profile-b prod --ignore state
 jsn diff record --table incident --sys-id <sys_id> --profile-a dev --profile-b prod --no-ignore
+# Exits 1 when either side errors, is denied or fails auth; a record missing on one side is a result.
 
 # Script execution
 jsn eval "gs.info('Hello World')"
@@ -622,13 +623,14 @@ Creation leaves the flow in Draft and inactive, then creates and reads back an
 Autosave version. `flows publish` remains a separate lifecycle operation: it
 reads the saved ProcessFlow definition, POSTs `/snapshot`, creates an
 `Activate/Publish` version, reads version history, and verifies `active=true`.
+`flows publish --action` exits 1 when any action fails to publish.
 Do not use it in a dry-run: publishing activates the flow.
 
 `jsn flows test <identifier> --record <sys_id>` is also a mutating operation.
 It requires confirmation (or `--force`), reads the saved definition, verifies
 that the supplied record exists in the record-trigger table, and POSTs the full
 definition to the ProcessFlow test endpoint. A response with only a context ID
-is reported as accepted, not completed. Test runs execute actions and can have
+is reported as accepted, not completed; a completed test that failed exits 1. Test runs execute actions and can have
 side effects; this slice does not execute test flows during development.
 
 Flow Logic, subflows, flow-variable lifecycle, and error handling are deferred
@@ -982,7 +984,7 @@ jsn incidents list
 
 For the credential identity, auth-method, diagnostics, migration, and concurrency contract, see [`AUTH_LIFECYCLE.md`](setup.md#authentication-lifecycle-review).
 
-GraphQL uses ServiceNow's `/api/now/graphql` endpoint and sends `{query, variables}` through the authenticated SDK transport. The command preserves GraphQL `data` and `errors`; introspection and available namespaces depend on the target instance.
+GraphQL uses ServiceNow's `/api/now/graphql` endpoint and sends `{query, variables}` through the authenticated SDK transport. The command preserves GraphQL `data` and `errors`, and exits 1 when `errors` is not empty; introspection and available namespaces depend on the target instance.
 
 `jsn platform stats` uses a fixed `GET /xmlstats.do` request. It never accepts a processor path, query parameters, or request body, and it does not emit raw XML, cookies, credentials, or full node identifiers. Oversized, HTML/login, permission, unsupported, timeout, and malformed responses are reported with bounded collector statuses; missing metrics remain unavailable rather than being reported as zero.
 

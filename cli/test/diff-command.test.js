@@ -99,11 +99,33 @@ test('diff record preserves permission/error state instead of treating it as emp
     dev: { async list() { const error = new Error('forbidden'); error.code = 'forbidden'; throw error; } },
     prod: found({ sys_id: '1' }),
   });
-  await command.handler({ table: 'task', 'sys-id': '1', 'profile-a': 'dev', 'profile-b': 'prod' }, app);
+  const previous = process.exitCode;
+  try {
+    await command.handler({ table: 'task', 'sys-id': '1', 'profile-a': 'dev', 'profile-b': 'prod' }, app);
+    assert.equal(process.exitCode, 1);
+  } finally { process.exitCode = previous; }
   const data = envelope().data;
   assert.equal(data.status, 'forbidden');
   assert.equal(data.existence.a, 'forbidden');
   assert.equal(data.differences.length, 0);
+});
+
+test('diff record exits 1 when either side errors, is denied or fails auth, and 0 for a result', async () => {
+  const command = recordCommand();
+  const failing = code => ({ async list() { const error = new Error(code); error.code = code; throw error; } });
+  const exitCodeOf = async (dev, prod) => {
+    const { app } = profileApp({ dev, prod });
+    const previous = process.exitCode;
+    try { await command.handler({ table: 'task', 'sys-id': '1', 'profile-a': 'dev', 'profile-b': 'prod' }, app); return process.exitCode; } finally { process.exitCode = previous; }
+  };
+  const missing = { async list() { return []; } };
+  assert.equal(await exitCodeOf(found({ sys_id: '1' }), failing('auth_error')), 1);
+  assert.equal(await exitCodeOf(found({ sys_id: '1' }), failing('boom')), 1);
+  // A missing side is the answer, but the error on the other side must still fail the run.
+  assert.equal(await exitCodeOf(missing, failing('forbidden')), 1);
+  assert.equal(await exitCodeOf(missing, found({ sys_id: '1' })), undefined);
+  assert.equal(await exitCodeOf(missing, missing), undefined);
+  assert.equal(await exitCodeOf(found({ sys_id: '1', a: 1 }), found({ sys_id: '1', a: 2 })), undefined);
 });
 
 test('diff is read-only and does not register mutation paths', () => {
