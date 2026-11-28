@@ -262,6 +262,9 @@
     "pipeline": {
       "why": "records pipeline lays out every artifact for one save in execution order; inspect shows one record's history and list only returns rows, so neither orders the artifacts nor tests their conditions."
     },
+    "plans": {
+      "why": "plugins plans reads the batch install plans the platform records in sys_batch_install_plan; list would suggest listing plugins, and show would suggest one plugin rather than a plan with its install items."
+    },
     "preferences": {
       "why": "preferences changes JSN's own workflow opinions in the global config, not ServiceNow records; setup configures connections and update would imply a sys_properties write, while show and set remain the ordinary read and write verbs underneath it and the noun is what the command actually manages."
     },
@@ -313,7 +316,7 @@
   },
   "budgets": {
     "$comment": "Subcommand count per family. A budget is a ratchet, not a ban: when a new command earns its place, raise the number in the same diff and say why in the PR. Adding a family means adding its budget entry.",
-    "total": 490,
+    "total": 491,
     "families": {
       "access-analyzer": 4,
       "acls": 5,
@@ -368,7 +371,7 @@
       "notifications": 4,
       "perf": 10,
       "platform": 2,
-      "plugins": 3,
+      "plugins": 4,
       "preferences": 3,
       "privileges": 7,
       "properties": 5,

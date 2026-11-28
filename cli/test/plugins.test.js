@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readDependencyTree, formatPluginTree, TREE_LIMITS } from '../src/plugins.js';
+import { readDependencyTree, formatPluginTree, TREE_LIMITS, listPlans, showPlan, formatPlan, formatPlans } from '../src/plugins.js';
 import { pluginsCmd } from '../src/commands/plugins.js';
 import { isMutationCommand } from '../src/mutations.js';
 import { errAPI, errNetwork } from '../src/errors.js';
@@ -310,6 +310,81 @@ test('an activation still running when the wait ends keeps its tracker, is not v
   } finally { process.exitCode = undefined; }
 });
 
+const PLAN = 'a'.repeat(32), OTHER = 'b'.repeat(32);
+const dv = (value, display = value) => ({ value, display_value: display });
+const planRecord = (sys_id = PLAN, name = 'auto-upgrade-1') => ({ sys_id: dv(sys_id), name: dv(name), state: dv('partial_install', 'Partial Install'), notes: dv('Two items'), rollback_context: dv('c'.repeat(32), 'BAK0001204'), sys_updated_on: dv('2026-11-20 19:54:10') });
+const itemRecord = (n, extra = {}) => ({ sys_id: dv(String(n).padStart(32, 'd')), batch_install_plan: dv(PLAN, 'auto-upgrade-1'), id: dv(`com.example.i${n}`), name: dv(`Item ${n}`), type: dv('plugin', 'Plugin'), version: dv('1.0.0'), state: dv('installed', 'Installed'), reason: dv(''), status_message: dv(''), demo_data: dv('false'), ...extra });
+const planItems = [itemRecord(1, { state: dv('failed', 'Failed'), reason: dv('PLUGIN_DEPENDENCY_UNAVAILABLE', 'Plugin Dependency Unavailable'), status_message: dv('com.hidden.core is not available') }), itemRecord(2, { demo_data: dv('true') })];
+function planSdk({ plans = [planRecord()], items = planItems, fail } = {}) {
+  const calls = [];
+  return { calls, listStrict: async (table, params) => {
+    calls.push({ table, query: params.get('sysparm_query'), limit: params.get('sysparm_limit'), display: params.get('sysparm_display_value') });
+    if (fail?.(table)) throw Object.assign(new Error('Forbidden'), { status: 403 });
+    if (table === 'sys_batch_install_item') return items;
+    const query = params.get('sysparm_query');
+    return query.startsWith('ORDERBY') ? plans : plans.filter(plan => query === `sys_id=${plan.sys_id.value}` || query === `name=${plan.name.value}`);
+  } };
+}
+
+test('plugins plans lists the newest plans with a lookahead, and shows one plan with its items joined on the raw sys_id', async () => {
+  const many = Array.from({ length: 3 }, (_, i) => planRecord(String(i).repeat(32), `plan-${i}`));
+  const list = planSdk({ plans: many });
+  const listed = await listPlans(list, { limit: 2 });
+  assert.deepEqual(list.calls, [{ table: 'sys_batch_install_plan', query: 'ORDERBYDESCsys_updated_on', limit: '3', display: 'all' }]);
+  assert.deepEqual([listed.count, listed.pagination.hasMore, listed.records[0].name], [2, true, 'plan-0']);
+  assert.match(formatPlans(listed), /^2026-11-20 19:54:10 {2}partial_install {2}plan-0 {2}0{32} {2}Two items\n[\s\S]*More plans exist; raise --limit \(now 2\)\.$/);
+  assert.equal(formatPlans(await listPlans(planSdk({ plans: [] }))), 'No batch install plans this profile can read. ACLs can hide rows, so this does not prove there are none.');
+  assert.match(formatPlan(await showPlan(planSdk({ items: [] }), PLAN)), /No items this profile can read \(ACLs can hide rows\), 0 failed or invalid/);
+
+  for (const identifier of ['auto-upgrade-1', PLAN]) {
+    const sdk = planSdk();
+    const data = await showPlan(sdk, identifier);
+    assert.deepEqual(sdk.calls.map(call => [call.table, call.query, call.limit]), [['sys_batch_install_plan', identifier === PLAN ? `sys_id=${PLAN}` : 'name=auto-upgrade-1', '2'], ['sys_batch_install_item', `batch_install_plan=${PLAN}^ORDERBYname`, '1001']]);
+    assert.deepEqual(data.plan, { sys_id: PLAN, name: 'auto-upgrade-1', state: 'partial_install', notes: 'Two items', rollback_context: 'c'.repeat(32), rollback_context_name: 'BAK0001204', updated: '2026-11-20 19:54:10' });
+    assert.deepEqual(data.items.map(item => [item.id, item.state, item.reason, item.demo_data]), [['com.example.i1', 'failed', 'PLUGIN_DEPENDENCY_UNAVAILABLE', false], ['com.example.i2', 'installed', null, true]]);
+    assert.deepEqual([data.count, data.complete, data.failed], [2, true, ['com.example.i1']]);
+  }
+  assert.deepEqual((await showPlan(planSdk({ items: [...planItems, itemRecord(3, { state: dv('invalid', 'Invalid') })] }), PLAN)).failed, ['com.example.i1', 'com.example.i3']);
+  assert.match(formatPlan(await showPlan(planSdk(), PLAN)), /auto-upgrade-1 \[a{32}\] partial_install[\s\S]*Rollback context BAK0001204; Two items\n2 item\(s\), 1 failed or invalid\n {2}failed {2}plugin {2}Item 1 \[com\.example\.i1\] 1\.0\.0 {2}PLUGIN_DEPENDENCY_UNAVAILABLE: com\.hidden\.core is not available/);
+});
+
+test('plugins plans refuses bad input before reading, and never reports a missing, ambiguous, denied or foreign row as a plan', async () => {
+  for (const limit of [0, 201, 1.5]) {
+    const sdk = planSdk();
+    await assert.rejects(listPlans(sdk, { limit }), error => error.code === 'usage_error');
+    assert.equal(sdk.calls.length, 0);
+  }
+  for (const identifier of ['', 'a^ORsys_id!=x', 'two\nlines', 'x'.repeat(101)]) {
+    const sdk = planSdk();
+    await assert.rejects(showPlan(sdk, identifier), error => error.code === 'usage_error', JSON.stringify(identifier));
+    assert.equal(sdk.calls.length, 0);
+  }
+  const missing = planSdk();
+  await assert.rejects(showPlan(missing, 'nope'), error => error.code === 'not_found' && /Batch install plan not found: nope/.test(error.message));
+  assert.equal(missing.calls.length, 1);
+  const twice = planSdk({ plans: [planRecord(), planRecord(OTHER)] });
+  await assert.rejects(showPlan(twice, 'auto-upgrade-1'), error => error.code === 'usage_error' && error.message.includes(OTHER));
+  assert.equal(twice.calls.length, 1);
+  const cases = {
+    'a plan row without a sys_id': { plans: [{ ...planRecord(), sys_id: dv('') }] },
+    'an item of another plan': { items: [itemRecord(1, { batch_install_plan: dv(OTHER) })] },
+    'an item joined by display value': { items: [itemRecord(1, { batch_install_plan: dv('auto-upgrade-1') })] },
+    'an item without a sys_id': { items: [itemRecord(1, { sys_id: dv('') })] },
+  };
+  for (const [name, options] of Object.entries(cases)) await assert.rejects(showPlan(planSdk(options), 'auto-upgrade-1'), /Malformed batch install plan response/, name);
+  await assert.rejects(listPlans(planSdk({ plans: [{ ...planRecord(), sys_id: dv('') }] })), /Malformed batch install plan response/);
+  // A server that ignores the query must not pass another plan off as the one asked for.
+  const ignoring = { calls: [], listStrict: async table => { ignoring.calls.push(table); return [planRecord(OTHER, 'auto-upgrade-2')]; } };
+  for (const identifier of ['auto-upgrade-1', PLAN]) await assert.rejects(showPlan(ignoring, identifier), /Malformed batch install plan response: asked for/, identifier);
+  assert.deepEqual(ignoring.calls, ['sys_batch_install_plan', 'sys_batch_install_plan']);
+  // Instance name matching ignores case, so the check does too.
+  assert.equal((await showPlan({ listStrict: async table => table === 'sys_batch_install_item' ? planItems : [planRecord()] }, 'AUTO-UPGRADE-1')).plan.sys_id, PLAN);
+  for (const table of ['sys_batch_install_plan', 'sys_batch_install_item']) await assert.rejects(showPlan(planSdk({ fail: t => t === table }), PLAN), /Forbidden/, table);
+  const huge = await showPlan(planSdk({ items: Array.from({ length: 1001 }, (_, i) => itemRecord(i)) }), PLAN);
+  assert.deepEqual([huge.count, huge.complete], [1000, false]);
+  assert.match(formatPlan(huge), /INCOMPLETE, only the first 1000 were read/);
+});
+
 test('real CLI shows the tree read-only with JSON, --get, human output and strict validation', async () => {
   const calls = [];
   const instance = inventorySdk(graph.map(local));
@@ -318,6 +393,7 @@ test('real CLI shows the tree read-only with JSON, --get, human output and stric
     calls.push({ method: req.method, pathname: url.pathname });
     res.setHeader('Content-Type', 'application/json');
     if (url.pathname === '/api/now/stats/v_plugin') return instance.request().then(body => res.end(JSON.stringify(body)));
+    if (url.pathname.startsWith('/api/now/table/sys_batch_install_')) return planSdk().listStrict(url.pathname.split('/').pop(), url.searchParams).then(rows => res.end(JSON.stringify({ result: rows })));
     if (url.pathname !== '/api/now/table/v_plugin') return res.end(JSON.stringify({ result: [] }));
     instance.listStrict('v_plugin', url.searchParams).then(rows => res.end(JSON.stringify({ result: rows })));
   });
@@ -351,8 +427,12 @@ test('real CLI shows the tree read-only with JSON, --get, human output and stric
     assert.deepEqual([preview.ok, preview.data.sent, preview.data.refusals], [true, false, [{ id: 'com.example.root', reason: 'already active' }, { id: 'com.example.b', reason: 'it is required, inactive and its install is blocked' }]]);
     await assert.rejects(run(['plugins', 'install', 'com.example.root', 'com.example.a', '--yes', '--profile', 'writable', '--json']), error => /one plugin at a time/.test(error.stderr + error.stdout));
     assert.ok(!calls.some(call => call.pathname.startsWith('/api/sn_cicd/')));
+    assert.equal(JSON.parse((await run(['plugins', 'plans', '--json'])).stdout).data.count, 1);
+    assert.match((await run(['plugins', 'plans', '--csv'])).stdout, /^sys_id,name,state,[^\n]*\na{32},auto-upgrade-1,partial_install,/);
+    assert.deepEqual(JSON.parse((await run(['plugins', 'plans', 'auto-upgrade-1', '--get', 'data.failed'])).stdout), ['com.example.i1']);
+    assert.match((await run(['plugins', 'plans', PLAN, '--format', 'styled'])).stdout, /2 item\(s\), 1 failed or invalid/);
     const reads = calls.filter(call => call.pathname.startsWith('/api/now/table/'));
-    assert.ok(reads.length && reads.every(call => call.method === 'GET' && call.pathname === '/api/now/table/v_plugin'));
+    assert.ok(reads.length && reads.every(call => call.method === 'GET' && ['v_plugin', 'sys_batch_install_plan', 'sys_batch_install_item'].includes(call.pathname.split('/').pop())));
   } finally {
     server.closeAllConnections();
     await new Promise(resolve => server.close(resolve));

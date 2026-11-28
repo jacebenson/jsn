@@ -460,6 +460,8 @@ jsn plugins show com.snc.pa.premium --json
 jsn plugins compare com.snc.pa.premium --source pdi --target vendor
 jsn plugins install com.snc.pa.premium
 jsn plugins install com.glide.web_service_aggregate --yes
+jsn plugins plans
+jsn plugins plans auto-upgrade-1795233217607 --get data.failed
 ```
 
 `show` reads `v_plugin` by plugin id (never its `sys_id`, which differs on some rows) and walks
@@ -479,6 +481,12 @@ and reads every plugin it listed back from `v_plugin`; only all of them active i
 active plugin, a blocked or unreadable install block, an incomplete tree, or more than one id is refused before
 anything is sent. A wait that ends first keeps the tracker and exits 1; nothing is resent. A
 request that times out, drops or gets a 5xx is reported as possibly started, never as rejected.
+
+`plans` lists the batch install plans the platform records in `sys_batch_install_plan`, newest
+first (`--limit`, default 20). `plans <name or sys_id>` shows one plan with its items from
+`sys_batch_install_item`, joined on the plan's raw `sys_id`: each item's type, version, state and
+the reason it failed. `failed` lists the failed and invalid items. Up to 1000 items are read; a
+longer plan is marked incomplete. It is a read and works on read-only profiles.
 
 ## Choose output
 

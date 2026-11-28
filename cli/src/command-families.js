@@ -694,7 +694,7 @@ const deferredFamilies = {
   "plugins": {
     definition: {
       command: "plugins",
-      describe: "Show a plugin with its nested dependencies, compare plugins across instances, and activate one",
+      describe: "Show a plugin with its nested dependencies, compare plugins across instances, activate one, and read batch install plans",
     },
     capabilities: {
       skipContextHeader: true,

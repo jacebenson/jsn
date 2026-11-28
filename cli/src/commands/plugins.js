@@ -1,6 +1,6 @@
 import { deferredFamilyDefinition } from '../command-families.js';
 import { inventoryCompareCommand } from '../instance-inventory.js';
-import { readDependencyTree, formatPluginTree, planActivation, activatePlugin, formatActivation } from '../plugins.js';
+import { readDependencyTree, formatPluginTree, planActivation, activatePlugin, formatActivation, listPlans, showPlan, formatPlans, formatPlan } from '../plugins.js';
 import { boundedPoll, boundedTimeout } from '../store.js';
 import { buildRerunCommand } from '../helpers.js';
 import { AppError, errUsage } from '../errors.js';
@@ -62,8 +62,27 @@ const installCommand = wrap => ({
   }),
 });
 
+const plansCommand = wrap => ({
+  command: 'plans [plan]', describe: 'List batch install plans, or show one plan and its items (read-only)',
+  builder: p => p.strict().positional('plan', { type: 'string', describe: 'Plan name or sys_id; without it, the newest plans are listed' })
+    .option('limit', { type: 'number', default: 20, describe: 'Plans to list (1 to 200)' })
+    .epilogue('jsn plugins plans\njsn plugins plans auto-upgrade-1795233217607\njsn plugins plans 2d579537c328931068353eec050131fe --get data.failed\n'
+      + 'Reads sys_batch_install_plan and its sys_batch_install_item rows, joined on the plan sys_id. Each item keeps its state, reason and status message.'),
+  handler: wrap(async (argv, app) => {
+    app.requireInstance();
+    if (argv.plan === undefined) {
+      const data = await listPlans(app.sdk, { limit: argv.limit });
+      Object.defineProperty(data, '_formatted', { value: formatPlans(data), enumerable: false });
+      return app.ok(data, { summary: `${data.count} batch install plan(s)${data.pagination.hasMore ? '; more exist' : ''}` });
+    }
+    const data = await showPlan(app.sdk, argv.plan);
+    Object.defineProperty(data, '_formatted', { value: formatPlan(data), enumerable: false });
+    app.ok(data, { summary: `${data.plan.name ?? data.plan.sys_id}: ${data.plan.state ?? 'state unknown'}, ${data.count ? `${data.count} item(s)` : 'no items this profile can read'}, ${data.failed.length} failed or invalid${data.complete ? '' : ' (incomplete)'}` });
+  }),
+});
+
 export const pluginsCmd = wrap => ({
   ...deferredFamilyDefinition('plugins'),
-  builder: p => p.command(inventoryCompareCommand(wrap, 'plugins')).command(showCommand(wrap)).command(installCommand(wrap)),
-  handler: wrap(async (_argv, app) => app.ok({ commands: ['compare', 'show', 'install'] }, { summary: 'jsn plugins show <id> for a plugin and its nested dependencies; jsn plugins install <id> to preview activating it; jsn plugins compare --source pdi --target vendor for plugins only; jsn compare for plugins and Store apps' })),
+  builder: p => p.command(inventoryCompareCommand(wrap, 'plugins')).command(showCommand(wrap)).command(installCommand(wrap)).command(plansCommand(wrap)),
+  handler: wrap(async (_argv, app) => app.ok({ commands: ['compare', 'show', 'install', 'plans'] }, { summary: 'jsn plugins show <id> for a plugin and its nested dependencies; jsn plugins install <id> to preview activating it; jsn plugins plans for batch install plans; jsn plugins compare --source pdi --target vendor for plugins only; jsn compare for plugins and Store apps' })),
 });
