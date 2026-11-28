@@ -31,7 +31,9 @@ function gzipB64(obj) {
 
 test('normalizeFlowContext separates waiting age from running age and reports mapping', () => {
   const waiting = normalizeFlowContext({ state: 'WAITING', started: '2026-08-26 09:58:00' }, { now: new Date('2026-08-26T10:00:00Z') });
-  const running = normalizeFlowContext({ state: 'RUNNING', started: '2026-08-26 09:58:00' }, { now: new Date('2026-08-26T10:00:00Z') });
+  const running = normalizeFlowContext({ state: { value: 'IN_PROGRESS', display_value: 'In Progress' }, started: '2026-08-26 09:58:00' }, { now: new Date('2026-08-26T10:00:00Z') });
+  const sync = normalizeFlowContext({ state: 'CONTINUE_SYNC', started: '2026-08-26 09:59:00' }, { now: new Date('2026-08-26T10:00:00Z') });
+  assert.equal(sync.execution_age_seconds, 60);
   assert.equal(waiting.waiting_age_seconds, 120);
   assert.equal(waiting.execution_age_seconds, null);
   assert.equal(running.waiting_age_seconds, null);
@@ -41,7 +43,7 @@ test('normalizeFlowContext separates waiting age from running age and reports ma
 });
 
 test('normalizeFlowContext does not call row creation time execution age', () => {
-  const result = normalizeFlowContext({ state: 'RUNNING', sys_created_on: '2026-08-26 09:58:00' }, { now: new Date('2026-08-26T10:00:00Z') });
+  const result = normalizeFlowContext({ state: 'IN_PROGRESS', sys_created_on: '2026-08-26 09:58:00' }, { now: new Date('2026-08-26T10:00:00Z') });
   assert.equal(result.execution_age_seconds, null);
   assert.equal(result.duration_seconds, null);
   assert.equal(result.field_mapping.started, 'sys_created_on');
