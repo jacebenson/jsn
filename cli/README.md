@@ -352,6 +352,31 @@ and tokens are never requested; `oauth_entity` and `oauth_credential` are never
 read. A credential row hidden by ACLs keeps its name with type `null`; a 403 on
 any read fails the command rather than giving partial results.
 
+## SLAs on a record
+
+```sh
+jsn slas list --table incident --active
+jsn slas show "Priority 1 resolution (4 hour)" --format styled
+jsn slas task INC0010001
+jsn slas task INC0010001 --get data.breached
+```
+
+`list` reads SLA definitions (`contract_sla`) with their table, type and target,
+duration or relative duration, schedule, active flag and scope; `--table` and
+`--active` filter it, and `--no-active` lists only inactive ones. `show` takes a
+name or sys_id and adds the start, pause, resume, stop, reset and cancel
+conditions with their readable text, the time zone source, retroactive start,
+condition class and the flow or workflow the definition runs.
+
+`task <number|sys_id>` lists every `task_sla` on one record with its definition,
+stage, breach flag, start, planned end (breach) and stop times in UTC, business
+elapsed and percentage, business time left and active flag. The record is found
+through `task`, so a number of any task table works, and a number two tables
+share is refused with each one's table and sys_id. Task SLAs are joined by the
+record's sys_id; it returns the first 100 by start time and says when more
+exist. An unreadable breach flag is reported as unknown, and an empty result
+says ACLs can hide rows. All three are reads and work on read-only profiles.
+
 ## Find a REST API
 
 ```sh

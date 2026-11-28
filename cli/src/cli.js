@@ -354,6 +354,7 @@ export function buildCLI() {
     .command(deferredFamily('changes', wrap))
     .command(deferredFamily('requests', wrap))
     .command(deferredFamily('tasks', wrap))
+    .command(deferredFamily('slas', wrap))
     .command(deferredFamily('catalogitems', wrap))
     .command(deferredFamily('cases', wrap))
     // AUTOMATION — Async
