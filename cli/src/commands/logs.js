@@ -125,15 +125,17 @@ export function logsCmd(wrap) {
             // continuation plus its same-second sys_id set keeps a row from
             // being lost or printed twice.
             const follower = createLogFollower({
-              list: (params) => app.sdk.list('syslog', params),
+              list: (params) => app.sdk.listStrict('syslog', params),
               write: (record) => process.stdout.write(formatRow(record) + '\n'),
               warn: (err) => process.stderr.write(`⚠ poll error: ${err.message}\n`),
               baseQuery: base,
               intervalMs,
             });
 
-            // Optional backfill: show last N newest-first, then follow.
-            if (argv.tail > 0) await follower.backfill(argv.tail);
+            // Start at the newest row, printing the last --tail rows first.
+            // Without that start point the first poll reads from the oldest row.
+            const started = await follower.backfill(argv.tail);
+            if (started.failed) throw started.error;
 
             follower.start();
             process.stdout.write(`\n[jsn logs follow] watching syslog every ${intervalMs}ms — Ctrl+C to stop\n`);
