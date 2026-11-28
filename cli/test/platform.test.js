@@ -105,6 +105,15 @@ describe('platform stats XML collector', () => {
     assert.strictEqual(timeout.status, 'timeout');
     assert.match(formatPlatformStats(timeout), /STATUS: timeout/);
   });
+
+  it('formats one metric per line', async () => {
+    const { collectPlatformStats, formatPlatformStats } = await import('../src/commands/platform.js');
+    const partial = await collectPlatformStats({ fetchResponse: async () => new Response('<xmlstats></xmlstats>', { headers: { 'content-type': 'text/xml' } }) }, 'https://example.service-now.com');
+    const report = formatPlatformStats(partial).split('\n');
+    assert.strictEqual(report.length, 9);
+    assert.deepStrictEqual(report.slice(0, 3), ['STATUS: partial', 'REASON: some allowlisted metrics were unavailable', 'NODE: unavailable / unavailable']);
+    assert.deepStrictEqual(formatPlatformStats({ status: 'timeout', reason: 'request timed out' }).split('\n'), ['STATUS: timeout', 'REASON: request timed out', '']);
+  });
 });
 
 describe('platform stats command', () => {

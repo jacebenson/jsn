@@ -188,7 +188,7 @@ export function formatPlatformStats(result) {
   const lines = [`STATUS: ${result.status}`];
   if (result.reason) lines.push(`REASON: ${result.reason}`);
   const m = result.metrics;
-  if (!m) return `${lines.join('\\n')}\\n`;
+  if (!m) return `${lines.join('\n')}\n`;
   lines.push(`NODE: ${metricText(m.node.status)} / ${metricText(m.node.type)}`);
   lines.push(`QUEUE: ${metricText(m.queue.length)} length, ${metricText(m.queue.age)} age`);
   lines.push(`SESSIONS: ${metricText(m.active_sessions)}`);
@@ -198,7 +198,7 @@ export function formatPlatformStats(result) {
   else for (const semaphore of m.semaphores) {
     lines.push(`SEMAPHORE ${semaphore.name}: ${metricText(semaphore.available)} available, ${metricText(semaphore.borrowed)} borrowed, ${metricText(semaphore.maximum)} maximum, ${metricText(semaphore.queue_depth)} queue`);
   }
-  return `${lines.join('\\n')}\\n`;
+  return `${lines.join('\n')}\n`;
 }
 
 export function parseNodeStatsXml(xml) {

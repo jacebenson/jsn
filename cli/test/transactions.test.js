@@ -127,6 +127,9 @@ describe('transactions command', () => {
     assert.equal(app.lastOk.data.groups[0].count, 12);
     assert.equal(app.lastOk.data.groups[0].min_response_time_ms, null);
     assert.match(app.lastOk.data._formatted, /TYPE\s+TABLE\s+VIEW/);
+    const lines = app.lastOk.data._formatted.split('\n');
+    assert.equal(lines.length, 4);
+    assert.match(lines[2], /^form\s+incident\s+ess\s+12\s/);
   });
 });
 

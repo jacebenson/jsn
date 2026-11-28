@@ -100,7 +100,7 @@ function formatTopTransactions(groups) {
   ];
   for (const row of groups) lines.push(`${String(row.type).slice(0, 11).padEnd(11)}  ${String(row.table).slice(0, 17).padEnd(17)}  ${String(row.view).slice(0, 15).padEnd(15)}  ${String(row.count).padStart(5)}  ${value(row.avg_response_time_ms).padEnd(11)}  ${value(row.min_response_time_ms).padEnd(11)}  ${value(row.max_response_time_ms)}`);
   if (groups.length === 0) lines.push('(no transaction groups)');
-  return `${lines.join('\\n')}\\n`;
+  return `${lines.join('\n')}\n`;
 }
 
 import { deferredFamilyDefinition } from '../command-families.js';
