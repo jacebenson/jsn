@@ -3,7 +3,7 @@ import { buildDevCmd } from './_generic.js';
 import { getStringField, quoteShellArg } from '../helpers.js';
 import { errUsage } from '../errors.js';
 import { readImportFile, checkStagingTable, loadImportRows, loadRerun, formatLoad, activeTransformMaps, readImportSet, checkTransformable,
-  transformImportSet, transformResult, readImportRuns, formatImportRuns } from '../import-sets.js';
+  transformImportSet, transformResult, readImportRuns, formatImportRuns, readImportMaps, formatImportMaps } from '../import-sets.js';
 import { detailCount } from './_detail-count.js';
 
 export const importCmd = (wrap) => withWrites(buildDevCmd('import', 'sys_import_set', [],
@@ -13,7 +13,8 @@ export const importCmd = (wrap) => withWrites(buildDevCmd('import', 'sys_import_
     readOnly: true,
     extraSubcommands: [{ name: 'load', description: 'Load rows into a staging table and transform them' },
       { name: 'transform', description: 'Rerun the transform maps on an existing import set' },
-      { name: 'runs', description: 'Read-only transform history and the newest run\'s error rows' }],
+      { name: 'runs', description: 'Read-only transform history and the newest run\'s error rows' },
+      { name: 'maps', description: 'Read-only transform maps of a staging table: field maps, coalesce fields and transform scripts' }],
     // sys_import_set identifies a run by number and names the target table in
     // table_name; `name` and `sys_target_table` are not fields on it.
     labelField: 'number',
@@ -35,6 +36,11 @@ export const importCmd = (wrap) => withWrites(buildDevCmd('import', 'sys_import_
         console.log(`  Import rows: (unavailable)`);
       }
     },
+    showBreadcrumbs: (record) => {
+      const table = getStringField(record, 'table_name') || '';
+      return [...(table ? [{ action: 'maps', cmd: `jsn import maps ${quoteShellArg(table)}`, description: 'Transform maps of its staging table' }] : []),
+        { action: 'list', cmd: 'jsn import list', description: 'Back to all import' }];
+    },
   }), wrap);
 
 function withWrites(base, wrap) {
@@ -43,6 +49,33 @@ function withWrites(base, wrap) {
   return {
     ...base,
     builder: y => base.builder(y)
+      .command({
+        command: 'maps <target>',
+        describe: 'Read-only transform maps of a staging table, each with its field maps, coalesce fields and transform scripts by when they fire',
+        discoveryTasks: [{
+          phrases: ['transform map', 'field map', 'coalesce field', 'transform script', 'onbefore script', 'which field does the import coalesce on'],
+          args: ['--json'],
+          description: 'Show the transform maps of a staging table with their field maps, coalesce fields and transform scripts',
+        }],
+        builder: yy => yy.strict()
+          .positional('target', { type: 'string', describe: 'Staging table, transform map name, or transform map sys_id' })
+          .option('scripts', { type: 'boolean', default: false, describe: 'Also print the map script, field map source scripts and transform script bodies' })
+          .epilogue('Read-only: reads sys_transform_map, sys_transform_entry (field maps) and sys_transform_script with GET requests, inactive maps\n'
+            + 'and scripts included. Scripts are listed in the order they fire: onStart, onBefore, onForeignInsert, onChoiceCreate, onReject,\n'
+            + 'onAfter, onComplete. Coalesce fields decide whether a row updates an existing record or inserts a new one.'),
+        handler: wrap(async (argv, app) => {
+          app.requireInstance();
+          const data = await readImportMaps(app.sdk, argv.target, { scripts: argv.scripts });
+          Object.defineProperty(data, '_formatted', { value: formatImportMaps(data), enumerable: false });
+          const heading = { source_table: 'Transform maps reading', name: 'Transform maps named', sys_id: 'Transform map' }[data.matched_by];
+          const inactive = data.maps.filter(m => !m.active).length;
+          app.ok(data, {
+            summary: [`${heading} ${data.target}: ${data.maps.length} map(s)${inactive ? `, ${inactive} inactive` : ''}`,
+              ...data.maps.filter(m => m.coalesce.length).map(m => `coalesce on ${m.coalesce.join(', ')} (${m.name})`)].join('; '),
+            breadcrumbs: argv.scripts ? [] : [{ action: 'scripts', cmd: ['jsn', 'import', 'maps', data.target, '--scripts'].map(quoteShellArg).join(' '), description: 'Print the script bodies' }],
+          });
+        }),
+      })
       .command({
         command: 'runs <target>',
         describe: 'Read-only transform history of an import set or data source, newest first, with the newest run\'s error rows and their messages',
