@@ -373,6 +373,12 @@ describe('run and run-suite exit 1 when the run does not pass', () => {
     assert.strictEqual(out.code, 1);
   });
 
+  it('a Failed (3) tracker exits 1 even when the result record carries no status', async () => {
+    const out = await exitCodeOf('run-suite', { suite: 'Login' }, { progress: { status: '3' }, result: { rolledup_test_failure_count: 1 } });
+    assert.strictEqual(out.summary, 'ATF suite Login: complete');
+    assert.strictEqual(out.code, 1);
+  });
+
   it('a suite whose test_suite_status is failure exits 1', async () => {
     const out = await exitCodeOf('run-suite', { suite: 'Login' }, { progress: { status: '2' }, result: { test_suite_status: 'failure', rolledup_test_failure_count: 1 } });
     assert.strictEqual(out.code, 1);

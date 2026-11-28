@@ -355,7 +355,7 @@ jsn attachments upload ./report.pdf --table incident --sys-id <record-id>
 jsn diff record --table incident --sys-id <sys_id> --profile-a dev --profile-b prod
 jsn diff record --table incident --sys-id <sys_id> --profile-a dev --profile-b prod --ignore state
 jsn diff record --table incident --sys-id <sys_id> --profile-a dev --profile-b prod --no-ignore
-# Exits 1 when either side errors, is denied or fails auth; a record missing on one side is a result.
+# Exits 1 when either side errors, is denied or fails auth. A side with no readable record (absent, or hidden by an ACL) is reported as missing and exits 0.
 
 # Script execution
 jsn eval "gs.info('Hello World')"

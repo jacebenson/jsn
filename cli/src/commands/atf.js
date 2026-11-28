@@ -39,8 +39,8 @@ const PROGRESS_TERMINAL = new Set([PROGRESS_SUCCESSFUL, PROGRESS_ERROR, PROGRESS
 
 // Terminal statuses for sys_atf_test_result (older instances that expose a status field)
 const TERMINAL_TABLE_STATUSES = new Set(['passed', 'failed', 'error', 'canceled', 'cancelled', 'skipped']);
-// A run that ended in any of these exits 1; result tables say failure where sn_cicd results are normalized to failed.
-const FAILED_RUN_STATUSES = new Set(['failed', 'failure', 'error', 'canceled', 'cancelled']);
+// A run that ended in any of these exits 1 (sn_cicd results normalize failure to failed).
+const FAILED_RUN_STATUSES = new Set(['failed', 'error', 'canceled', 'cancelled']);
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
