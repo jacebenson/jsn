@@ -22,7 +22,7 @@ import {
   getStringField, interactiveList,
   resolveFieldsParam, assertSafeExactMatch, confirmDelete,
 } from '../helpers.js';
-import { errUsage, errNotFound } from '../errors.js';
+import { errUsage, errUsageHint, errNotFound } from '../errors.js';
 
 // approve/reject/submit change approval state on records.
 
@@ -102,8 +102,33 @@ export async function approvalRowsForRecord(app, recordSysID) {
   return app.sdk.list('sysapproval_approver', params);
 }
 
+const raw = (value) => (value && typeof value === 'object' ? String(value.value ?? '') : String(value ?? ''));
+
 /**
- * Approve/reject an approver row.
+ * Read an approver row before a decision and refuse unless it is requested, so
+ * an approved, rejected, cancelled or not-yet-requested row is never overwritten.
+ * @returns {Promise<{row: object, otherApprover: string}>} otherApprover is the
+ *   approver's name when it is not the caller, '' when it is
+ */
+export async function readRequestedApproval(app, approverSysID) {
+  const params = new URLSearchParams();
+  params.set('sysparm_query', `sys_id=${approverSysID}`);
+  params.set('sysparm_limit', '1');
+  params.set('sysparm_display_value', 'all');
+  params.set('sysparm_fields', 'sys_id,state,approver,document_id');
+  const [row] = await app.sdk.listStrict('sysapproval_approver', params);
+  if (!row || raw(row.sys_id).toLowerCase() !== approverSysID.toLowerCase()) throw errNotFound('approval request', approverSysID);
+  if (raw(row.state) !== 'requested') {
+    throw errUsageHint(`Approval request ${approverSysID} is ${getStringField(row, 'state') || 'empty'}; only a Requested approval can be approved or rejected.`,
+      `See where it stands: jsn approvals history ${getStringField(row, 'document_id') || '<record>'}`);
+  }
+  const approver = raw(row.approver);
+  const caller = await resolveCurrentUserSysID(app).catch(() => '');
+  return { row, otherApprover: approver && approver !== caller ? getStringField(row, 'approver') : '' };
+}
+
+/**
+ * Approve/reject an approver row. Callers read it with readRequestedApproval first.
  * @returns {Promise<object>} updated row
  */
 export async function setApprovalState(app, approverSysID, state, comments = '') {
@@ -252,11 +277,12 @@ export function approvalsCmd(wrap) {
             .option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' }),
           handler: wrap(async (argv, app) => {
             app.requireInstance();
-            await confirmDelete(app, argv, `Approve approval request ${argv['sys-id']}?`);
             assertSafeExactMatch(argv['sys-id']);
+            const { row, otherApprover } = await readRequestedApproval(app, argv['sys-id']);
+            await confirmDelete(app, argv, `Approve approval request ${argv['sys-id']} for ${getStringField(row, 'document_id') || 'its record'}?${otherApprover ? ` Its approver is ${otherApprover}.` : ''}`);
             const updated = await setApprovalState(app, argv['sys-id'], 'approved', argv.comments || '');
             app.ok(updated, {
-              summary: `Approved ${getStringField(updated, 'document_id') || argv['sys-id']}`,
+              summary: `Approved ${getStringField(updated, 'document_id') || argv['sys-id']}${otherApprover ? ` (approver: ${otherApprover})` : ''}`,
               breadcrumbs: [
                 { action: 'history', cmd: `jsn approvals history ${getStringField(updated, 'document_id') || argv['sys-id']}`, description: 'Show approval progression' },
               ],
@@ -272,11 +298,12 @@ export function approvalsCmd(wrap) {
             .option('force', { type: 'boolean', default: false, describe: 'Skip confirmation' }),
           handler: wrap(async (argv, app) => {
             app.requireInstance();
-            await confirmDelete(app, argv, `Reject approval request ${argv['sys-id']}?`);
             assertSafeExactMatch(argv['sys-id']);
+            const { row, otherApprover } = await readRequestedApproval(app, argv['sys-id']);
+            await confirmDelete(app, argv, `Reject approval request ${argv['sys-id']} for ${getStringField(row, 'document_id') || 'its record'}?${otherApprover ? ` Its approver is ${otherApprover}.` : ''}`);
             const updated = await setApprovalState(app, argv['sys-id'], 'rejected', argv.comments || '');
             app.ok(updated, {
-              summary: `Rejected ${getStringField(updated, 'document_id') || argv['sys-id']}`,
+              summary: `Rejected ${getStringField(updated, 'document_id') || argv['sys-id']}${otherApprover ? ` (approver: ${otherApprover})` : ''}`,
               breadcrumbs: [
                 { action: 'history', cmd: `jsn approvals history ${getStringField(updated, 'document_id') || argv['sys-id']}`, description: 'Show approval progression' },
               ],

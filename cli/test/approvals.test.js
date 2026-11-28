@@ -3,6 +3,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
+import { approvalsCmd } from '../src/commands/approvals.js';
 
 // ─── Command Structure ───
 
@@ -226,5 +227,110 @@ describe('submitForApproval', () => {
       sysID: 'rec1',
       data: { approval: 'requested' },
     });
+  });
+});
+
+// ─── approve / reject read the row first ───
+
+describe('approvals approve and reject', () => {
+  const ID = 'a'.repeat(32);
+  const ref = (value, display_value) => ({ value, display_value });
+  function fixture({ state = 'requested', approver = 'me001', rows, caller = 'me001' } = {}) {
+    const commands = [];
+    const builder = { command(c) { commands.push(c); return this; } };
+    approvalsCmd(fn => fn).builder(builder);
+    const reads = [];
+    const writes = [];
+    let meta = {};
+    const app = {
+      config: { profiles: {} },
+      requireInstance: () => {},
+      sdk: {
+        baseURL: 'https://dev.service-now.com',
+        request: async () => { if (!caller) throw new Error('400'); return { result: { userID: caller } }; },
+        list: async () => [],
+        listStrict: async (table, params) => {
+          reads.push({ table, ...Object.fromEntries(params) });
+          return rows ?? [{
+            sys_id: ref(ID, ID),
+            state: ref(state, { requested: 'Requested', approved: 'Approved', rejected: 'Rejected', cancelled: 'Cancelled', 'not requested': 'Not Yet Requested' }[state]),
+            approver: ref(approver, approver === 'me001' ? 'Jane Doe' : 'Beth Anglin'),
+            document_id: ref('d'.repeat(32), 'CHG0000082'),
+          }];
+        },
+        update: async (table, sysID, data) => { writes.push({ table, sysID, data }); return { sys_id: sysID, document_id: 'CHG0000082', ...data }; },
+      },
+      ok(value, options = {}) { meta = options; },
+    };
+    const run = (verb, args = {}) => commands.find(c => c.command.startsWith(verb)).handler({ 'sys-id': ID, force: true, ...args }, app);
+    return { run, reads, writes, get summary() { return meta.summary; } };
+  }
+
+  it('reads the row before writing a requested approval', async () => {
+    for (const [verb, state, word] of [['approve', 'approved', 'Approved'], ['reject', 'rejected', 'Rejected']]) {
+      const f = fixture();
+      await f.run(verb, { comments: 'ok' });
+      assert.deepStrictEqual(f.reads, [{
+        table: 'sysapproval_approver', sysparm_query: `sys_id=${ID}`, sysparm_limit: '1',
+        sysparm_display_value: 'all', sysparm_fields: 'sys_id,state,approver,document_id',
+      }]);
+      assert.deepStrictEqual(f.writes, [{ table: 'sysapproval_approver', sysID: ID, data: { state, comments: 'ok' } }]);
+      assert.strictEqual(f.summary, `${word} CHG0000082`);
+    }
+  });
+
+  it('refuses a row that is not requested and writes nothing', async () => {
+    for (const verb of ['approve', 'reject']) {
+      for (const [state, label] of [['approved', 'Approved'], ['rejected', 'Rejected'], ['cancelled', 'Cancelled'], ['not requested', 'Not Yet Requested']]) {
+        const f = fixture({ state });
+        await assert.rejects(f.run(verb), (err) => {
+          assert.strictEqual(err.code, 'usage_error');
+          assert.match(err.message, new RegExp(`is ${label}; only a Requested approval`));
+          assert.match(err.hint, /jsn approvals history CHG0000082/);
+          return true;
+        });
+        assert.deepStrictEqual(f.writes, [], `${verb} wrote a ${state} row`);
+      }
+    }
+  });
+
+  it('refuses a missing or mismatched row and writes nothing', async () => {
+    for (const rows of [[], [{ sys_id: ref('b'.repeat(32), 'b'.repeat(32)), state: ref('requested', 'Requested') }]]) {
+      const f = fixture({ rows });
+      await assert.rejects(f.run('approve'), (err) => err.code === 'not_found');
+      assert.deepStrictEqual(f.writes, []);
+    }
+  });
+
+  it('refuses an unsafe sys_id before any read', async () => {
+    const f = fixture();
+    await assert.rejects(f.run('reject', { 'sys-id': 'x^state=requested' }));
+    assert.deepStrictEqual(f.reads, []);
+    assert.deepStrictEqual(f.writes, []);
+  });
+
+  it('names the approver when it is not the caller', async () => {
+    const f = fixture({ approver: 'u777' });
+    await f.run('approve');
+    assert.strictEqual(f.summary, 'Approved CHG0000082 (approver: Beth Anglin)');
+    const unknown = fixture({ approver: 'u777', caller: '' });
+    await unknown.run('reject');
+    assert.strictEqual(unknown.summary, 'Rejected CHG0000082 (approver: Beth Anglin)');
+  });
+
+  it('names the approver in the confirmation and writes nothing when it is refused', async () => {
+    const prior = process.env.JSN_NO_PROMPTS;
+    process.env.JSN_NO_PROMPTS = '1';
+    try {
+      const f = fixture({ approver: 'u777' });
+      await assert.rejects(f.run('approve', { force: false }), (err) => {
+        assert.strictEqual(err.code, 'confirmation_required');
+        assert.match(err.message, /Approve approval request a{32} for CHG0000082\? Its approver is Beth Anglin\./);
+        return true;
+      });
+      assert.deepStrictEqual(f.writes, []);
+    } finally {
+      if (prior === undefined) delete process.env.JSN_NO_PROMPTS; else process.env.JSN_NO_PROMPTS = prior;
+    }
   });
 });
